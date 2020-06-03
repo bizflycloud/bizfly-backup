@@ -1,0 +1,10 @@
+version: '3'
+
+services:
+  broker:
+    image: vernemq/vernemq:latest-alpine
+    ports:
+      - "1883:1883"
+    environment:
+      - DOCKER_VERNEMQ_USER_foo=bar
+      - DOCKER_VERNEMQ_ACCEPT_EULA=yes

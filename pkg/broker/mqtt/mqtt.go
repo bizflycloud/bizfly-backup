@@ -16,7 +16,7 @@ const clientDisconnectWaitTimeout = 250
 
 var _ broker.Broker = (*mqttBroker)(nil)
 
-var ErrNoConnection = errors.New("no connection")
+var ErrNoConnection = errors.New("no connection to broker server")
 
 var tokenWaitTimeout = 3 * time.Second
 

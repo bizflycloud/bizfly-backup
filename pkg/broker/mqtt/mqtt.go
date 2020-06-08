@@ -54,6 +54,7 @@ func (m *mqttBroker) Connect() error {
 	password, _ := m.uri.User.Password()
 	opts.SetPassword(password)
 	opts.SetClientID(m.clientID)
+	opts.SetCleanSession(false)
 
 	client := mqtt.NewClient(opts)
 	token := client.Connect()

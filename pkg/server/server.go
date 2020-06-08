@@ -83,7 +83,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	}
 	switch msg.EventType {
 	case broker.BackupManual, broker.RestoreManual, broker.ConfigUpdate, broker.AgentUpgrade:
-	// TODO: handle event
+		s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	default:
 		return fmt.Errorf("Event %s: %w", msg.EventType, broker.ErrUnknownEventType)
 	}

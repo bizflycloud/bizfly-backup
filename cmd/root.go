@@ -21,14 +21,15 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 	homedir "github.com/mitchellh/go-homedir"
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 )
 
 var (
 	cfgFile string
+	addr    string
 	debug   bool
 	logger  *zap.Logger
 )
@@ -37,7 +38,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "bizfly-backup",
 	Short: "BizFly Cloud backup agent.",
-	Long: `BizFly Cloud backup agent is a CLI application to interact with BizFly Cloud Backup Service.`,
+	Long:  `BizFly Cloud backup agent is a CLI application to interact with BizFly Cloud Backup Service.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := cmd.Help(); err != nil {
 			fmt.Println(err)

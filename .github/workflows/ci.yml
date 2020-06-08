@@ -11,7 +11,7 @@ jobs:
 
   Test:
     name: Test
-    runs-on: ubuntu-latest
+    runs-on: [ubuntu-latest, macos-latest, windows-latest]
     services:
       vernemq:
         image: vernemq/vernemq:latest-alpine

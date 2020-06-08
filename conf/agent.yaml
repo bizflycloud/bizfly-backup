@@ -1,0 +1,5 @@
+machine_id: foo
+access_key: <Access Key>
+secret_key: <Secret Key>
+broker_url: "mqtt://foo:bar@localhost:1883"
+api_url: <API URL>

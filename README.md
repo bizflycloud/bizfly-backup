@@ -51,7 +51,7 @@ Global Flags:
 ## Running
 
 ```shell script
-$ ./bizfly-backup agent --debug=true --config=./agent.yaml
+$ ./bizfly-backup agent --debug=true --config=./conf/agent.yaml
 2020-06-08T09:14:26.552+0700	INFO	cmd/root.go:96	Using config file: ./agent.yaml
 2020-06-08T09:14:26.559+0700	DEBUG	cmd/agent.go:50	Listening address: unix:///var/folders/y4/hs76ltbn7sb66lw_6934kq4m0000gn/T/bizfly-backup.sock
 ```

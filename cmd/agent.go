@@ -18,20 +18,52 @@
 package cmd
 
 import (
-	"fmt"
+	"errors"
+	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+	"go.uber.org/zap"
+
+	"github.com/bizflycloud/bizfly-backup/pkg/broker/mqtt"
+	"github.com/bizflycloud/bizfly-backup/pkg/server"
 )
+
+var defaultAddr = "unix://" + filepath.Join(os.TempDir(), "bizfly-backup.sock")
 
 // agentCmd represents the agent command
 var agentCmd = &cobra.Command{
 	Use:   "agent",
 	Short: "Run agent.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("agent called")
+		mqttUrl := viper.GetString("broker_url")
+		agentID := viper.GetString("machine_id")
+		b, err := mqtt.NewBroker(mqtt.WithURL(mqttUrl), mqtt.WithClientID(agentID))
+		if err != nil {
+			logger.Fatal("failed to create broker", zap.Error(err))
+			os.Exit(1)
+		}
+
+		logger.Debug("Listening address: " + addr)
+		s, err := server.New(
+			server.WithAddr(addr),
+			server.WithBroker(b),
+			server.WithBrokerTopics("agent/default", "agent/"+agentID),
+		)
+		if err != nil {
+			logger.Fatal("failed to create new server", zap.Error(err))
+			os.Exit(1)
+		}
+		if err := s.Run(); !errors.Is(err, http.ErrServerClosed) {
+			logger.Fatal("server run failed", zap.Error(err))
+			os.Exit(1)
+		}
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(agentCmd)
+	agentCmd.PersistentFlags().StringVar(&addr, "addr", defaultAddr, "listening address of server.")
 }

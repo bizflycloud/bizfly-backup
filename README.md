@@ -27,7 +27,6 @@ $ ./bizfly-backup
 
   Use "bizfly-backup [command] --help" for more information about a command.
   ```
-```
 
 # Agent
 

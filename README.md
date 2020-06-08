@@ -6,34 +6,33 @@ BizFly Cloud backup service.
 ```shell script
 $ go build
 $ ./bizfly-backup
-```shell script
-  BizFly Cloud backup agent is a CLI application to interact with BizFly Cloud Backup Service.
+BizFly Cloud backup agent is a CLI application to interact with BizFly Cloud Backup Service.
 
-  Usage:
-    bizfly-backup [flags]
-    bizfly-backup [command]
+Usage:
+  bizfly-backup [flags]
+  bizfly-backup [command]
 
-  Available Commands:
-    agent       Run agent.
-    backup      Perform backup tasks.
-    help        Help about any command
-    restore     Restore a backup.
-    upgrade     Upgrade bizfly-backup to latest version.
+Available Commands:
+  agent       Run agent.
+  backup      Perform backup tasks.
+  help        Help about any command
+  restore     Restore a backup.
+  upgrade     Upgrade bizfly-backup to latest version.
 
-  Flags:
-        --config string   config file (default is $HOME/.bizfly-backup.yaml)
-        --debug           enable debug (default is false)
-    -h, --help            help for bizfly-backup
+Flags:
+      --config string   config file (default is $HOME/.bizfly-backup.yaml)
+      --debug           enable debug (default is false)
+  -h, --help            help for bizfly-backup
 
-  Use "bizfly-backup [command] --help" for more information about a command.
-  ```
+Use "bizfly-backup [command] --help" for more information about a command.
+```
 
 # Agent
 
 ## Help
 
 ```shell script
-./bizfly-backup agent --help
+$ ./bizfly-backup agent --help
 Run agent.
 
 Usage:

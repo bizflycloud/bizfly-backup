@@ -19,3 +19,11 @@ func WithBroker(b broker.Broker) Option {
 		return nil
 	}
 }
+
+// WithBrokerTopics returns an Option which set the topics that server broker will subscribe to.
+func WithBrokerTopics(topics ...string) Option {
+	return func(s *Server) error {
+		s.topics = topics
+		return nil
+	}
+}

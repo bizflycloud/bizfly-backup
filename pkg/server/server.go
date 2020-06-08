@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
+	"github.com/jpillora/backoff"
 	"go.uber.org/zap"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
@@ -24,6 +25,7 @@ type Server struct {
 	Addr        string
 	router      *chi.Mux
 	b           broker.Broker
+	topics      []string
 	useUnixSock bool
 
 	// signal chan use for testing.
@@ -98,6 +100,22 @@ func (s *Server) Run() error {
 	// Graceful valve shut-off package to manage code preemption and shutdown signaling.
 	valv := valve.New()
 	baseCtx := valv.Context()
+
+	go func(ctx context.Context) {
+		if len(s.topics) == 0 {
+			return
+		}
+		b := &backoff.Backoff{Jitter: true}
+		for {
+			if err := s.b.Connect(); err != nil {
+				time.Sleep(b.Duration())
+				continue
+			}
+			if err := s.b.Subscribe(s.topics, s.handleBrokerEvent); err != nil {
+				s.logger.Error("Subscribe to topics return error", zap.Error(err), zap.Strings("topics", s.topics))
+			}
+		}
+	}(baseCtx)
 
 	go func(ctx context.Context) {
 		for {

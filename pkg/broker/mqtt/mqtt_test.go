@@ -13,7 +13,7 @@ import (
 func TestMQTT(t *testing.T) {
 	topics := []string{"1", "2", "3"}
 	done := make(chan struct{}, 1)
-	mqttUrl := testlib.GetMqttUrl()
+	mqttUrl := testlib.MqttUrl()
 	sub, err := NewBroker(WithURL(mqttUrl), WithClientID("sub"))
 	require.NoError(t, err)
 	require.NotNil(t, sub)

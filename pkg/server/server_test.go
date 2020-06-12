@@ -24,7 +24,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	mqttUrl := testlib.GetMqttUrl()
+	mqttUrl := testlib.MqttUrl()
 	var err error
 	b, err = mqtt.NewBroker(mqtt.WithURL(mqttUrl), mqtt.WithClientID("sub"))
 	if err != nil {

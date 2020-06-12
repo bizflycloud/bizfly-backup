@@ -2,7 +2,7 @@ package testlib
 
 import "os"
 
-func GetMqttUrl() string {
+func MqttUrl() string {
 	if os.Getenv("GITHUB_ACTION") != "" {
 		return "mqtt://test.mosquitto.org:1883"
 	}

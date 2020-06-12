@@ -15,6 +15,7 @@ import (
 
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker/mqtt"
+	"github.com/bizflycloud/bizfly-backup/pkg/testlib"
 )
 
 var (
@@ -23,8 +24,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	mqttUrl := "mqtt://foo:bar@localhost:1883"
-
+	mqttUrl := testlib.MqttUrl()
 	var err error
 	b, err = mqtt.NewBroker(mqtt.WithURL(mqttUrl), mqtt.WithClientID("sub"))
 	if err != nil {

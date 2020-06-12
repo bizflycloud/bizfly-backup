@@ -7,13 +7,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
+	"github.com/bizflycloud/bizfly-backup/pkg/testlib"
 )
 
 func TestMQTT(t *testing.T) {
 	topics := []string{"1", "2", "3"}
 	done := make(chan struct{}, 1)
-	mqttUrl := "mqtt://foo:bar@localhost:1883"
-
+	mqttUrl := testlib.GetMqttUrl()
 	sub, err := NewBroker(WithURL(mqttUrl), WithClientID("sub"))
 	require.NoError(t, err)
 	require.NotNil(t, sub)

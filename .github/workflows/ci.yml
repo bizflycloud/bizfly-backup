@@ -32,4 +32,6 @@ jobs:
 
       - name: Run Unit tests.
         run: make test-coverage
+        env:
+          MQTT_TEST_SERVER: ${{ secrets.MQTT_TEST_SERVER }}
 

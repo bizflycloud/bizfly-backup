@@ -25,13 +25,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v1
 
-      - name: Install golangci-lint on ubuntu and windows
-        if: ${{ maxtrix.os }} == 'ubuntu-latest' or ${{ matrix.os }} == 'windows-latest'
-        run: curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.18.0
-
-      - name: Install golangci-lint on MacOS
-        if: ${{ maxtrix.os }} == 'macos-latest'
-        run: brew install golangci/tap/golangci-lint
+      - name: Install golangci-lint
+        run: | 
+         if [ "$RUNNER_OS" == "Linux" ] ||  [ "$RUNNER_OS" == "Windows" ]; then
+              curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s -- -b $(go env GOPATH)/bin v1.18.0
+         else
+              brew install golangci/tap/golangci-lint
+         fi
 
       - name: Run golangci-lint
         run: $(go env GOPATH)/bin/golangci-lint run ./...

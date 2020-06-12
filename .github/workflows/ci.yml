@@ -27,6 +27,8 @@ jobs:
     name: Test
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v1
 
       - name: Run Unit tests.
         run: make test-coverage

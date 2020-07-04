@@ -70,14 +70,19 @@ func TestDo(t *testing.T) {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, r.Method, "GET")
 		assert.Equal(t, r.Header.Get("User-Agent"), "bizfly-backup-client")
-
+		authorizationHeaderValue := r.Header.Get("Authorization")
+		assert.Equal(t, "VBS ", authorizationHeaderValue[:4])
+		// Authorization header value hash prefix "VBS ", so length must greater than 4
+		assert.Greater(t, len(authorizationHeaderValue), 4)
+		t.Log(authorizationHeaderValue)
 		_, _ = w.Write([]byte("foo"))
 	})
 
+	client.accessKey = "access_key"
+	client.secretKey = "secret_key"
 	req, _ := client.NewRequest("GET", "/", nil)
 
 	resp, err := client.Do(req)
-
 	if err != nil {
 		t.Fatalf("Do(): %v", err)
 	}

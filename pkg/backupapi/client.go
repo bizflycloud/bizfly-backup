@@ -2,11 +2,14 @@ package backupapi
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -115,12 +118,19 @@ func (c *Client) NewRequest(method, path string, body interface{}) (*http.Reques
 		return nil, err
 	}
 
-	req.Header.Add("User-Agent", c.userAgent)
-
 	return req, nil
 }
 
 // Do makes an http request.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	req.Header.Add("User-Agent", c.userAgent)
+	req.Header.Add("Authorization", c.authorizationHeaderValue(req.Method))
 	return c.client.Do(req)
+}
+
+func (c *Client) authorizationHeaderValue(method string) string {
+	now := time.Now().UTC().Format(http.TimeFormat)
+	s := strings.Join([]string{method, c.accessKey, c.secretKey, now}, "")
+	hash := sha256.Sum256([]byte(s))
+	return "VBS " + hex.EncodeToString(hash[:])
 }

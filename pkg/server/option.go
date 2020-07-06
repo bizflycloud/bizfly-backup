@@ -1,6 +1,9 @@
 package server
 
-import "github.com/bizflycloud/bizfly-backup/pkg/broker"
+import (
+	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
+	"github.com/bizflycloud/bizfly-backup/pkg/broker"
+)
 
 type Option func(s *Server) error
 
@@ -24,6 +27,14 @@ func WithBroker(b broker.Broker) Option {
 func WithBrokerTopics(topics ...string) Option {
 	return func(s *Server) error {
 		s.topics = topics
+		return nil
+	}
+}
+
+// WithBackupClient returns an Option which set the backup client for Server.
+func WithBackupClient(c *backupapi.Client) Option {
+	return func(s *Server) error {
+		s.backupClient = c
 		return nil
 	}
 }

@@ -2,7 +2,6 @@ package server
 
 import (
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -53,7 +52,7 @@ func TestServerRun(t *testing.T) {
 			serverError = s.Run()
 			close(done)
 		}()
-		time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+		time.Sleep(5 * time.Second)
 		s.testSignalCh <- syscall.SIGTERM
 		<-done
 		assert.IsType(t, http.ErrServerClosed, serverError)

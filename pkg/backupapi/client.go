@@ -124,12 +124,13 @@ func (c *Client) NewRequest(method, path string, body interface{}) (*http.Reques
 // Do makes an http request.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	req.Header.Add("User-Agent", c.userAgent)
-	req.Header.Add("Authorization", c.authorizationHeaderValue(req.Method))
+	now := time.Now().UTC().Format(http.TimeFormat)
+	req.Header.Add("Date", now)
+	req.Header.Add("Authorization", c.authorizationHeaderValue(req.Method, now))
 	return c.client.Do(req)
 }
 
-func (c *Client) authorizationHeaderValue(method string) string {
-	now := time.Now().UTC().Format(http.TimeFormat)
+func (c *Client) authorizationHeaderValue(method, now string) string {
 	s := strings.Join([]string{method, c.accessKey, c.secretKey, now}, "")
 	hash := sha256.Sum256([]byte(s))
 	return "VBS " + hex.EncodeToString(hash[:])

@@ -17,16 +17,18 @@ import (
 	"github.com/jpillora/backoff"
 	"go.uber.org/zap"
 
+	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 )
 
 // Server defines parameters for running BizFly Backup HTTP server.
 type Server struct {
-	Addr        string
-	router      *chi.Mux
-	b           broker.Broker
-	topics      []string
-	useUnixSock bool
+	Addr         string
+	router       *chi.Mux
+	b            broker.Broker
+	topics       []string
+	useUnixSock  bool
+	backupClient *backupapi.Client
 
 	// signal chan use for testing.
 	testSignalCh chan os.Signal

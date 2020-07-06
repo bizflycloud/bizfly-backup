@@ -27,6 +27,7 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
+	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker/mqtt"
 	"github.com/bizflycloud/bizfly-backup/pkg/server"
 )
@@ -46,11 +47,27 @@ var agentCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		accessKey := viper.GetString("access_key")
+		secretKey := viper.GetString("secret_key")
+		backupClient, err := backupapi.NewClient(
+			backupapi.WithAccessKey(accessKey),
+			backupapi.WithSecretKey(secretKey),
+		)
+		if err != nil {
+			logger.Fatal("failed to create new backup client", zap.Error(err))
+			os.Exit(1)
+		}
+		if err := backupClient.UpdateMachine(); err != nil {
+			logger.Fatal("failed to update machine info", zap.Error(err))
+			os.Exit(1)
+		}
+
 		logger.Debug("Listening address: " + addr)
 		s, err := server.New(
 			server.WithAddr(addr),
 			server.WithBroker(b),
 			server.WithBrokerTopics("agent/default", "agent/"+agentID),
+			server.WithBackupClient(backupClient),
 		)
 		if err != nil {
 			logger.Fatal("failed to create new server", zap.Error(err))

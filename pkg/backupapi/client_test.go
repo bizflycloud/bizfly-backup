@@ -68,8 +68,9 @@ func TestDo(t *testing.T) {
 	defer tearDown()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, r.Method, "GET")
-		assert.Equal(t, r.Header.Get("User-Agent"), "bizfly-backup-client")
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "bizfly-backup-client", r.Header.Get("User-Agent"))
+		assert.NotEmpty(t, r.Header.Get("Date"))
 		authorizationHeaderValue := r.Header.Get("Authorization")
 		assert.Equal(t, "VBS ", authorizationHeaderValue[:4])
 		// Authorization header value hash prefix "VBS ", so length must greater than 4

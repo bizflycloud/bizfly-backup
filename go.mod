@@ -4,6 +4,7 @@ go 1.14
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.2.0
+	github.com/favadi/osinfo v0.0.0-20161014112035-325b250bc9df
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/go-chi/valve v0.0.0-20170920024740-9e45288364f4
 	github.com/jpillora/backoff v1.0.0

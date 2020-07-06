@@ -56,6 +56,9 @@ func (c *Client) UpdateMachine() error {
 	}
 	defer resp.Body.Close()
 	buf, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("ioutil.ReadAll(): err")
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected error: %s, status: %d", string(buf), resp.StatusCode)
 	}

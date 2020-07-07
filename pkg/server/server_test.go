@@ -24,6 +24,9 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	if os.Getenv("EXCLUDE_MQTT") != "" {
+		os.Exit(0)
+	}
 	mqttUrl := testlib.MqttUrl()
 	var err error
 	b, err = mqtt.NewBroker(mqtt.WithURL(mqttUrl), mqtt.WithClientID("sub"))

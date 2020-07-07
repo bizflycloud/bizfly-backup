@@ -1,6 +1,7 @@
 package mqtt
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +12,9 @@ import (
 )
 
 func TestMQTT(t *testing.T) {
+	if os.Getenv("EXCLUDE_MQTT") != "" {
+		return
+	}
 	topics := []string{"1", "2", "3"}
 	done := make(chan struct{}, 1)
 	mqttUrl := testlib.MqttUrl()

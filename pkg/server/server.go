@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -83,9 +84,12 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	if err := json.Unmarshal(e.Payload, &msg); err != nil {
 		return err
 	}
+	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
-	case broker.BackupManual, broker.RestoreManual, broker.ConfigUpdate, broker.AgentUpgrade:
-		s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
+	case broker.BackupManual:
+		// TODO(cuonglm): fill in actual data later
+		return s.backup(0, "")
+	case broker.RestoreManual, broker.ConfigUpdate, broker.AgentUpgrade:
 	default:
 		return fmt.Errorf("Event %s: %w", msg.EventType, broker.ErrUnknownEventType)
 	}
@@ -189,4 +193,40 @@ func (s *Server) Run() error {
 
 	srv.Addr = s.Addr
 	return srv.ListenAndServe()
+}
+
+// backup performs backup flow.
+func (s *Server) backup(backupDirectoryID int, policyID string) error {
+	ctx := context.Background()
+	// Create recovery point
+	rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{PolicyID: policyID})
+	if err != nil {
+		return err
+	}
+
+	// Upload data
+	// TODO(cuonglm): add later
+	if err := s.backupClient.UploadFile("dummy", strings.NewReader("dummy")); err != nil {
+		return nil
+	}
+
+	b := &backoff.Backoff{Jitter: true}
+	maxAttempt := float64(10)
+
+	// Update recovery point, retry "maxAttempt" times to prevent network error.
+	for {
+		err := s.backupClient.UpdateRecoveryPoint(ctx, backupDirectoryID, rp.ID, &backupapi.UpdateRecoveryPointRequest{
+			Status: backupapi.RecoveryPointStatusCompleted,
+		})
+		if err != nil {
+			if errors.Is(err, backupapi.ErrUpdateRecoveryPoint) || b.Attempt() == maxAttempt {
+				return err
+			}
+			time.Sleep(b.Duration())
+			continue
+		}
+		break
+	}
+
+	return nil
 }

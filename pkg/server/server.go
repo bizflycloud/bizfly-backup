@@ -275,6 +275,9 @@ func compressDir(src string, w io.Writer) error {
 
 	// walk through every file in the folder
 	if err := filepath.Walk(src, func(file string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		// generate tar header
 		header, err := tar.FileInfoHeader(fi, file)
 		if err != nil {

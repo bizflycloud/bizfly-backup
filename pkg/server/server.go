@@ -1,8 +1,7 @@
 package server
 
 import (
-	"archive/tar"
-	"compress/gzip"
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -269,48 +268,41 @@ func (s *Server) backup(backupDirectoryID int, policyID string) error {
 }
 
 func compressDir(src string, w io.Writer) error {
-	// tar > gzip > buf
-	zw := gzip.NewWriter(w)
-	tw := tar.NewWriter(zw)
+	// zip > buf
+	zw := zip.NewWriter(w)
+	defer zw.Close()
 
-	// walk through every file in the folder
-	if err := filepath.Walk(src, func(file string, fi os.FileInfo, err error) error {
+	walker := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		// generate tar header
-		header, err := tar.FileInfoHeader(fi, file)
+		if info.IsDir() {
+			return nil
+		}
+		fi, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer fi.Close()
+
+		fw, err := zw.Create(path)
 		if err != nil {
 			return err
 		}
 
-		// must provide real name
-		header.Name = filepath.ToSlash(file)
-
-		// write header
-		if err := tw.WriteHeader(header); err != nil {
+		_, err = io.Copy(fw, fi)
+		if err != nil {
 			return err
 		}
-		// if not a dir, write file content
-		if !fi.IsDir() {
-			data, err := os.Open(file)
-			if err != nil {
-				return err
-			}
-			if _, err := io.Copy(tw, data); err != nil {
-				return err
-			}
-		}
+
 		return nil
-	}); err != nil {
+	}
+
+	// walk through every file in the folder and add to zip writer.
+	if err := filepath.Walk(src, walker); err != nil {
 		return err
 	}
 
-	// produce tar
-	if err := tw.Close(); err != nil {
-		return err
-	}
-	// produce gzip
 	if err := zw.Close(); err != nil {
 		return err
 	}

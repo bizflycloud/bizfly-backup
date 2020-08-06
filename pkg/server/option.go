@@ -31,6 +31,14 @@ func WithBrokerTopics(topics ...string) Option {
 	}
 }
 
+// WithServerTopic returns an Option which set the server topic that server broker will publish message.
+func WithServerTopic(topic string) Option {
+	return func(s *Server) error {
+		s.serverTopic = topic
+		return nil
+	}
+}
+
 // WithBackupClient returns an Option which set the backup client for Server.
 func WithBackupClient(c *backupapi.Client) Option {
 	return func(s *Server) error {

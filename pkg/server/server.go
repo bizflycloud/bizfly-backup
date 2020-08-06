@@ -1,14 +1,18 @@
 package server
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -22,12 +26,20 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 )
 
+const (
+	backupTimeLayout = "20060102150405"
+	statusZipFile    = "ZIP_FILE"
+	statusUploadFile = "UPLOADING"
+	statusComplete   = "COMPLETED"
+)
+
 // Server defines parameters for running BizFly Backup HTTP server.
 type Server struct {
 	Addr         string
 	router       *chi.Mux
 	b            broker.Broker
 	topics       []string
+	serverTopic  string
 	useUnixSock  bool
 	backupClient *backupapi.Client
 
@@ -204,28 +216,100 @@ func (s *Server) backup(backupDirectoryID int, policyID string) error {
 		return err
 	}
 
-	// Upload data
-	// TODO(cuonglm): add later
-	if err := s.backupClient.UploadFile("dummy", strings.NewReader("dummy")); err != nil {
+	// Get BackupDirectory
+	bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
+	if err != nil {
+		return err
+	}
+
+	msg := map[string]string{
+		"action_id": rp.ID,
+		"status":    statusZipFile,
+	}
+	payload, _ := json.Marshal(msg)
+	if err := s.b.Publish(s.serverTopic, payload); err != nil {
+		s.logger.Warn("failed to notify server before zip file", zap.Error(err))
+	}
+
+	// Compress directory
+	fi, err := ioutil.TempFile("", "bizfly-backup-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(fi.Name())
+	if err := compressDir(bd.Path, fi); err != nil {
+		return err
+	}
+	if err := fi.Close(); err != nil {
+		return err
+	}
+
+	fi, err = os.Open(fi.Name())
+	if err != nil {
+		return err
+	}
+
+	msg["status"] = statusUploadFile
+	payload, _ = json.Marshal(msg)
+	if err := s.b.Publish(s.serverTopic, payload); err != nil {
+		s.logger.Warn("failed to notify server before upload file", zap.Error(err))
+	}
+	// Upload file to server
+	if err := s.backupClient.UploadFile(bd.Path+"-"+time.Now().UTC().Format(backupTimeLayout), fi); err != nil {
 		return nil
 	}
 
-	b := &backoff.Backoff{Jitter: true}
-	maxAttempt := float64(10)
+	msg["status"] = statusComplete
+	payload, _ = json.Marshal(msg)
+	if err := s.b.Publish(s.serverTopic, payload); err != nil {
+		s.logger.Warn("failed to notify server upload file completed", zap.Error(err))
+	}
 
-	// Update recovery point, retry "maxAttempt" times to prevent network error.
-	for {
-		err := s.backupClient.UpdateRecoveryPoint(ctx, backupDirectoryID, rp.ID, &backupapi.UpdateRecoveryPointRequest{
-			Status: backupapi.RecoveryPointStatusCompleted,
-		})
+	return nil
+}
+
+func compressDir(src string, w io.Writer) error {
+	// tar > gzip > buf
+	zw := gzip.NewWriter(w)
+	tw := tar.NewWriter(zw)
+
+	// walk through every file in the folder
+	if err := filepath.Walk(src, func(file string, fi os.FileInfo, err error) error {
+		// generate tar header
+		header, err := tar.FileInfoHeader(fi, file)
 		if err != nil {
-			if errors.Is(err, backupapi.ErrUpdateRecoveryPoint) || b.Attempt() == maxAttempt {
+			return err
+		}
+
+		// must provide real name
+		header.Name = filepath.ToSlash(file)
+
+		// write header
+		if err := tw.WriteHeader(header); err != nil {
+			return err
+		}
+		// if not a dir, write file content
+		if !fi.IsDir() {
+			data, err := os.Open(file)
+			if err != nil {
 				return err
 			}
-			time.Sleep(b.Duration())
-			continue
+			if _, err := io.Copy(tw, data); err != nil {
+				return err
+			}
 		}
-		break
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// produce tar
+	if err := tw.Close(); err != nil {
+		return err
+	}
+	// produce gzip
+	if err := zw.Close(); err != nil {
+		return err
 	}
 
 	return nil

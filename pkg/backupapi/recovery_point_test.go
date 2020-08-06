@@ -20,23 +20,26 @@ func TestClient_CreateRecoveryPoint(t *testing.T) {
 	recoveryPointPath := client.createRecoveryPointPath(backupDirectoryID)
 
 	mux.HandleFunc(recoveryPointPath, func(w http.ResponseWriter, r *http.Request) {
-		rp := &RecoveryPoint{
-			ID:                "recovery-point-id",
-			RecoveryPointType: RecoveryPointTypePoint,
-			Status:            RecoveryPointStatusCreated,
-			SessionID:         "recovery-point-session-id",
-			CreatedAt:         time.Now().UTC().Format(http.TimeFormat),
+		crp := &CreateRecoveryPointResponse{
+			ID: "ActionID",
+			RecoveryPoint: &RecoveryPoint{
+				ID:                "recovery-point-id",
+				RecoveryPointType: RecoveryPointTypePoint,
+				Status:            RecoveryPointStatusCreated,
+				PolicyID:          "recovery-point-policy-id",
+				CreatedAt:         time.Now().UTC().Format(http.TimeFormat),
+			},
 		}
 
-		require.NoError(t, json.NewEncoder(w).Encode(rp))
+		require.NoError(t, json.NewEncoder(w).Encode(crp))
 	})
 
-	rp, err := client.CreateRecoveryPoint(context.Background(), backupDirectoryID, &CreateRecoveryPointRequest{PolicyID: policyID})
+	crp, err := client.CreateRecoveryPoint(context.Background(), backupDirectoryID, &CreateRecoveryPointRequest{PolicyID: policyID})
 	require.NoError(t, err)
-	assert.NotEmpty(t, rp.ID)
-	assert.NotEmpty(t, rp.SessionID)
-	assert.Equal(t, RecoveryPointStatusCreated, rp.Status)
-	assert.Equal(t, RecoveryPointTypePoint, rp.RecoveryPointType)
+	assert.NotEmpty(t, crp.ID)
+	assert.NotEmpty(t, crp.RecoveryPoint.ID)
+	assert.Equal(t, RecoveryPointStatusCreated, crp.RecoveryPoint.Status)
+	assert.Equal(t, RecoveryPointTypePoint, crp.RecoveryPoint.RecoveryPointType)
 }
 
 func TestClient_UpdateRecoveryPoint(t *testing.T) {

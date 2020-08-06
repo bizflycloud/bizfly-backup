@@ -26,9 +26,18 @@ type RecoveryPoint struct {
 	ID                string `json:"id"`
 	RecoveryPointType string `json:"recoveryPointType"`
 	Status            string `json:"status"`
-	SessionID         string `json:"session_id"`
+	PolicyID          string `json:"policy_id"`
+	BackupDirectoryID string `json:"backup_directory_id"`
 	CreatedAt         string `json:"created_at"`
 	UpdatedAt         string `json:"updated_at"`
+}
+
+// CreateRecoveryPointResponse is the server response when creating recovery point
+type CreateRecoveryPointResponse struct {
+	ID            string         `json:"id"`
+	RecoveryPoint *RecoveryPoint `json:"recovery_point"`
+	Action        string         `json:"action"`
+	Status        string         `json:"status"`
 }
 
 // CreateRecoveryPointRequest represents a request to create a recovery point.
@@ -49,7 +58,7 @@ func (c *Client) updateRecoveryPointPath(backupDirectoryID int, recoveryPointID 
 	return fmt.Sprintf("/agent/backup-directories/%d/recovery-points/%s", backupDirectoryID, recoveryPointID)
 }
 
-func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID int, crpr *CreateRecoveryPointRequest) (*RecoveryPoint, error) {
+func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID int, crpr *CreateRecoveryPointRequest) (*CreateRecoveryPointResponse, error) {
 	req, err := c.NewRequest(http.MethodPost, c.createRecoveryPointPath(backupDirectoryID), crpr)
 	if err != nil {
 		return nil, err
@@ -60,12 +69,12 @@ func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID int,
 		return nil, err
 	}
 	defer resp.Body.Close()
-	var rp RecoveryPoint
-	if err := json.NewDecoder(resp.Body).Decode(&rp); err != nil {
+	var crp CreateRecoveryPointResponse
+	if err := json.NewDecoder(resp.Body).Decode(&crp); err != nil {
 		return nil, err
 	}
 
-	return &rp, nil
+	return &crp, nil
 }
 
 func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID int, recoveryPointID string, urpr *UpdateRecoveryPointRequest) error {

@@ -23,18 +23,18 @@ func WithBroker(b broker.Broker) Option {
 	}
 }
 
-// WithBrokerTopics returns an Option which set the topics that server broker will subscribe to.
-func WithBrokerTopics(topics ...string) Option {
+// WithSubscribeTopics returns an Option which set the subscribeTopics that server broker will subscribe to.
+func WithSubscribeTopics(topics ...string) Option {
 	return func(s *Server) error {
-		s.topics = topics
+		s.subscribeTopics = topics
 		return nil
 	}
 }
 
-// WithServerTopic returns an Option which set the server topic that server broker will publish message.
-func WithServerTopic(topic string) Option {
+// WithPublishTopic returns an Option which set the server topic that server broker will publish message.
+func WithPublishTopic(topic string) Option {
 	return func(s *Server) error {
-		s.serverTopic = topic
+		s.publishTopic = topic
 		return nil
 	}
 }

@@ -34,13 +34,13 @@ const (
 
 // Server defines parameters for running BizFly Backup HTTP server.
 type Server struct {
-	Addr         string
-	router       *chi.Mux
-	b            broker.Broker
-	topics       []string
-	serverTopic  string
-	useUnixSock  bool
-	backupClient *backupapi.Client
+	Addr            string
+	router          *chi.Mux
+	b               broker.Broker
+	subscribeTopics []string
+	publishTopic    string
+	useUnixSock     bool
+	backupClient    *backupapi.Client
 
 	// signal chan use for testing.
 	testSignalCh chan os.Signal
@@ -119,7 +119,7 @@ func (s *Server) Run() error {
 	baseCtx := valv.Context()
 
 	go func(ctx context.Context) {
-		if len(s.topics) == 0 {
+		if len(s.subscribeTopics) == 0 {
 			return
 		}
 		b := &backoff.Backoff{Jitter: true}
@@ -128,8 +128,8 @@ func (s *Server) Run() error {
 				time.Sleep(b.Duration())
 				continue
 			}
-			if err := s.b.Subscribe(s.topics, s.handleBrokerEvent); err != nil {
-				s.logger.Error("Subscribe to topics return error", zap.Error(err), zap.Strings("topics", s.topics))
+			if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
+				s.logger.Error("Subscribe to subscribeTopics return error", zap.Error(err), zap.Strings("subscribeTopics", s.subscribeTopics))
 			}
 		}
 	}(baseCtx)
@@ -226,7 +226,7 @@ func (s *Server) backup(backupDirectoryID int, policyID string) error {
 		"status":    statusZipFile,
 	}
 	payload, _ := json.Marshal(msg)
-	if err := s.b.Publish(s.serverTopic, payload); err != nil {
+	if err := s.b.Publish(s.publishTopic, payload); err != nil {
 		s.logger.Warn("failed to notify server before zip file", zap.Error(err))
 	}
 
@@ -250,7 +250,7 @@ func (s *Server) backup(backupDirectoryID int, policyID string) error {
 
 	msg["status"] = statusUploadFile
 	payload, _ = json.Marshal(msg)
-	if err := s.b.Publish(s.serverTopic, payload); err != nil {
+	if err := s.b.Publish(s.publishTopic, payload); err != nil {
 		s.logger.Warn("failed to notify server before upload file", zap.Error(err))
 	}
 	// Upload file to server
@@ -260,7 +260,7 @@ func (s *Server) backup(backupDirectoryID int, policyID string) error {
 
 	msg["status"] = statusComplete
 	payload, _ = json.Marshal(msg)
-	if err := s.b.Publish(s.serverTopic, payload); err != nil {
+	if err := s.b.Publish(s.publishTopic, payload); err != nil {
 		s.logger.Warn("failed to notify server upload file completed", zap.Error(err))
 	}
 

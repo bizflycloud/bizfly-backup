@@ -1,14 +1,17 @@
 package server
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -22,14 +25,22 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 )
 
+const (
+	backupTimeLayout = "20060102150405"
+	statusZipFile    = "ZIP_FILE"
+	statusUploadFile = "UPLOADING"
+	statusComplete   = "COMPLETED"
+)
+
 // Server defines parameters for running BizFly Backup HTTP server.
 type Server struct {
-	Addr         string
-	router       *chi.Mux
-	b            broker.Broker
-	topics       []string
-	useUnixSock  bool
-	backupClient *backupapi.Client
+	Addr            string
+	router          *chi.Mux
+	b               broker.Broker
+	subscribeTopics []string
+	publishTopic    string
+	useUnixSock     bool
+	backupClient    *backupapi.Client
 
 	// signal chan use for testing.
 	testSignalCh chan os.Signal
@@ -108,7 +119,7 @@ func (s *Server) Run() error {
 	baseCtx := valv.Context()
 
 	go func(ctx context.Context) {
-		if len(s.topics) == 0 {
+		if len(s.subscribeTopics) == 0 {
 			return
 		}
 		b := &backoff.Backoff{Jitter: true}
@@ -117,8 +128,8 @@ func (s *Server) Run() error {
 				time.Sleep(b.Duration())
 				continue
 			}
-			if err := s.b.Subscribe(s.topics, s.handleBrokerEvent); err != nil {
-				s.logger.Error("Subscribe to topics return error", zap.Error(err), zap.Strings("topics", s.topics))
+			if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
+				s.logger.Error("Subscribe to subscribeTopics return error", zap.Error(err), zap.Strings("subscribeTopics", s.subscribeTopics))
 			}
 		}
 	}(baseCtx)
@@ -204,28 +215,96 @@ func (s *Server) backup(backupDirectoryID int, policyID string) error {
 		return err
 	}
 
-	// Upload data
-	// TODO(cuonglm): add later
-	if err := s.backupClient.UploadFile("dummy", strings.NewReader("dummy")); err != nil {
+	// Get BackupDirectory
+	bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
+	if err != nil {
+		return err
+	}
+
+	msg := map[string]string{
+		"action_id": rp.ID,
+		"status":    statusZipFile,
+	}
+	payload, _ := json.Marshal(msg)
+	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+		s.logger.Warn("failed to notify server before zip file", zap.Error(err))
+	}
+
+	// Compress directory
+	fi, err := ioutil.TempFile("", "bizfly-backup-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(fi.Name())
+	if err := compressDir(bd.Path, fi); err != nil {
+		return err
+	}
+	if err := fi.Close(); err != nil {
+		return err
+	}
+
+	fi, err = os.Open(fi.Name())
+	if err != nil {
+		return err
+	}
+
+	msg["status"] = statusUploadFile
+	payload, _ = json.Marshal(msg)
+	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+		s.logger.Warn("failed to notify server before upload file", zap.Error(err))
+	}
+	// Upload file to server
+	if err := s.backupClient.UploadFile(bd.Path+"-"+time.Now().UTC().Format(backupTimeLayout), fi); err != nil {
 		return nil
 	}
 
-	b := &backoff.Backoff{Jitter: true}
-	maxAttempt := float64(10)
+	msg["status"] = statusComplete
+	payload, _ = json.Marshal(msg)
+	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+		s.logger.Warn("failed to notify server upload file completed", zap.Error(err))
+	}
 
-	// Update recovery point, retry "maxAttempt" times to prevent network error.
-	for {
-		err := s.backupClient.UpdateRecoveryPoint(ctx, backupDirectoryID, rp.ID, &backupapi.UpdateRecoveryPointRequest{
-			Status: backupapi.RecoveryPointStatusCompleted,
-		})
+	return nil
+}
+
+func compressDir(src string, w io.Writer) error {
+	// zip > buf
+	zw := zip.NewWriter(w)
+	defer zw.Close()
+
+	walker := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			if errors.Is(err, backupapi.ErrUpdateRecoveryPoint) || b.Attempt() == maxAttempt {
-				return err
-			}
-			time.Sleep(b.Duration())
-			continue
+			return err
 		}
-		break
+		if info.IsDir() {
+			return nil
+		}
+		fi, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer fi.Close()
+
+		fw, err := zw.Create(path)
+		if err != nil {
+			return err
+		}
+
+		_, err = io.Copy(fw, fi)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	// walk through every file in the folder and add to zip writer.
+	if err := filepath.Walk(src, walker); err != nil {
+		return err
+	}
+
+	if err := zw.Close(); err != nil {
+		return err
 	}
 
 	return nil

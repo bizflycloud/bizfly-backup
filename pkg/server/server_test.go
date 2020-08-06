@@ -1,6 +1,9 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -75,4 +78,23 @@ func TestServerEventHandler(t *testing.T) {
 	}()
 
 	<-done
+}
+
+func Test_compressDir(t *testing.T) {
+	fi, err := ioutil.TempFile("", "bizfly-backup-test-*")
+	require.NoError(t, err)
+	defer os.Remove(fi.Name())
+
+	var buf bytes.Buffer
+	assert.NoError(t, compressDir("./testdata/test_compress_dir", &buf))
+
+	zipReader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
+	require.NoError(t, err)
+
+	count := 0
+	for _, zipFile := range zipReader.File {
+		t.Log(zipFile.Name)
+		count++
+	}
+	assert.Equal(t, 2, count)
 }

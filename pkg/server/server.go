@@ -126,6 +126,7 @@ func (s *Server) removeFromCronManager(cfg *backupapi.Config) {
 		for _, policy := range bd.Policies {
 			if entryID, ok := s.cronPolicyIDToCronID[policy.ID]; ok {
 				s.cronManager.Remove(entryID)
+				delete(s.cronPolicyIDToCronID, policy.ID)
 			}
 		}
 	}

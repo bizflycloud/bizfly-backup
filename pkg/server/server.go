@@ -98,8 +98,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
 	case broker.BackupManual:
-		// TODO(cuonglm): fill in actual data later
-		return s.backup(0, "")
+		return s.backup(msg.BackupDirectoryID, msg.PolicyID)
 	case broker.RestoreManual, broker.ConfigUpdate, broker.AgentUpgrade:
 	default:
 		return fmt.Errorf("Event %s: %w", msg.EventType, broker.ErrUnknownEventType)
@@ -207,7 +206,7 @@ func (s *Server) Run() error {
 }
 
 // backup performs backup flow.
-func (s *Server) backup(backupDirectoryID int, policyID string) error {
+func (s *Server) backup(backupDirectoryID string, policyID string) error {
 	ctx := context.Background()
 	// Create recovery point
 	rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{PolicyID: policyID})

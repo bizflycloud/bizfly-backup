@@ -15,7 +15,7 @@ func TestClient_CreateRecoveryPoint(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	backupDirectoryID := 1
+	backupDirectoryID := "1"
 	policyID := "policy-id"
 	recoveryPointPath := client.createRecoveryPointPath(backupDirectoryID)
 
@@ -46,7 +46,7 @@ func TestClient_UpdateRecoveryPoint(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	backupDirectoryID := 1
+	backupDirectoryID := "1"
 	recoveryPointID := "recovery-point-id"
 	recoveryPointPath := client.updateRecoveryPointPath(backupDirectoryID, recoveryPointID)
 	status := RecoveryPointStatusFAILED

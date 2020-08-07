@@ -2,7 +2,6 @@ package backupapi
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 )
 
@@ -18,12 +17,12 @@ type BackupDirectory struct {
 	TenantID    string `json:"tenant_id"`
 }
 
-func (c *Client) backupDirectoryPath(id int) string {
-	return fmt.Sprintf("/agent/backup-directories/%d", id)
+func (c *Client) backupDirectoryPath(id string) string {
+	return "/agent/backup-directories/" + id
 }
 
 // GetBackupDirectory retrieves a backup directory by given id.
-func (c *Client) GetBackupDirectory(id int) (*BackupDirectory, error) {
+func (c *Client) GetBackupDirectory(id string) (*BackupDirectory, error) {
 	req, err := c.NewRequest(http.MethodGet, c.backupDirectoryPath(id), nil)
 	if err != nil {
 		return nil, err

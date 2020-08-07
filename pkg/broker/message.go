@@ -18,8 +18,10 @@ type Message struct {
 	MachineID string `json:"machine_id"`
 	CreatedAt string `json:"created_at"`
 
-	// For performing backup/update cron.
-	BackupDirectory string `json:"backup_directory"`
+	// For performing backup/update cron/manual.
+	BackupDirectory   string `json:"backup_directory"`
+	BackupDirectoryID string `json:"backup_directory_id"`
+	PolicyID          string `json:"policy_id"`
 
 	// For performing restore.
 	SourceMachineID      string `json:"source_machine_id"`
@@ -28,7 +30,4 @@ type Message struct {
 	DestinationDirectory string `json:"dest_directory"`
 	RecoveryPointID      string `json:"recovery_point_id"`
 	RestoreSessionKey    string `json:"restore_session_key"`
-
-	// For updating cron
-	BackupDirectoryID string `json:"backup_directory_id"`
 }

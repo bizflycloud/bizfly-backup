@@ -163,52 +163,82 @@ func (s *Server) Restore(w http.ResponseWriter, r *http.Request)      {}
 func (s *Server) UpdateCron(w http.ResponseWriter, r *http.Request)   {}
 func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {}
 
+func (s *Server) subscribeBrokerLoop(ctx context.Context) {
+	if len(s.subscribeTopics) == 0 {
+		return
+	}
+	b := &backoff.Backoff{Jitter: true}
+	for {
+		if err := s.b.Connect(); err != nil {
+			time.Sleep(b.Duration())
+			continue
+		}
+		if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
+			s.logger.Error("Subscribe to subscribeTopics return error", zap.Error(err), zap.Strings("subscribeTopics", s.subscribeTopics))
+		}
+	}
+}
+
+func (s *Server) shutdownSignalLoop(ctx context.Context, valv *valve.Valve) {
+	for {
+		<-time.After(1 * time.Second)
+
+		func() {
+			if err := valve.Lever(ctx).Open(); err != nil {
+				s.logger.Error("failed to open valve")
+				return
+			}
+			defer valve.Lever(ctx).Close()
+
+			// signal control.
+			select {
+			case <-valve.Lever(ctx).Stop():
+				s.logger.Debug("valve is closed")
+				return
+
+			case <-ctx.Done():
+				s.logger.Debug("context is cancelled")
+				return
+			default:
+			}
+		}()
+	}
+}
+
+func (s *Server) signalHandler(c chan os.Signal, valv *valve.Valve, srv *http.Server) {
+	<-c
+	// signal is a ^C, handle it
+	s.logger.Info("shutting down...")
+
+	// first valv
+	if err := valv.Shutdown(20 * time.Second); err != nil {
+		s.logger.Error("failed to shutdown valv")
+	}
+
+	// create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// start http shutdown
+	if err := srv.Shutdown(ctx); err != nil {
+		s.logger.Error("failed to shutdown http server")
+	}
+
+	// verify, in worst case call cancel via defer
+	select {
+	case <-time.After(21 * time.Second):
+		s.logger.Error("not all connections done")
+	case <-ctx.Done():
+	}
+}
+
 func (s *Server) Run() error {
 	// Graceful valve shut-off package to manage code preemption and shutdown signaling.
 	valv := valve.New()
 	baseCtx := valv.Context()
 
-	go func(ctx context.Context) {
-		if len(s.subscribeTopics) == 0 {
-			return
-		}
-		b := &backoff.Backoff{Jitter: true}
-		for {
-			if err := s.b.Connect(); err != nil {
-				time.Sleep(b.Duration())
-				continue
-			}
-			if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
-				s.logger.Error("Subscribe to subscribeTopics return error", zap.Error(err), zap.Strings("subscribeTopics", s.subscribeTopics))
-			}
-		}
-	}(baseCtx)
-
-	go func(ctx context.Context) {
-		for {
-			<-time.After(1 * time.Second)
-
-			func() {
-				if err := valve.Lever(ctx).Open(); err != nil {
-					s.logger.Error("failed to open valve")
-					return
-				}
-				defer valve.Lever(ctx).Close()
-
-				// signal control.
-				select {
-				case <-valve.Lever(ctx).Stop():
-					s.logger.Debug("valve is closed")
-					return
-
-				case <-ctx.Done():
-					s.logger.Debug("context is cancelled")
-					return
-				default:
-				}
-			}()
-		}
-	}(baseCtx)
+	go s.subscribeBrokerLoop(baseCtx)
+	go s.shutdownSignalLoop(baseCtx, valv)
 
 	srv := http.Server{Handler: chi.ServerBaseContext(baseCtx, s.router)}
 
@@ -217,32 +247,7 @@ func (s *Server) Run() error {
 		c = s.testSignalCh
 	}
 	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
-	go func() {
-		<-c
-		// signal is a ^C, handle it
-		s.logger.Info("shutting down...")
-
-		// first valv
-		if err := valv.Shutdown(20 * time.Second); err != nil {
-			s.logger.Error("failed to shutdown valv")
-		}
-
-		// create context with timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-
-		// start http shutdown
-		if err := srv.Shutdown(ctx); err != nil {
-			s.logger.Error("failed to shutdown http server")
-		}
-
-		// verify, in worst case call cancel via defer
-		select {
-		case <-time.After(21 * time.Second):
-			s.logger.Error("not all connections done")
-		case <-ctx.Done():
-		}
-	}()
+	go s.signalHandler(c, valv, &srv)
 
 	if s.useUnixSock {
 		unixListener, err := net.Listen("unix", s.Addr)

@@ -3,6 +3,7 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -13,12 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ory/dockertest/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker/mqtt"
-	"github.com/bizflycloud/bizfly-backup/pkg/testlib"
 )
 
 var (
@@ -30,16 +31,35 @@ func TestMain(m *testing.M) {
 	if os.Getenv("EXCLUDE_MQTT") != "" {
 		os.Exit(0)
 	}
-	mqttUrl := testlib.MqttUrl()
-	var err error
-	b, err = mqtt.NewBroker(mqtt.WithURL(mqttUrl), mqtt.WithClientID("sub"))
+
+	pool, err := dockertest.NewPool("")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Could not connect to docker: %s", err)
 	}
-	if err := b.Connect(); err != nil {
-		log.Fatal(err)
+
+	resource, err := pool.Run("vernemq/vernemq", "latest-alpine", []string{"DOCKER_VERNEMQ_USER_foo=bar", "DOCKER_VERNEMQ_ACCEPT_EULA=yes"})
+	if err != nil {
+		log.Fatalf("Could not start resource: %s", err)
 	}
-	os.Exit(m.Run())
+
+	mqttURL := fmt.Sprintf("mqtt://foo:bar@%s", resource.GetHostPort("1883/tcp"))
+	if err := pool.Retry(func() error {
+		var err error
+		b, err = mqtt.NewBroker(mqtt.WithURL(mqttURL), mqtt.WithClientID("sub"))
+		if err != nil {
+			return err
+		}
+		return b.Connect()
+	}); err != nil {
+		log.Fatalf("Could not connect to docker: %s", err)
+	}
+
+	code := m.Run()
+
+	if err := pool.Purge(resource); err != nil {
+		log.Fatalf("Could not purge resource: %s", err)
+	}
+	os.Exit(code)
 }
 
 func TestServerRun(t *testing.T) {

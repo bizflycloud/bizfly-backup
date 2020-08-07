@@ -10,6 +10,7 @@ require (
 	github.com/go-chi/valve v0.0.0-20170920024740-9e45288364f4
 	github.com/jpillora/backoff v1.0.0
 	github.com/mitchellh/go-homedir v1.1.0
+	github.com/ory/dockertest/v3 v3.6.0
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/viper v1.7.0
 	github.com/stretchr/testify v1.4.0

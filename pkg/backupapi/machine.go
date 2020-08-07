@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/denisbrodbeck/machineid"
 	"github.com/favadi/osinfo"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/agentversion"
@@ -26,6 +27,7 @@ type Machine struct {
 	OSVersion    string `json:"os_version"`
 	AgentVersion string `json:"agent_version"`
 	TenantID     string `json:"tenant_id"`
+	OSMachineID  string `json:"os_machine_id"`
 }
 
 // UpdateMachine updates machine information.
@@ -38,11 +40,15 @@ func (c *Client) UpdateMachine() error {
 	if err != nil {
 		return fmt.Errorf("osinfo.New(): %w", err)
 	}
-
+	id, err := machineid.ID()
+	if err != nil {
+		return fmt.Errorf("machineid.ID(): %w", err)
+	}
 	m := &Machine{
 		HostName:     hostname,
 		OSVersion:    oi.String(),
 		AgentVersion: agentversion.Version(),
+		OSMachineID:  id,
 	}
 
 	req, err := c.NewRequest(http.MethodPatch, updateMachinePath, m)

@@ -22,6 +22,7 @@ func TestClient_UpdateMachine(t *testing.T) {
 		assert.NotEmpty(t, m.HostName)
 		assert.NotEmpty(t, m.OSVersion)
 		assert.NotEmpty(t, m.AgentVersion)
+		assert.NotEmpty(t, m.OSMachineID)
 		_, _ = w.Write([]byte(""))
 	})
 

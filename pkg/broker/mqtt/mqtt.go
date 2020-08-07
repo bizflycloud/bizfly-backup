@@ -12,7 +12,10 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 )
 
-const clientDisconnectWaitTimeout = 250
+const (
+	clientDisconnectWaitTimeout = 250
+	lastWillTestatement         = `{"status": "OFFLINE"}`
+)
 
 var _ broker.Broker = (*mqttBroker)(nil)
 
@@ -55,6 +58,7 @@ func (m *mqttBroker) Connect() error {
 	opts.SetPassword(password)
 	opts.SetClientID(m.clientID)
 	opts.SetCleanSession(false)
+	opts.SetWill("agent/"+m.clientID, lastWillTestatement, 0, false)
 
 	client := mqtt.NewClient(opts)
 	token := client.Connect()

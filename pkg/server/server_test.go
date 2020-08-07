@@ -81,7 +81,7 @@ func TestServerEventHandler(t *testing.T) {
 }
 
 func Test_compressDir(t *testing.T) {
-	fi, err := ioutil.TempFile("", "bizfly-backup-test-*")
+	fi, err := ioutil.TempFile("", "bizfly-backup-agent-test-compress-*")
 	require.NoError(t, err)
 	defer os.Remove(fi.Name())
 
@@ -96,5 +96,35 @@ func Test_compressDir(t *testing.T) {
 		t.Log(zipFile.Name)
 		count++
 	}
+	assert.Equal(t, 2, count)
+}
+
+func Test_unzip(t *testing.T) {
+	fi, err := ioutil.TempFile("", "bizfly-backup-agent-test-unzip-*")
+	require.NoError(t, err)
+	defer os.Remove(fi.Name())
+
+	assert.NoError(t, compressDir("./testdata/test_compress_dir", fi))
+	require.NoError(t, fi.Close())
+
+	tempDir, err := ioutil.TempDir("", "bizfly-backup-agent-test-unzip-dir-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	assert.NoError(t, unzip(fi.Name(), tempDir))
+
+	count := 0
+	walker := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		count++
+		return nil
+	}
+
+	assert.NoError(t, filepath.Walk(filepath.Join(tempDir, "testdata"), walker))
 	assert.Equal(t, 2, count)
 }

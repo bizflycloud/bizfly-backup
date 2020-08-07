@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 )
@@ -58,6 +59,10 @@ func (c *Client) updateRecoveryPointPath(backupDirectoryID string, recoveryPoint
 	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points/%s", backupDirectoryID, recoveryPointID)
 }
 
+func (c *Client) downloadFileContentPath() string {
+	return "/agent/files/download"
+}
+
 func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID string, crpr *CreateRecoveryPointRequest) (*CreateRecoveryPointResponse, error) {
 	req, err := c.NewRequest(http.MethodPost, c.createRecoveryPointPath(backupDirectoryID), crpr)
 	if err != nil {
@@ -96,4 +101,24 @@ func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 		return fmt.Errorf("%s: %w", string(buf), ErrUpdateRecoveryPoint)
 	}
 	return nil
+}
+
+// DownloadFileContent downloads file content at given recovery point id, write the content to writer.
+func (c *Client) DownloadFileContent(ctx context.Context, recoveryPointID string, w io.Writer) error {
+	req, err := c.NewRequest(http.MethodGet, c.downloadFileContentPath(), nil)
+	if err != nil {
+		return err
+	}
+	q := req.URL.Query()
+	q.Set("name", recoveryPointID+".zip")
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.Do(req.WithContext(ctx))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	_, err = io.Copy(w, resp.Body)
+	return err
 }

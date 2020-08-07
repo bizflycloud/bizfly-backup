@@ -99,7 +99,9 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	switch msg.EventType {
 	case broker.BackupManual:
 		return s.backup(msg.BackupDirectoryID, msg.PolicyID)
-	case broker.RestoreManual, broker.ConfigUpdate, broker.AgentUpgrade:
+	case broker.RestoreManual:
+		return s.restore(msg.RecoveryPointID, msg.DestinationDirectory)
+	case broker.ConfigUpdate, broker.AgentUpgrade:
 	default:
 		return fmt.Errorf("Event %s: %w", msg.EventType, broker.ErrUnknownEventType)
 	}
@@ -229,13 +231,20 @@ func (s *Server) backup(backupDirectoryID string, policyID string) error {
 		s.logger.Warn("failed to notify server before zip file", zap.Error(err))
 	}
 
+	wd := filepath.Dir(bd.Path)
+	backupDir := filepath.Base(bd.Path)
+
+	if err := os.Chdir(wd); err != nil {
+		return err
+	}
+
 	// Compress directory
-	fi, err := ioutil.TempFile("", "bizfly-backup-*")
+	fi, err := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(fi.Name())
-	if err := compressDir(bd.Path, fi); err != nil {
+	if err := compressDir(backupDir, fi); err != nil {
 		return err
 	}
 	if err := fi.Close(); err != nil {
@@ -263,6 +272,30 @@ func (s *Server) backup(backupDirectoryID string, policyID string) error {
 		s.logger.Warn("failed to notify server upload file completed", zap.Error(err))
 	}
 
+	return nil
+}
+
+func (s *Server) restore(recoveryPointID string, destDir string) error {
+	ctx := context.Background()
+
+	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(fi.Name())
+
+	if err := s.backupClient.DownloadFileContent(ctx, recoveryPointID, fi); err != nil {
+		s.logger.Error("failed to download file content", zap.Error(err))
+		return err
+	}
+	if err := fi.Close(); err != nil {
+		s.logger.Error("failed to save to temporary file", zap.Error(err))
+		return err
+	}
+
+	if err := unzip(fi.Name(), destDir); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -304,6 +337,52 @@ func compressDir(src string, w io.Writer) error {
 
 	if err := zw.Close(); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func unzip(zipFile, dest string) error {
+	r, err := zip.OpenReader(zipFile)
+	if err != nil {
+		return fmt.Errorf("zip.OpenReader: %w", err)
+	}
+	defer r.Close()
+
+	os.MkdirAll(dest, 0755)
+
+	extractAndWriteFile := func(f *zip.File) error {
+		rc, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("extractAndWriteFile: f.Open: %w", err)
+		}
+		defer rc.Close()
+		path := filepath.Join(dest, f.Name)
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(path, f.Mode())
+		} else {
+			os.MkdirAll(filepath.Dir(path), 0755)
+			f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
+			if err != nil {
+				return fmt.Errorf("extractAndWriteFile: os.OpenFile: %w", err)
+			}
+			defer f.Close()
+
+			if _, err := io.Copy(f, rc); err != nil {
+				return fmt.Errorf("extractAndWriteFile: io.Copy: %w", err)
+			}
+			if err := f.Close(); err != nil {
+				return fmt.Errorf("extractAndWriteFile: f.Close: %w", err)
+			}
+		}
+		return nil
+	}
+
+	for _, f := range r.File {
+		if err := extractAndWriteFile(f); err != nil {
+			return err
+		}
 	}
 
 	return nil

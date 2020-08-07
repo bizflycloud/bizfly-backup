@@ -26,9 +26,11 @@ import (
 )
 
 const (
-	statusZipFile    = "ZIP_FILE"
-	statusUploadFile = "UPLOADING"
-	statusComplete   = "COMPLETED"
+	statusZipFile     = "ZIP_FILE"
+	statusUploadFile  = "UPLOADING"
+	statusComplete    = "COMPLETED"
+	statusDownloading = "DOWNLOADING"
+	statusRestoring   = "RESTORING"
 )
 
 // Server defines parameters for running BizFly Backup HTTP server.
@@ -283,6 +285,15 @@ func (s *Server) restore(recoveryPointID string, destDir string) error {
 	}
 	defer os.Remove(fi.Name())
 
+	msg := map[string]string{
+		"action_id": recoveryPointID,
+		"status":    statusDownloading,
+	}
+	payload, _ := json.Marshal(msg)
+	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+		s.logger.Warn("failed to notify server before downloading file content", zap.Error(err))
+	}
+
 	if err := s.backupClient.DownloadFileContent(ctx, recoveryPointID, fi); err != nil {
 		s.logger.Error("failed to download file content", zap.Error(err))
 		return err
@@ -292,9 +303,21 @@ func (s *Server) restore(recoveryPointID string, destDir string) error {
 		return err
 	}
 
+	msg["status"] = statusRestoring
+	payload, _ = json.Marshal(msg)
+	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+		s.logger.Warn("failed to notify server before restoring", zap.Error(err))
+	}
 	if err := unzip(fi.Name(), destDir); err != nil {
 		return err
 	}
+
+	msg["status"] = statusComplete
+	payload, _ = json.Marshal(msg)
+	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+		s.logger.Warn("failed to notify server restore progress completed", zap.Error(err))
+	}
+
 	return nil
 }
 

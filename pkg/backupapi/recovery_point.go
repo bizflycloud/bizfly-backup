@@ -50,15 +50,15 @@ type UpdateRecoveryPointRequest struct {
 	Status string `json:"status"`
 }
 
-func (c *Client) createRecoveryPointPath(backupDirectoryID int) string {
-	return fmt.Sprintf("/agent/backup-directories/%d/recovery-points", backupDirectoryID)
+func (c *Client) createRecoveryPointPath(backupDirectoryID string) string {
+	return "/agent/backup-directories/" + backupDirectoryID + "/recovery-points"
 }
 
-func (c *Client) updateRecoveryPointPath(backupDirectoryID int, recoveryPointID string) string {
-	return fmt.Sprintf("/agent/backup-directories/%d/recovery-points/%s", backupDirectoryID, recoveryPointID)
+func (c *Client) updateRecoveryPointPath(backupDirectoryID string, recoveryPointID string) string {
+	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points/%s", backupDirectoryID, recoveryPointID)
 }
 
-func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID int, crpr *CreateRecoveryPointRequest) (*CreateRecoveryPointResponse, error) {
+func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID string, crpr *CreateRecoveryPointRequest) (*CreateRecoveryPointResponse, error) {
 	req, err := c.NewRequest(http.MethodPost, c.createRecoveryPointPath(backupDirectoryID), crpr)
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID int,
 	return &crp, nil
 }
 
-func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID int, recoveryPointID string, urpr *UpdateRecoveryPointRequest) error {
+func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID string, recoveryPointID string, urpr *UpdateRecoveryPointRequest) error {
 	req, err := c.NewRequest(http.MethodPatch, c.updateRecoveryPointPath(backupDirectoryID, recoveryPointID), urpr)
 	if err != nil {
 		return err

@@ -3,6 +3,7 @@ module github.com/bizflycloud/bizfly-backup
 go 1.14
 
 require (
+	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/eclipse/paho.mqtt.golang v1.2.0
 	github.com/favadi/osinfo v0.0.0-20161014112035-325b250bc9df
 	github.com/go-chi/chi v4.1.2+incompatible

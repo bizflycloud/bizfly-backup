@@ -253,7 +253,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string) error {
 		s.logger.Warn("failed to notify server before upload file", zap.Error(err))
 	}
 	// Upload file to server
-	if err := s.backupClient.UploadFile(bd.Path+"-"+time.Now().UTC().Format(backupTimeLayout), fi); err != nil {
+	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi); err != nil {
 		return nil
 	}
 

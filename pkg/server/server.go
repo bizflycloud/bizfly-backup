@@ -26,7 +26,6 @@ import (
 )
 
 const (
-	backupTimeLayout = "20060102150405"
 	statusZipFile    = "ZIP_FILE"
 	statusUploadFile = "UPLOADING"
 	statusComplete   = "COMPLETED"
@@ -349,7 +348,9 @@ func unzip(zipFile, dest string) error {
 	}
 	defer r.Close()
 
-	os.MkdirAll(dest, 0755)
+	if err := os.MkdirAll(dest, 0755); err != nil && !os.IsExist(err) {
+		return err
+	}
 
 	extractAndWriteFile := func(f *zip.File) error {
 		rc, err := f.Open()
@@ -360,9 +361,9 @@ func unzip(zipFile, dest string) error {
 		path := filepath.Join(dest, f.Name)
 
 		if f.FileInfo().IsDir() {
-			os.MkdirAll(path, f.Mode())
+			_ = os.MkdirAll(path, f.Mode())
 		} else {
-			os.MkdirAll(filepath.Dir(path), 0755)
+			_ = os.MkdirAll(filepath.Dir(path), 0755)
 			f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
 			if err != nil {
 				return fmt.Errorf("extractAndWriteFile: os.OpenFile: %w", err)

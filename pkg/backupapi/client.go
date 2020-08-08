@@ -135,3 +135,19 @@ func (c *Client) authorizationHeaderValue(method, now string) string {
 	hash := sha256.Sum256([]byte(s))
 	return "VBS " + hex.EncodeToString(hash[:])
 }
+
+// Config is the scheduler config for machine.
+//
+// TODO: This is placeholder struct only, the actual one will be added in BK-104
+type Config struct {
+	BackupDirectories []struct {
+		ID       string `yaml:"id"`
+		Name     string `yaml:"name"`
+		Path     string `yaml:"path"`
+		Policies []struct {
+			ID              string `yaml:"id"`
+			Name            string `yaml:"name"`
+			SchedulePattern string `yaml:"schedule_pattern"`
+		} `yaml:"policies"`
+	} `yaml:"backup-directories"`
+}

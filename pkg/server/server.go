@@ -13,12 +13,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
 	"github.com/jpillora/backoff"
+	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
@@ -43,6 +45,11 @@ type Server struct {
 	useUnixSock     bool
 	backupClient    *backupapi.Client
 
+	// mu guards following fields.
+	mu                   sync.Mutex
+	cronManager          *cron.Cron
+	cronPolicyIDToCronID map[string]cron.EntryID
+
 	// signal chan use for testing.
 	testSignalCh chan os.Signal
 
@@ -59,6 +66,9 @@ func New(opts ...Option) (*Server, error) {
 	}
 
 	s.router = chi.NewRouter()
+	s.cronManager = cron.New(cron.WithLocation(time.UTC))
+	s.cronManager.Start()
+	s.cronPolicyIDToCronID = make(map[string]cron.EntryID)
 
 	if s.logger == nil {
 		l, err := zap.NewDevelopment()
@@ -107,6 +117,44 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 		return fmt.Errorf("Event %s: %w", msg.EventType, broker.ErrUnknownEventType)
 	}
 	return nil
+}
+
+func (s *Server) removeFromCronManager(cfg *backupapi.Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, bd := range cfg.BackupDirectories {
+		for _, policy := range bd.Policies {
+			if entryID, ok := s.cronPolicyIDToCronID[policy.ID]; ok {
+				s.cronManager.Remove(entryID)
+				delete(s.cronPolicyIDToCronID, policy.ID)
+			}
+		}
+	}
+}
+
+func (s *Server) addToCronManager(cfg *backupapi.Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, bd := range cfg.BackupDirectories {
+		for _, policy := range bd.Policies {
+			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
+				if err := s.backup(bd.ID, policy.ID); err != nil {
+					zapFields := []zap.Field{
+						zap.Error(err),
+						zap.String("service", "cron"),
+						zap.String("backup_directory_id", bd.ID),
+						zap.String("policy_id", policy.ID),
+					}
+					s.logger.Error("failed to run backup", zapFields...)
+				}
+			})
+			if err != nil {
+				s.logger.Error("failed to add cron entry", zap.Error(err))
+				continue
+			}
+			s.cronPolicyIDToCronID[policy.ID] = entryID
+		}
+	}
 }
 
 func (s *Server) Backup(w http.ResponseWriter, r *http.Request)       {}

@@ -15,9 +15,11 @@ import (
 	"time"
 
 	"github.com/ory/dockertest/v3"
+	"github.com/robfig/cron/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker/mqtt"
 )
@@ -147,4 +149,31 @@ func Test_unzip(t *testing.T) {
 
 	assert.NoError(t, filepath.Walk(filepath.Join(tempDir, "testdata"), walker))
 	assert.Equal(t, 2, count)
+}
+
+func TestServerCron(t *testing.T) {
+	tests := []struct {
+		name               string
+		cfg                *backupapi.Config
+		expectedNumEntries int
+	}{
+		{
+			"empty",
+			new(backupapi.Config),
+			0,
+		},
+		// TODO: add more tests after BK-104
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s, err := New()
+			require.NoError(t, err)
+			s.addToCronManager(tc.cfg)
+			assert.Len(t, s.cronPolicyIDToCronID, tc.expectedNumEntries)
+			s.removeFromCronManager(tc.cfg)
+			assert.Equal(t, map[string]cron.EntryID{}, s.cronPolicyIDToCronID)
+		})
+	}
 }

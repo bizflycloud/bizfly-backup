@@ -154,15 +154,97 @@ func Test_unzip(t *testing.T) {
 func TestServerCron(t *testing.T) {
 	tests := []struct {
 		name               string
-		cfg                *backupapi.Config
+		bdc                []backupapi.BackupDirectoryConfig
 		expectedNumEntries int
 	}{
 		{
 			"empty",
-			new(backupapi.Config),
+			[]backupapi.BackupDirectoryConfig{},
 			0,
 		},
-		// TODO: add more tests after BK-104
+		{
+			"good",
+			[]backupapi.BackupDirectoryConfig{
+				{
+					ID:   "dir1",
+					Name: "dir1",
+					Path: "/dev/null",
+					Policies: []backupapi.BackupDirectoryConfigPolicy{
+						{
+							ID:              "policy_1",
+							Name:            "policy_1",
+							SchedulePattern: "* * * * *",
+						},
+					},
+					Activated: true,
+				},
+				{
+					ID:   "dir2",
+					Name: "dir2",
+					Path: "/dev/zero",
+					Policies: []backupapi.BackupDirectoryConfigPolicy{
+						{
+							ID:              "policy_2",
+							Name:            "policy_2",
+							SchedulePattern: "* * * * *",
+						},
+					},
+					Activated: true,
+				},
+			},
+			2,
+		},
+		{
+			"activated false",
+			[]backupapi.BackupDirectoryConfig{
+				{
+					ID:   "dir1",
+					Name: "dir1",
+					Path: "/dev/null",
+					Policies: []backupapi.BackupDirectoryConfigPolicy{
+						{
+							ID:              "policy_1",
+							Name:            "policy_1",
+							SchedulePattern: "* * * * *",
+						},
+					},
+					Activated: true,
+				},
+				{
+					ID:   "dir2",
+					Name: "dir2",
+					Path: "/dev/zero",
+					Policies: []backupapi.BackupDirectoryConfigPolicy{
+						{
+							ID:              "policy_2",
+							Name:            "policy_2",
+							SchedulePattern: "* * * * *",
+						},
+					},
+					Activated: false,
+				},
+			},
+			1,
+		},
+		{
+			"invalid cron pattern",
+			[]backupapi.BackupDirectoryConfig{
+				{
+					ID:   "dir1",
+					Name: "dir1",
+					Path: "/dev/null",
+					Policies: []backupapi.BackupDirectoryConfigPolicy{
+						{
+							ID:              "policy_1",
+							Name:            "policy_1",
+							SchedulePattern: "* * * *",
+						},
+					},
+					Activated: true,
+				},
+			},
+			0,
+		},
 	}
 	for _, tc := range tests {
 		tc := tc
@@ -170,9 +252,9 @@ func TestServerCron(t *testing.T) {
 			t.Parallel()
 			s, err := New()
 			require.NoError(t, err)
-			s.addToCronManager(tc.cfg)
+			s.addToCronManager(tc.bdc)
 			assert.Len(t, s.cronPolicyIDToCronID, tc.expectedNumEntries)
-			s.removeFromCronManager(tc.cfg)
+			s.removeFromCronManager(tc.bdc)
 			assert.Equal(t, map[string]cron.EntryID{}, s.cronPolicyIDToCronID)
 		})
 	}

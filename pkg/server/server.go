@@ -150,10 +150,14 @@ func (s *Server) handleConfigRefresh(backupDirectories []backupapi.BackupDirecto
 	return nil
 }
 
+func mappingID(backupDirectoryID, policyID string) string {
+	return backupDirectoryID + "|" + policyID
+}
+
 func (s *Server) removeFromCronManager(bdc []backupapi.BackupDirectoryConfig) {
 	for _, bd := range bdc {
 		for _, policy := range bd.Policies {
-			mappingID := policy.ID + bd.ID
+			mappingID := mappingID(bd.ID, policy.ID)
 			if entryID, ok := s.cronPolicyIDToCronID[mappingID]; ok {
 				s.cronManager.Remove(entryID)
 				delete(s.cronPolicyIDToCronID, mappingID)
@@ -183,7 +187,7 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 				s.logger.Error("failed to add cron entry", zap.Error(err))
 				continue
 			}
-			s.cronPolicyIDToCronID[policy.ID] = entryID
+			s.cronPolicyIDToCronID[mappingID(bd.ID, policy.ID)] = entryID
 		}
 	}
 }

@@ -10,6 +10,7 @@ const (
 	BackupManual                        = "backup_manual"
 	RestoreManual                       = "restore_manual"
 	ConfigUpdate                        = "update_config"
+	ConfigRefresh                       = "refresh_config"
 	AgentUpgrade                        = "agent_upgrade"
 	ConfigUpdateActionAddPolicy         = "add_policy"
 	ConfigUpdateActionDelPolicy         = "del_policy"

@@ -45,7 +45,7 @@ type Server struct {
 	useUnixSock     bool
 	backupClient    *backupapi.Client
 
-	// mu guards following fields.
+	// mu guards handle broker event.
 	mu                   sync.Mutex
 	cronManager          *cron.Cron
 	cronPolicyIDToCronID map[string]cron.EntryID
@@ -102,6 +102,8 @@ func (s *Server) setupRoutes() {
 }
 
 func (s *Server) handleBrokerEvent(e broker.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var msg broker.Message
 	if err := json.Unmarshal(e.Payload, &msg); err != nil {
 		return err
@@ -114,6 +116,8 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 		return s.restore(msg.RecoveryPointID, msg.DestinationDirectory)
 	case broker.ConfigUpdate:
 		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
+	case broker.ConfigRefresh:
+		return s.handleConfigRefresh(msg.BackupDirectories)
 	case broker.AgentUpgrade:
 	default:
 		return fmt.Errorf("Event %s: %w", msg.EventType, broker.ErrUnknownEventType)
@@ -136,9 +140,17 @@ func (s *Server) handleConfigUpdate(action string, backupDirectories []backupapi
 	return nil
 }
 
+func (s *Server) handleConfigRefresh(backupDirectories []backupapi.BackupDirectoryConfig) error {
+	ctx := s.cronManager.Stop()
+	<-ctx.Done()
+	s.cronManager = cron.New(cron.WithLocation(time.UTC))
+	s.cronManager.Start()
+	s.cronPolicyIDToCronID = make(map[string]cron.EntryID)
+	s.addToCronManager(backupDirectories)
+	return nil
+}
+
 func (s *Server) removeFromCronManager(bdc []backupapi.BackupDirectoryConfig) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, bd := range bdc {
 		for _, policy := range bd.Policies {
 			mappingID := policy.ID + bd.ID
@@ -151,13 +163,11 @@ func (s *Server) removeFromCronManager(bdc []backupapi.BackupDirectoryConfig) {
 }
 
 func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, bd := range bdc {
+		if !bd.Activated {
+			continue
+		}
 		for _, policy := range bd.Policies {
-			if !policy.Activated {
-				continue
-			}
 			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
 				if err := s.backup(bd.ID, policy.ID); err != nil {
 					zapFields := []zap.Field{

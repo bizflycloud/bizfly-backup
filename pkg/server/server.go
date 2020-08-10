@@ -124,9 +124,10 @@ func (s *Server) removeFromCronManager(cfg *backupapi.Config) {
 	defer s.mu.Unlock()
 	for _, bd := range cfg.BackupDirectories {
 		for _, policy := range bd.Policies {
-			if entryID, ok := s.cronPolicyIDToCronID[policy.ID]; ok {
+			mappingID := policy.ID + bd.ID
+			if entryID, ok := s.cronPolicyIDToCronID[mappingID]; ok {
 				s.cronManager.Remove(entryID)
-				delete(s.cronPolicyIDToCronID, policy.ID)
+				delete(s.cronPolicyIDToCronID, mappingID)
 			}
 		}
 	}

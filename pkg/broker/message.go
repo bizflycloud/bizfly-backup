@@ -1,12 +1,21 @@
 package broker
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
+)
 
 const (
-	BackupManual  = "backup_manual"
-	RestoreManual = "restore_manual"
-	ConfigUpdate  = "config_update"
-	AgentUpgrade  = "agent_upgrade"
+	BackupManual                        = "backup_manual"
+	RestoreManual                       = "restore_manual"
+	ConfigUpdate                        = "update_config"
+	AgentUpgrade                        = "agent_upgrade"
+	ConfigUpdateActionAddPolicy         = "add_policy"
+	ConfigUpdateActionDelPolicy         = "del_policy"
+	ConfigUpdateActionUpdatePolicy      = "update_policy"
+	ConfigUpdateActionActiveDirectory   = "active_directory"
+	ConfigUpdateActionDeactiveDirectory = "deactive_directory"
 )
 
 // ErrUnknownEventType is raised when receiving unhandled event from broker.
@@ -30,4 +39,8 @@ type Message struct {
 	DestinationDirectory string `json:"dest_directory"`
 	RecoveryPointID      string `json:"recovery_point_id"`
 	RestoreSessionKey    string `json:"restore_session_key"`
+
+	// For config update
+	BackupDirectories []backupapi.BackupDirectoryConfig `json:"backup_directories"`
+	Action            string                            `json:"action"`
 }

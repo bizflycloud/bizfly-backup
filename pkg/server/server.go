@@ -112,17 +112,34 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 		return s.backup(msg.BackupDirectoryID, msg.PolicyID)
 	case broker.RestoreManual:
 		return s.restore(msg.RecoveryPointID, msg.DestinationDirectory)
-	case broker.ConfigUpdate, broker.AgentUpgrade:
+	case broker.ConfigUpdate:
+		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
+	case broker.AgentUpgrade:
 	default:
 		return fmt.Errorf("Event %s: %w", msg.EventType, broker.ErrUnknownEventType)
 	}
 	return nil
 }
 
-func (s *Server) removeFromCronManager(cfg *backupapi.Config) {
+func (s *Server) handleConfigUpdate(action string, backupDirectories []backupapi.BackupDirectoryConfig) error {
+	switch action {
+	case broker.ConfigUpdateActionAddPolicy,
+		broker.ConfigUpdateActionUpdatePolicy,
+		broker.ConfigUpdateActionActiveDirectory:
+		s.removeFromCronManager(backupDirectories)
+		s.addToCronManager(backupDirectories)
+	case broker.ConfigUpdateActionDelPolicy, broker.ConfigUpdateActionDeactiveDirectory:
+		s.removeFromCronManager(backupDirectories)
+	default:
+		return fmt.Errorf("unhandled action: %s", action)
+	}
+	return nil
+}
+
+func (s *Server) removeFromCronManager(bdc []backupapi.BackupDirectoryConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, bd := range cfg.BackupDirectories {
+	for _, bd := range bdc {
 		for _, policy := range bd.Policies {
 			mappingID := policy.ID + bd.ID
 			if entryID, ok := s.cronPolicyIDToCronID[mappingID]; ok {
@@ -133,11 +150,14 @@ func (s *Server) removeFromCronManager(cfg *backupapi.Config) {
 	}
 }
 
-func (s *Server) addToCronManager(cfg *backupapi.Config) {
+func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, bd := range cfg.BackupDirectories {
+	for _, bd := range bdc {
 		for _, policy := range bd.Policies {
+			if !policy.Activated {
+				continue
+			}
 			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
 				if err := s.backup(bd.ID, policy.ID); err != nil {
 					zapFields := []zap.Field{

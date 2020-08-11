@@ -51,11 +51,11 @@ type UpdateRecoveryPointRequest struct {
 	Status string `json:"status"`
 }
 
-func (c *Client) createRecoveryPointPath(backupDirectoryID string) string {
+func (c *Client) recoveryPointPath(backupDirectoryID string) string {
 	return "/agent/backup-directories/" + backupDirectoryID + "/recovery-points"
 }
 
-func (c *Client) updateRecoveryPointPath(backupDirectoryID string, recoveryPointID string) string {
+func (c *Client) recoveryPointItemPath(backupDirectoryID string, recoveryPointID string) string {
 	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points/%s", backupDirectoryID, recoveryPointID)
 }
 
@@ -64,7 +64,7 @@ func (c *Client) downloadFileContentPath() string {
 }
 
 func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID string, crpr *CreateRecoveryPointRequest) (*CreateRecoveryPointResponse, error) {
-	req, err := c.NewRequest(http.MethodPost, c.createRecoveryPointPath(backupDirectoryID), crpr)
+	req, err := c.NewRequest(http.MethodPost, c.recoveryPointPath(backupDirectoryID), crpr)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 }
 
 func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID string, recoveryPointID string, urpr *UpdateRecoveryPointRequest) error {
-	req, err := c.NewRequest(http.MethodPatch, c.updateRecoveryPointPath(backupDirectoryID, recoveryPointID), urpr)
+	req, err := c.NewRequest(http.MethodPatch, c.recoveryPointItemPath(backupDirectoryID, recoveryPointID), urpr)
 	if err != nil {
 		return err
 	}
@@ -121,4 +121,24 @@ func (c *Client) DownloadFileContent(ctx context.Context, recoveryPointID string
 
 	_, err = io.Copy(w, resp.Body)
 	return err
+}
+
+// ListRecoveryPoints list all recovery points of given backup directory.
+func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID string) ([]RecoveryPoint, error) {
+	req, err := c.NewRequest(http.MethodGet, c.recoveryPointPath(backupDirectoryID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Do(req.WithContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var rps []RecoveryPoint
+	if err := json.NewDecoder(resp.Body).Decode(&rps); err != nil {
+		return nil, err
+	}
+	return rps, nil
 }

@@ -17,7 +17,7 @@ func TestClient_CreateRecoveryPoint(t *testing.T) {
 
 	backupDirectoryID := "1"
 	policyID := "policy-id"
-	recoveryPointPath := client.createRecoveryPointPath(backupDirectoryID)
+	recoveryPointPath := client.recoveryPointPath(backupDirectoryID)
 
 	mux.HandleFunc(recoveryPointPath, func(w http.ResponseWriter, r *http.Request) {
 		crp := &CreateRecoveryPointResponse{
@@ -48,7 +48,7 @@ func TestClient_UpdateRecoveryPoint(t *testing.T) {
 
 	backupDirectoryID := "1"
 	recoveryPointID := "recovery-point-id"
-	recoveryPointPath := client.updateRecoveryPointPath(backupDirectoryID, recoveryPointID)
+	recoveryPointPath := client.recoveryPointItemPath(backupDirectoryID, recoveryPointID)
 	status := RecoveryPointStatusFAILED
 
 	mux.HandleFunc(recoveryPointPath, func(w http.ResponseWriter, r *http.Request) {
@@ -59,4 +59,24 @@ func TestClient_UpdateRecoveryPoint(t *testing.T) {
 
 	err := client.UpdateRecoveryPoint(context.Background(), backupDirectoryID, recoveryPointID, &UpdateRecoveryPointRequest{Status: RecoveryPointStatusFAILED})
 	require.NoError(t, err)
+}
+
+func TestClient_ListRecoveryPoints(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	backupDirectoryID := "1"
+	recoveryPointPath := client.recoveryPointPath(backupDirectoryID)
+
+	mux.HandleFunc(recoveryPointPath, func(w http.ResponseWriter, r *http.Request) {
+		resp := []RecoveryPoint{
+			{ID: "1", Status: RecoveryPointStatusCompleted, RecoveryPointType: RecoveryPointTypePoint},
+			{ID: "2", Status: RecoveryPointStatusCreated, RecoveryPointType: RecoveryPointTypePoint},
+		}
+		assert.NoError(t, json.NewEncoder(w).Encode(resp))
+	})
+
+	rps, err := client.ListRecoveryPoints(context.Background(), backupDirectoryID)
+	require.NoError(t, err)
+	assert.Len(t, rps, 2)
 }

@@ -18,20 +18,57 @@
 package cmd
 
 import (
-	"fmt"
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"io/ioutil"
+	"net"
+	"net/http"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
+
+const postContentType = "application/octet-stream"
+
+var restoreDir string
 
 // restoreCmd represents the restore command
 var restoreCmd = &cobra.Command{
 	Use:   "restore",
 	Short: "Restore a backup.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("restore called")
+		httpc := http.Client{
+			Transport: &http.Transport{
+				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+				},
+			},
+		}
+		if restoreDir == "" {
+			restoreDir = recoveryPointID
+		}
+		var body struct {
+			Dest string `json:"destination"`
+		}
+		body.Dest = restoreDir
+		buf, _ := json.Marshal(body)
+
+		resp, err := httpc.Post("http://unix/recovery-points/"+recoveryPointID+"/restore", postContentType, bytes.NewBuffer(buf))
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		_, _ = io.Copy(ioutil.Discard, resp.Body)
 	},
 }
 
 func init() {
+	restoreCmd.PersistentFlags().StringVar(&restoreDir, "dest", "", "The destination to restore")
+	restoreCmd.PersistentFlags().StringVar(&recoveryPointID, "recovery-point-id", "", "The ID of recovery point")
+	_ = restoreCmd.MarkPersistentFlagRequired("recovery-point-id")
 	rootCmd.AddCommand(restoreCmd)
 }

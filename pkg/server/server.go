@@ -48,7 +48,7 @@ type Server struct {
 	// mu guards handle broker event.
 	mu                   sync.Mutex
 	cronManager          *cron.Cron
-	cronPolicyIDToCronID map[string]cron.EntryID
+	mappingToCronEntryID map[string]cron.EntryID
 
 	// signal chan use for testing.
 	testSignalCh chan os.Signal
@@ -68,7 +68,7 @@ func New(opts ...Option) (*Server, error) {
 	s.router = chi.NewRouter()
 	s.cronManager = cron.New(cron.WithLocation(time.UTC))
 	s.cronManager.Start()
-	s.cronPolicyIDToCronID = make(map[string]cron.EntryID)
+	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 
 	if s.logger == nil {
 		l, err := zap.NewDevelopment()
@@ -89,15 +89,17 @@ func (s *Server) setupRoutes() {
 	s.router.Route("/backups", func(r chi.Router) {
 		r.Get("/", s.ListBackup)
 		r.Post("/", s.Backup)
-		r.Post("/restore", s.Restore)
+		r.Get("/{backupID}/recovery-points", s.ListRecoveryPoints)
+		r.Post("/sync", s.SyncConfig)
 	})
 
-	s.router.Route("/cron", func(r chi.Router) {
-		s.router.Patch("/{id}", s.UpdateCron)
+	s.router.Route("/recovery-points", func(r chi.Router) {
+		r.Get("/{recoveryPointID}/download", s.DownloadRecoveryPoint)
+		r.Post("/{recoveryPointID}/restore", s.Restore)
 	})
 
 	s.router.Route("/upgrade", func(r chi.Router) {
-		s.router.Post("/", s.UpgradeAgent)
+		r.Post("/", s.UpgradeAgent)
 	})
 }
 
@@ -145,7 +147,7 @@ func (s *Server) handleConfigRefresh(backupDirectories []backupapi.BackupDirecto
 	<-ctx.Done()
 	s.cronManager = cron.New(cron.WithLocation(time.UTC))
 	s.cronManager.Start()
-	s.cronPolicyIDToCronID = make(map[string]cron.EntryID)
+	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 	s.addToCronManager(backupDirectories)
 	return nil
 }
@@ -158,9 +160,9 @@ func (s *Server) removeFromCronManager(bdc []backupapi.BackupDirectoryConfig) {
 	for _, bd := range bdc {
 		for _, policy := range bd.Policies {
 			mappingID := mappingID(bd.ID, policy.ID)
-			if entryID, ok := s.cronPolicyIDToCronID[mappingID]; ok {
+			if entryID, ok := s.mappingToCronEntryID[mappingID]; ok {
 				s.cronManager.Remove(entryID)
-				delete(s.cronPolicyIDToCronID, mappingID)
+				delete(s.mappingToCronEntryID, mappingID)
 			}
 		}
 	}
@@ -187,15 +189,89 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 				s.logger.Error("failed to add cron entry", zap.Error(err))
 				continue
 			}
-			s.cronPolicyIDToCronID[mappingID(bd.ID, policy.ID)] = entryID
+			s.mappingToCronEntryID[mappingID(bd.ID, policy.ID)] = entryID
 		}
 	}
 }
 
-func (s *Server) Backup(w http.ResponseWriter, r *http.Request)       {}
-func (s *Server) ListBackup(w http.ResponseWriter, r *http.Request)   {}
-func (s *Server) Restore(w http.ResponseWriter, r *http.Request)      {}
-func (s *Server) UpdateCron(w http.ResponseWriter, r *http.Request)   {}
+func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID       string `json:"id"`
+		PolicyID string `json:"policy_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`malformed body`))
+		return
+
+	}
+	if err := s.backup(body.ID, body.PolicyID); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+	}
+}
+
+func (s *Server) ListBackup(w http.ResponseWriter, r *http.Request) {
+	c, err := s.backupClient.GetConfig(r.Context())
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+	_ = json.NewEncoder(w).Encode(c)
+}
+
+func (s *Server) ListRecoveryPoints(w http.ResponseWriter, r *http.Request) {
+	backupID := chi.URLParam(r, "backupID")
+	rps, err := s.backupClient.ListRecoveryPoints(r.Context(), backupID)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+	_ = json.NewEncoder(w).Encode(rps)
+}
+
+func (s *Server) DownloadRecoveryPoint(w http.ResponseWriter, r *http.Request) {
+	recoveryPointID := chi.URLParam(r, "recoveryPointID")
+	if err := s.backupClient.DownloadFileContent(r.Context(), recoveryPointID, w); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+}
+
+func (s *Server) Restore(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Dest string `json:"destination"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`malformed body`))
+		return
+	}
+	recoveryPointID := chi.URLParam(r, "recoveryPointID")
+	if err := s.restore(recoveryPointID, body.Dest); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+	}
+}
+
+func (s *Server) SyncConfig(w http.ResponseWriter, r *http.Request) {
+	c, err := s.backupClient.GetConfig(r.Context())
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.handleConfigRefresh(c.BackupDirectories); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+	}
+}
+
 func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {}
 
 func (s *Server) subscribeBrokerLoop(ctx context.Context) {

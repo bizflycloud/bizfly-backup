@@ -186,6 +186,28 @@ var backupRunCmd = &cobra.Command{
 	},
 }
 
+var backupSyncCmd = &cobra.Command{
+	Use:   "sync",
+	Short: "Sync backup config from server.",
+	Run: func(cmd *cobra.Command, args []string) {
+		httpc := http.Client{
+			Transport: &http.Transport{
+				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+				},
+			},
+		}
+
+		resp, err := httpc.Post("http://unix/backups/sync", postContentType, nil)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		_, _ = io.Copy(ioutil.Discard, resp.Body)
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(backupCmd)
 
@@ -204,4 +226,6 @@ func init() {
 	backupRunCmd.PersistentFlags().StringVar(&policyID, "policy-id", "", "The ID of policy")
 	backupRunCmd.MarkPersistentFlagRequired("policy-id")
 	backupCmd.AddCommand(backupRunCmd)
+
+	backupCmd.AddCommand(backupSyncCmd)
 }

@@ -90,18 +90,16 @@ func (s *Server) setupRoutes() {
 		r.Get("/", s.ListBackup)
 		r.Post("/", s.Backup)
 		r.Get("/{backupID}/recovery-points", s.ListRecoveryPoints)
+		r.Post("/sync", s.SyncConfig)
 	})
 
 	s.router.Route("/recovery-points", func(r chi.Router) {
 		r.Get("/{recoveryPointID}/download", s.DownloadRecoveryPoint)
 		r.Post("/{recoveryPointID}/restore", s.Restore)
 	})
-	s.router.Route("/cron", func(r chi.Router) {
-		s.router.Patch("/{id}", s.UpdateCron)
-	})
 
 	s.router.Route("/upgrade", func(r chi.Router) {
-		s.router.Post("/", s.UpgradeAgent)
+		r.Post("/", s.UpgradeAgent)
 	})
 }
 
@@ -259,7 +257,21 @@ func (s *Server) Restore(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) UpdateCron(w http.ResponseWriter, r *http.Request)   {}
+func (s *Server) SyncConfig(w http.ResponseWriter, r *http.Request) {
+	c, err := s.backupClient.GetConfig(r.Context())
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.handleConfigRefresh(c.BackupDirectories); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+	}
+}
+
 func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {}
 
 func (s *Server) subscribeBrokerLoop(ctx context.Context) {

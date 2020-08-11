@@ -93,6 +93,9 @@ func (s *Server) setupRoutes() {
 		r.Get("/{backupID}/recovery-points", s.ListRecoveryPoints)
 	})
 
+	s.router.Route("/recovery-points", func(r chi.Router) {
+		r.Get("/{recoveryPointID}/download", s.DownloadRecoveryPoint)
+	})
 	s.router.Route("/cron", func(r chi.Router) {
 		s.router.Patch("/{id}", s.UpdateCron)
 	})
@@ -214,6 +217,15 @@ func (s *Server) ListRecoveryPoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(rps)
+}
+
+func (s *Server) DownloadRecoveryPoint(w http.ResponseWriter, r *http.Request) {
+	recoveryPointID := chi.URLParam(r, "recoveryPointID")
+	if err := s.backupClient.DownloadFileContent(r.Context(), recoveryPointID, w); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
 }
 
 func (s *Server) Restore(w http.ResponseWriter, r *http.Request)      {}

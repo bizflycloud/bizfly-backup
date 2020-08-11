@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -36,6 +37,8 @@ var (
 	listBackupHeaders         = []string{"ID", "Name", "Pattern", "Activated"}
 	listRecoveryPointsHeaders = []string{"ID", "Status", "Type"}
 	backupID                  string
+	recoveryPointID           string
+	backupDownloadOutFile     string
 )
 
 // backupCmd represents the backup command
@@ -114,6 +117,42 @@ var backupListRecoveryPointCmd = &cobra.Command{
 	},
 }
 
+var backupDownloadRecoveryPointCmd = &cobra.Command{
+	Use:   "download",
+	Short: "Download backup at given recovery point.",
+	Run: func(cmd *cobra.Command, args []string) {
+		httpc := http.Client{
+			Transport: &http.Transport{
+				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+				},
+			},
+		}
+		resp, err := httpc.Get("http://unix/recovery-points/" + recoveryPointID + "/download")
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		if backupDownloadOutFile == "" {
+			backupDownloadOutFile = recoveryPointID + ".zip"
+		}
+		f, err := os.Create(backupDownloadOutFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if _, err := io.Copy(f, resp.Body); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		if err := f.Close(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	},
+}
+
 // backupRunCmd represents the backup run command
 var backupRunCmd = &cobra.Command{
 	Use:   "run",
@@ -128,6 +167,9 @@ func init() {
 	backupCmd.AddCommand(backupListCmd)
 	backupListRecoveryPointCmd.PersistentFlags().StringVar(&backupID, "backup-id", "", "The ID of backup directory")
 	backupListRecoveryPointCmd.MarkPersistentFlagRequired("backup-id")
+	backupDownloadRecoveryPointCmd.PersistentFlags().StringVar(&recoveryPointID, "recovery-point-id", "", "The ID of recovery point")
+	backupDownloadRecoveryPointCmd.PersistentFlags().StringVar(&backupDownloadOutFile, "outfile", "", "Output backup download to file")
+	backupDownloadRecoveryPointCmd.MarkPersistentFlagRequired("recovery-point-id")
 	backupCmd.AddCommand(backupListRecoveryPointCmd)
 	backupCmd.AddCommand(backupRunCmd)
 }

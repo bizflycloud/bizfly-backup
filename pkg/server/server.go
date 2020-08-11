@@ -89,12 +89,12 @@ func (s *Server) setupRoutes() {
 	s.router.Route("/backups", func(r chi.Router) {
 		r.Get("/", s.ListBackup)
 		r.Post("/", s.Backup)
-		r.Post("/restore", s.Restore)
 		r.Get("/{backupID}/recovery-points", s.ListRecoveryPoints)
 	})
 
 	s.router.Route("/recovery-points", func(r chi.Router) {
 		r.Get("/{recoveryPointID}/download", s.DownloadRecoveryPoint)
+		r.Post("/{recoveryPointID}/restore", s.Restore)
 	})
 	s.router.Route("/cron", func(r chi.Router) {
 		s.router.Patch("/{id}", s.UpdateCron)
@@ -228,7 +228,22 @@ func (s *Server) DownloadRecoveryPoint(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) Restore(w http.ResponseWriter, r *http.Request)      {}
+func (s *Server) Restore(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Dest string `json:"destination"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`malformed body`))
+		return
+	}
+	recoveryPointID := chi.URLParam(r, "recoveryPointID")
+	if err := s.restore(recoveryPointID, body.Dest); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+	}
+}
+
 func (s *Server) UpdateCron(w http.ResponseWriter, r *http.Request)   {}
 func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {}
 

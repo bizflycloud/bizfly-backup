@@ -18,10 +18,12 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -34,9 +36,10 @@ import (
 )
 
 var (
-	listBackupHeaders         = []string{"ID", "Name", "Pattern", "Activated"}
+	listBackupHeaders         = []string{"ID", "Name", "PolicyID", "Pattern", "Activated"}
 	listRecoveryPointsHeaders = []string{"ID", "Status", "Type"}
 	backupID                  string
+	policyID                  string
 	recoveryPointID           string
 	backupDownloadOutFile     string
 )
@@ -79,7 +82,7 @@ var backupListCmd = &cobra.Command{
 		for _, bd := range c.BackupDirectories {
 			for _, policy := range bd.Policies {
 				activated := fmt.Sprintf("%b", bd.Activated)
-				row := []string{bd.ID, bd.Name, policy.SchedulePattern, activated}
+				row := []string{bd.ID, bd.Name, policy.ID, policy.SchedulePattern, activated}
 				data = append(data, row)
 			}
 		}
@@ -158,18 +161,47 @@ var backupRunCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run a backup immediately.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("run backup called")
+		httpc := http.Client{
+			Transport: &http.Transport{
+				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+				},
+			},
+		}
+		var body struct {
+			ID       string `json:"id"`
+			PolicyID string `json:"policy_id"`
+		}
+		body.ID = backupID
+		body.PolicyID = policyID
+		buf, _ := json.Marshal(body)
+
+		resp, err := httpc.Post("http://unix/backups", postContentType, bytes.NewBuffer(buf))
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		_, _ = io.Copy(ioutil.Discard, resp.Body)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(backupCmd)
+
 	backupCmd.AddCommand(backupListCmd)
+
 	backupListRecoveryPointCmd.PersistentFlags().StringVar(&backupID, "backup-id", "", "The ID of backup directory")
 	backupListRecoveryPointCmd.MarkPersistentFlagRequired("backup-id")
+
 	backupDownloadRecoveryPointCmd.PersistentFlags().StringVar(&recoveryPointID, "recovery-point-id", "", "The ID of recovery point")
 	backupDownloadRecoveryPointCmd.PersistentFlags().StringVar(&backupDownloadOutFile, "outfile", "", "Output backup download to file")
 	backupDownloadRecoveryPointCmd.MarkPersistentFlagRequired("recovery-point-id")
 	backupCmd.AddCommand(backupListRecoveryPointCmd)
+
+	backupRunCmd.PersistentFlags().StringVar(&backupID, "backup-id", "", "The ID of backup directory")
+	backupRunCmd.MarkPersistentFlagRequired("backup-id")
+	backupRunCmd.PersistentFlags().StringVar(&policyID, "policy-id", "", "The ID of policy")
+	backupRunCmd.MarkPersistentFlagRequired("policy-id")
 	backupCmd.AddCommand(backupRunCmd)
 }

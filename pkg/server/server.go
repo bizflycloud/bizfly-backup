@@ -196,7 +196,22 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 	}
 }
 
-func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {}
+func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID       string `json:"id"`
+		PolicyID string `json:"policy_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`malformed body`))
+		return
+
+	}
+	if err := s.backup(body.ID, body.PolicyID); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+	}
+}
 
 func (s *Server) ListBackup(w http.ResponseWriter, r *http.Request) {
 	c, err := s.backupClient.GetConfig(r.Context())

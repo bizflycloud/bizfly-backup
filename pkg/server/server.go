@@ -48,7 +48,7 @@ type Server struct {
 	// mu guards handle broker event.
 	mu                   sync.Mutex
 	cronManager          *cron.Cron
-	cronPolicyIDToCronID map[string]cron.EntryID
+	mappingToCronEntryID map[string]cron.EntryID
 
 	// signal chan use for testing.
 	testSignalCh chan os.Signal
@@ -68,7 +68,7 @@ func New(opts ...Option) (*Server, error) {
 	s.router = chi.NewRouter()
 	s.cronManager = cron.New(cron.WithLocation(time.UTC))
 	s.cronManager.Start()
-	s.cronPolicyIDToCronID = make(map[string]cron.EntryID)
+	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 
 	if s.logger == nil {
 		l, err := zap.NewDevelopment()
@@ -145,7 +145,7 @@ func (s *Server) handleConfigRefresh(backupDirectories []backupapi.BackupDirecto
 	<-ctx.Done()
 	s.cronManager = cron.New(cron.WithLocation(time.UTC))
 	s.cronManager.Start()
-	s.cronPolicyIDToCronID = make(map[string]cron.EntryID)
+	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 	s.addToCronManager(backupDirectories)
 	return nil
 }
@@ -158,9 +158,9 @@ func (s *Server) removeFromCronManager(bdc []backupapi.BackupDirectoryConfig) {
 	for _, bd := range bdc {
 		for _, policy := range bd.Policies {
 			mappingID := mappingID(bd.ID, policy.ID)
-			if entryID, ok := s.cronPolicyIDToCronID[mappingID]; ok {
+			if entryID, ok := s.mappingToCronEntryID[mappingID]; ok {
 				s.cronManager.Remove(entryID)
-				delete(s.cronPolicyIDToCronID, mappingID)
+				delete(s.mappingToCronEntryID, mappingID)
 			}
 		}
 	}
@@ -187,13 +187,23 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 				s.logger.Error("failed to add cron entry", zap.Error(err))
 				continue
 			}
-			s.cronPolicyIDToCronID[mappingID(bd.ID, policy.ID)] = entryID
+			s.mappingToCronEntryID[mappingID(bd.ID, policy.ID)] = entryID
 		}
 	}
 }
 
-func (s *Server) Backup(w http.ResponseWriter, r *http.Request)       {}
-func (s *Server) ListBackup(w http.ResponseWriter, r *http.Request)   {}
+func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {}
+
+func (s *Server) ListBackup(w http.ResponseWriter, r *http.Request) {
+	c, err := s.backupClient.GetConfig(r.Context())
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+	_ = json.NewEncoder(w).Encode(c)
+}
+
 func (s *Server) Restore(w http.ResponseWriter, r *http.Request)      {}
 func (s *Server) UpdateCron(w http.ResponseWriter, r *http.Request)   {}
 func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {}

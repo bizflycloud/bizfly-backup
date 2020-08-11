@@ -54,11 +54,11 @@ var agentCmd = &cobra.Command{
 			backupapi.WithSecretKey(secretKey),
 		)
 		if err != nil {
-			logger.Fatal("failed to create new backup client", zap.Error(err))
+			logger.Error("failed to create new backup client", zap.Error(err))
 			os.Exit(1)
 		}
 		if err := backupClient.UpdateMachine(); err != nil {
-			logger.Fatal("failed to update machine info", zap.Error(err))
+			logger.Error("failed to update machine info", zap.Error(err))
 			os.Exit(1)
 		}
 

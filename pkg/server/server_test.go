@@ -253,9 +253,9 @@ func TestServerCron(t *testing.T) {
 			s, err := New()
 			require.NoError(t, err)
 			s.addToCronManager(tc.bdc)
-			assert.Len(t, s.cronPolicyIDToCronID, tc.expectedNumEntries)
+			assert.Len(t, s.mappingToCronEntryID, tc.expectedNumEntries)
 			s.removeFromCronManager(tc.bdc)
-			assert.Equal(t, map[string]cron.EntryID{}, s.cronPolicyIDToCronID)
+			assert.Equal(t, map[string]cron.EntryID{}, s.mappingToCronEntryID)
 		})
 	}
 }

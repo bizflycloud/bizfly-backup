@@ -18,10 +18,21 @@
 package cmd
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"strings"
 
+	"github.com/bizflycloud/bizflyctl/formatter"
 	"github.com/spf13/cobra"
+
+	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 )
+
+var listBackupHeaders = []string{"ID", "Name", "Pattern", "Activated"}
 
 // backupCmd represents the backup command
 var backupCmd = &cobra.Command{
@@ -39,7 +50,33 @@ var backupListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all current backups.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("list backups called")
+		httpc := http.Client{
+			Transport: &http.Transport{
+				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+				},
+			},
+		}
+		resp, err := httpc.Get("http://unix/backups")
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		var c backupapi.Config
+		if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		var data [][]string
+		for _, bd := range c.BackupDirectories {
+			for _, policy := range bd.Policies {
+				activated := fmt.Sprintf("%b", bd.Activated)
+				row := []string{bd.ID, bd.Name, policy.SchedulePattern, activated}
+				data = append(data, row)
+			}
+		}
+		formatter.Output(listBackupHeaders, data)
 	},
 }
 

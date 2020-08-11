@@ -81,7 +81,7 @@ var backupListCmd = &cobra.Command{
 		var data [][]string
 		for _, bd := range c.BackupDirectories {
 			for _, policy := range bd.Policies {
-				activated := fmt.Sprintf("%b", bd.Activated)
+				activated := fmt.Sprintf("%v", bd.Activated)
 				row := []string{bd.ID, bd.Name, policy.ID, policy.SchedulePattern, activated}
 				data = append(data, row)
 			}
@@ -214,17 +214,17 @@ func init() {
 	backupCmd.AddCommand(backupListCmd)
 
 	backupListRecoveryPointCmd.PersistentFlags().StringVar(&backupID, "backup-id", "", "The ID of backup directory")
-	backupListRecoveryPointCmd.MarkPersistentFlagRequired("backup-id")
+	_ = backupListRecoveryPointCmd.MarkPersistentFlagRequired("backup-id")
 
 	backupDownloadRecoveryPointCmd.PersistentFlags().StringVar(&recoveryPointID, "recovery-point-id", "", "The ID of recovery point")
 	backupDownloadRecoveryPointCmd.PersistentFlags().StringVar(&backupDownloadOutFile, "outfile", "", "Output backup download to file")
-	backupDownloadRecoveryPointCmd.MarkPersistentFlagRequired("recovery-point-id")
+	_ = backupDownloadRecoveryPointCmd.MarkPersistentFlagRequired("recovery-point-id")
 	backupCmd.AddCommand(backupListRecoveryPointCmd)
 
 	backupRunCmd.PersistentFlags().StringVar(&backupID, "backup-id", "", "The ID of backup directory")
-	backupRunCmd.MarkPersistentFlagRequired("backup-id")
+	_ = backupRunCmd.MarkPersistentFlagRequired("backup-id")
 	backupRunCmd.PersistentFlags().StringVar(&policyID, "policy-id", "", "The ID of policy")
-	backupRunCmd.MarkPersistentFlagRequired("policy-id")
+	_ = backupRunCmd.MarkPersistentFlagRequired("policy-id")
 	backupCmd.AddCommand(backupRunCmd)
 
 	backupCmd.AddCommand(backupSyncCmd)

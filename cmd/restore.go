@@ -69,6 +69,6 @@ var restoreCmd = &cobra.Command{
 func init() {
 	restoreCmd.PersistentFlags().StringVar(&restoreDir, "dest", "", "The destination to restore")
 	restoreCmd.PersistentFlags().StringVar(&recoveryPointID, "recovery-point-id", "", "The ID of recovery point")
-	restoreCmd.MarkPersistentFlagRequired("recovery-point-id")
+	_ = restoreCmd.MarkPersistentFlagRequired("recovery-point-id")
 	rootCmd.AddCommand(restoreCmd)
 }

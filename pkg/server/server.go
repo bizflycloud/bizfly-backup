@@ -201,13 +201,13 @@ func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`malformed body`))
+		_, _ = w.Write([]byte(`malformed body`))
 		return
 
 	}
 	if err := s.backup(body.ID, body.PolicyID); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		_, _ = w.Write([]byte(err.Error()))
 	}
 }
 
@@ -215,7 +215,7 @@ func (s *Server) ListBackup(w http.ResponseWriter, r *http.Request) {
 	c, err := s.backupClient.GetConfig(r.Context())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
 	_ = json.NewEncoder(w).Encode(c)
@@ -226,7 +226,7 @@ func (s *Server) ListRecoveryPoints(w http.ResponseWriter, r *http.Request) {
 	rps, err := s.backupClient.ListRecoveryPoints(r.Context(), backupID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
 	_ = json.NewEncoder(w).Encode(rps)
@@ -236,7 +236,7 @@ func (s *Server) DownloadRecoveryPoint(w http.ResponseWriter, r *http.Request) {
 	recoveryPointID := chi.URLParam(r, "recoveryPointID")
 	if err := s.backupClient.DownloadFileContent(r.Context(), recoveryPointID, w); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
 }
@@ -247,13 +247,13 @@ func (s *Server) Restore(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`malformed body`))
+		_, _ = w.Write([]byte(`malformed body`))
 		return
 	}
 	recoveryPointID := chi.URLParam(r, "recoveryPointID")
 	if err := s.restore(recoveryPointID, body.Dest); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		_, _ = w.Write([]byte(err.Error()))
 	}
 }
 
@@ -261,14 +261,14 @@ func (s *Server) SyncConfig(w http.ResponseWriter, r *http.Request) {
 	c, err := s.backupClient.GetConfig(r.Context())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.handleConfigRefresh(c.BackupDirectories); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
+		_, _ = w.Write([]byte(err.Error()))
 	}
 }
 

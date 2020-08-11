@@ -45,7 +45,7 @@ type Server struct {
 	useUnixSock     bool
 	backupClient    *backupapi.Client
 
-	// mu guards following fields.
+	// mu guards handle broker event.
 	mu                   sync.Mutex
 	cronManager          *cron.Cron
 	cronPolicyIDToCronID map[string]cron.EntryID
@@ -102,6 +102,8 @@ func (s *Server) setupRoutes() {
 }
 
 func (s *Server) handleBrokerEvent(e broker.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var msg broker.Message
 	if err := json.Unmarshal(e.Payload, &msg); err != nil {
 		return err
@@ -112,30 +114,63 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 		return s.backup(msg.BackupDirectoryID, msg.PolicyID)
 	case broker.RestoreManual:
 		return s.restore(msg.RecoveryPointID, msg.DestinationDirectory)
-	case broker.ConfigUpdate, broker.AgentUpgrade:
+	case broker.ConfigUpdate:
+		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
+	case broker.ConfigRefresh:
+		return s.handleConfigRefresh(msg.BackupDirectories)
+	case broker.AgentUpgrade:
 	default:
 		return fmt.Errorf("Event %s: %w", msg.EventType, broker.ErrUnknownEventType)
 	}
 	return nil
 }
 
-func (s *Server) removeFromCronManager(cfg *backupapi.Config) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, bd := range cfg.BackupDirectories {
+func (s *Server) handleConfigUpdate(action string, backupDirectories []backupapi.BackupDirectoryConfig) error {
+	switch action {
+	case broker.ConfigUpdateActionAddPolicy,
+		broker.ConfigUpdateActionUpdatePolicy,
+		broker.ConfigUpdateActionActiveDirectory:
+		s.removeFromCronManager(backupDirectories)
+		s.addToCronManager(backupDirectories)
+	case broker.ConfigUpdateActionDelPolicy, broker.ConfigUpdateActionDeactiveDirectory:
+		s.removeFromCronManager(backupDirectories)
+	default:
+		return fmt.Errorf("unhandled action: %s", action)
+	}
+	return nil
+}
+
+func (s *Server) handleConfigRefresh(backupDirectories []backupapi.BackupDirectoryConfig) error {
+	ctx := s.cronManager.Stop()
+	<-ctx.Done()
+	s.cronManager = cron.New(cron.WithLocation(time.UTC))
+	s.cronManager.Start()
+	s.cronPolicyIDToCronID = make(map[string]cron.EntryID)
+	s.addToCronManager(backupDirectories)
+	return nil
+}
+
+func mappingID(backupDirectoryID, policyID string) string {
+	return backupDirectoryID + "|" + policyID
+}
+
+func (s *Server) removeFromCronManager(bdc []backupapi.BackupDirectoryConfig) {
+	for _, bd := range bdc {
 		for _, policy := range bd.Policies {
-			if entryID, ok := s.cronPolicyIDToCronID[policy.ID]; ok {
+			mappingID := mappingID(bd.ID, policy.ID)
+			if entryID, ok := s.cronPolicyIDToCronID[mappingID]; ok {
 				s.cronManager.Remove(entryID)
-				delete(s.cronPolicyIDToCronID, policy.ID)
+				delete(s.cronPolicyIDToCronID, mappingID)
 			}
 		}
 	}
 }
 
-func (s *Server) addToCronManager(cfg *backupapi.Config) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, bd := range cfg.BackupDirectories {
+func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
+	for _, bd := range bdc {
+		if !bd.Activated {
+			continue
+		}
 		for _, policy := range bd.Policies {
 			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
 				if err := s.backup(bd.ID, policy.ID); err != nil {
@@ -152,7 +187,7 @@ func (s *Server) addToCronManager(cfg *backupapi.Config) {
 				s.logger.Error("failed to add cron entry", zap.Error(err))
 				continue
 			}
-			s.cronPolicyIDToCronID[policy.ID] = entryID
+			s.cronPolicyIDToCronID[mappingID(bd.ID, policy.ID)] = entryID
 		}
 	}
 }
@@ -163,52 +198,82 @@ func (s *Server) Restore(w http.ResponseWriter, r *http.Request)      {}
 func (s *Server) UpdateCron(w http.ResponseWriter, r *http.Request)   {}
 func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {}
 
+func (s *Server) subscribeBrokerLoop(ctx context.Context) {
+	if len(s.subscribeTopics) == 0 {
+		return
+	}
+	b := &backoff.Backoff{Jitter: true}
+	for {
+		if err := s.b.Connect(); err != nil {
+			time.Sleep(b.Duration())
+			continue
+		}
+		if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
+			s.logger.Error("Subscribe to subscribeTopics return error", zap.Error(err), zap.Strings("subscribeTopics", s.subscribeTopics))
+		}
+	}
+}
+
+func (s *Server) shutdownSignalLoop(ctx context.Context, valv *valve.Valve) {
+	for {
+		<-time.After(1 * time.Second)
+
+		func() {
+			if err := valve.Lever(ctx).Open(); err != nil {
+				s.logger.Error("failed to open valve")
+				return
+			}
+			defer valve.Lever(ctx).Close()
+
+			// signal control.
+			select {
+			case <-valve.Lever(ctx).Stop():
+				s.logger.Debug("valve is closed")
+				return
+
+			case <-ctx.Done():
+				s.logger.Debug("context is cancelled")
+				return
+			default:
+			}
+		}()
+	}
+}
+
+func (s *Server) signalHandler(c chan os.Signal, valv *valve.Valve, srv *http.Server) {
+	<-c
+	// signal is a ^C, handle it
+	s.logger.Info("shutting down...")
+
+	// first valv
+	if err := valv.Shutdown(20 * time.Second); err != nil {
+		s.logger.Error("failed to shutdown valv")
+	}
+
+	// create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// start http shutdown
+	if err := srv.Shutdown(ctx); err != nil {
+		s.logger.Error("failed to shutdown http server")
+	}
+
+	// verify, in worst case call cancel via defer
+	select {
+	case <-time.After(21 * time.Second):
+		s.logger.Error("not all connections done")
+	case <-ctx.Done():
+	}
+}
+
 func (s *Server) Run() error {
 	// Graceful valve shut-off package to manage code preemption and shutdown signaling.
 	valv := valve.New()
 	baseCtx := valv.Context()
 
-	go func(ctx context.Context) {
-		if len(s.subscribeTopics) == 0 {
-			return
-		}
-		b := &backoff.Backoff{Jitter: true}
-		for {
-			if err := s.b.Connect(); err != nil {
-				time.Sleep(b.Duration())
-				continue
-			}
-			if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
-				s.logger.Error("Subscribe to subscribeTopics return error", zap.Error(err), zap.Strings("subscribeTopics", s.subscribeTopics))
-			}
-		}
-	}(baseCtx)
-
-	go func(ctx context.Context) {
-		for {
-			<-time.After(1 * time.Second)
-
-			func() {
-				if err := valve.Lever(ctx).Open(); err != nil {
-					s.logger.Error("failed to open valve")
-					return
-				}
-				defer valve.Lever(ctx).Close()
-
-				// signal control.
-				select {
-				case <-valve.Lever(ctx).Stop():
-					s.logger.Debug("valve is closed")
-					return
-
-				case <-ctx.Done():
-					s.logger.Debug("context is cancelled")
-					return
-				default:
-				}
-			}()
-		}
-	}(baseCtx)
+	go s.subscribeBrokerLoop(baseCtx)
+	go s.shutdownSignalLoop(baseCtx, valv)
 
 	srv := http.Server{Handler: chi.ServerBaseContext(baseCtx, s.router)}
 
@@ -217,32 +282,7 @@ func (s *Server) Run() error {
 		c = s.testSignalCh
 	}
 	signal.Notify(c, syscall.SIGTERM, syscall.SIGINT)
-	go func() {
-		<-c
-		// signal is a ^C, handle it
-		s.logger.Info("shutting down...")
-
-		// first valv
-		if err := valv.Shutdown(20 * time.Second); err != nil {
-			s.logger.Error("failed to shutdown valv")
-		}
-
-		// create context with timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-
-		// start http shutdown
-		if err := srv.Shutdown(ctx); err != nil {
-			s.logger.Error("failed to shutdown http server")
-		}
-
-		// verify, in worst case call cancel via defer
-		select {
-		case <-time.After(21 * time.Second):
-			s.logger.Error("not all connections done")
-		case <-ctx.Done():
-		}
-	}()
+	go s.signalHandler(c, valv, &srv)
 
 	if s.useUnixSock {
 		unixListener, err := net.Listen("unix", s.Addr)

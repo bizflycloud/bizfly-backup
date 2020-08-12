@@ -36,10 +36,7 @@ func (c *Client) UpdateMachine() error {
 	if err != nil {
 		return fmt.Errorf("os.Hostname(): %w", err)
 	}
-	oi, err := osinfo.New()
-	if err != nil {
-		return fmt.Errorf("osinfo.New(): %w", err)
-	}
+	oi := osinfo.New()
 	id, err := machineid.ID()
 	if err != nil {
 		return fmt.Errorf("machineid.ID(): %w", err)

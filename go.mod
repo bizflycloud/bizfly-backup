@@ -6,7 +6,7 @@ require (
 	github.com/bizflycloud/bizflyctl v0.1.1
 	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/eclipse/paho.mqtt.golang v1.2.0
-	github.com/favadi/osinfo v0.0.0-20161014112035-325b250bc9df
+	github.com/favadi/osinfo v0.0.0-20200812114956-6c7e8ee533c0
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/go-chi/valve v0.0.0-20170920024740-9e45288364f4
 	github.com/jpillora/backoff v1.0.0

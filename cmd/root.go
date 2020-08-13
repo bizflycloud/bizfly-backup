@@ -50,7 +50,9 @@ var rootCmd = &cobra.Command{
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		logger.Error(err.Error())
+		if debug {
+			logger.Error(err.Error())
+		}
 		os.Exit(1)
 	}
 }
@@ -72,7 +74,7 @@ func initConfig() {
 	if logger, err = newLogger(); err != nil {
 		panic(err)
 	}
-	logger = logger.WithOptions(zap.AddStacktrace(zap.DPanicLevel))
+
 	if cfgFile != "" {
 		// Use config file from the flag.
 		viper.SetConfigFile(cfgFile)

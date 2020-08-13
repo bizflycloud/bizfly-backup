@@ -72,7 +72,7 @@ func initConfig() {
 	if logger, err = newLogger(); err != nil {
 		panic(err)
 	}
-
+	logger = logger.WithOptions(zap.AddStacktrace(zap.DPanicLevel))
 	if cfgFile != "" {
 		// Use config file from the flag.
 		viper.SetConfigFile(cfgFile)

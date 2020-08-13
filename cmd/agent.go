@@ -22,7 +22,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/cenkalti/backoff/v3"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -51,9 +53,19 @@ var agentCmd = &cobra.Command{
 			logger.Error("failed to create new backup client", zap.Error(err))
 			os.Exit(1)
 		}
-		if err := backupClient.UpdateMachine(); err != nil {
+		bo := backoff.WithMaxRetries(backoff.NewConstantBackOff(3*time.Second), 3)
+
+		for {
+			err := backupClient.UpdateMachine()
+			if err == nil {
+				break
+			}
 			logger.Error("failed to update machine info", zap.Error(err))
-			os.Exit(1)
+			d := bo.NextBackOff()
+			if d == backoff.Stop {
+				os.Exit(1)
+			}
+			time.Sleep(d)
 		}
 
 		mqttUrl := viper.GetString("broker_url")

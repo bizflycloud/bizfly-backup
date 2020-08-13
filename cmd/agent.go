@@ -49,9 +49,11 @@ var agentCmd = &cobra.Command{
 
 		accessKey := viper.GetString("access_key")
 		secretKey := viper.GetString("secret_key")
+		api_url := viper.GetString("api_url")
 		backupClient, err := backupapi.NewClient(
 			backupapi.WithAccessKey(accessKey),
 			backupapi.WithSecretKey(secretKey),
+			backupapi.WithServerURL(api_url),
 		)
 		if err != nil {
 			logger.Error("failed to create new backup client", zap.Error(err))

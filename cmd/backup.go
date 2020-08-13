@@ -36,7 +36,7 @@ import (
 )
 
 var (
-	listBackupHeaders         = []string{"ID", "Name", "PolicyID", "Pattern", "Activated"}
+	listBackupHeaders         = []string{"ID", "Name", "Path", "PolicyID", "Pattern", "Activated"}
 	listRecoveryPointsHeaders = []string{"ID", "Status", "Type"}
 	backupID                  string
 	policyID                  string
@@ -82,7 +82,7 @@ var backupListCmd = &cobra.Command{
 		for _, bd := range c.BackupDirectories {
 			for _, policy := range bd.Policies {
 				activated := fmt.Sprintf("%v", bd.Activated)
-				row := []string{bd.ID, bd.Name, policy.ID, policy.SchedulePattern, activated}
+				row := []string{bd.ID, bd.Name, bd.Path, policy.ID, policy.SchedulePattern, activated}
 				data = append(data, row)
 			}
 		}

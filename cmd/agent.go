@@ -39,14 +39,6 @@ var agentCmd = &cobra.Command{
 	Use:   "agent",
 	Short: "Run agent.",
 	Run: func(cmd *cobra.Command, args []string) {
-		mqttUrl := viper.GetString("broker_url")
-		agentID := viper.GetString("machine_id")
-		b, err := mqtt.NewBroker(mqtt.WithURL(mqttUrl), mqtt.WithClientID(agentID))
-		if err != nil {
-			logger.Fatal("failed to create broker", zap.Error(err))
-			os.Exit(1)
-		}
-
 		accessKey := viper.GetString("access_key")
 		secretKey := viper.GetString("secret_key")
 		api_url := viper.GetString("api_url")
@@ -61,6 +53,14 @@ var agentCmd = &cobra.Command{
 		}
 		if err := backupClient.UpdateMachine(); err != nil {
 			logger.Error("failed to update machine info", zap.Error(err))
+			os.Exit(1)
+		}
+
+		mqttUrl := viper.GetString("broker_url")
+		agentID := viper.GetString("machine_id")
+		b, err := mqtt.NewBroker(mqtt.WithURL(mqttUrl), mqtt.WithClientID(agentID))
+		if err != nil {
+			logger.Fatal("failed to create broker", zap.Error(err))
 			os.Exit(1)
 		}
 

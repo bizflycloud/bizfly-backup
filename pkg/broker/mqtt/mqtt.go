@@ -17,14 +17,17 @@ const (
 	lastWillTestatement         = `{"status": "OFFLINE"}`
 )
 
-var _ broker.Broker = (*mqttBroker)(nil)
+var _ broker.Broker = (*MQTTBroker)(nil)
 
 var ErrNoConnection = errors.New("no connection to broker server")
 
 var tokenWaitTimeout = 3 * time.Second
 
-type mqttBroker struct {
+// MQTTBroker implements broker.Broker interface.
+type MQTTBroker struct {
 	uri      *url.URL
+	username string
+	password string
 	clientID string
 	client   mqtt.Client
 	qos      byte
@@ -33,8 +36,8 @@ type mqttBroker struct {
 }
 
 // NewBroker creates new mqtt broker.
-func NewBroker(opts ...Option) (broker.Broker, error) {
-	m := &mqttBroker{}
+func NewBroker(opts ...Option) (*MQTTBroker, error) {
+	m := &MQTTBroker{}
 	for _, opt := range opts {
 		if err := opt(m); err != nil {
 			return nil, err
@@ -50,17 +53,27 @@ func NewBroker(opts ...Option) (broker.Broker, error) {
 	return m, nil
 }
 
-func (m *mqttBroker) Connect() error {
+func (m *MQTTBroker) opts() *mqtt.ClientOptions {
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker("tcp://" + m.uri.Host)
-	opts.SetUsername(m.uri.User.Username())
-	password, _ := m.uri.User.Password()
+	username := m.username
+	if u := m.uri.User.Username(); u != "" {
+		username = u
+	}
+	opts.SetUsername(username)
+	password := m.password
+	if p, isSet := m.uri.User.Password(); isSet {
+		password = p
+	}
 	opts.SetPassword(password)
 	opts.SetClientID(m.clientID)
 	opts.SetCleanSession(false)
 	opts.SetWill("agent/"+m.clientID, lastWillTestatement, 0, false)
+	return opts
+}
 
-	client := mqtt.NewClient(opts)
+func (m *MQTTBroker) Connect() error {
+	client := mqtt.NewClient(m.opts())
 	token := client.Connect()
 	for !token.WaitTimeout(tokenWaitTimeout) {
 	}
@@ -68,7 +81,7 @@ func (m *mqttBroker) Connect() error {
 	return token.Error()
 }
 
-func (m *mqttBroker) Disconnect() error {
+func (m *MQTTBroker) Disconnect() error {
 	if m.client == nil {
 		return ErrNoConnection
 	}
@@ -78,7 +91,7 @@ func (m *mqttBroker) Disconnect() error {
 	return nil
 }
 
-func (m *mqttBroker) Publish(topic string, payload interface{}) error {
+func (m *MQTTBroker) Publish(topic string, payload interface{}) error {
 	if m.client == nil {
 		return ErrNoConnection
 	}
@@ -89,7 +102,7 @@ func (m *mqttBroker) Publish(topic string, payload interface{}) error {
 	return token.Error()
 }
 
-func (m *mqttBroker) Subscribe(topics []string, h broker.Handler) error {
+func (m *MQTTBroker) Subscribe(topics []string, h broker.Handler) error {
 	if m.client == nil {
 		return ErrNoConnection
 	}
@@ -119,6 +132,6 @@ func (m *mqttBroker) Subscribe(topics []string, h broker.Handler) error {
 	return token.Error()
 }
 
-func (m *mqttBroker) String() string {
+func (m *MQTTBroker) String() string {
 	return fmt.Sprintf("Broker [%s]", m.clientID)
 }

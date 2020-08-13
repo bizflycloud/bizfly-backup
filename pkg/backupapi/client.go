@@ -127,11 +127,12 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	now := time.Now().UTC().Format(http.TimeFormat)
 	req.Header.Add("Date", now)
 	req.Header.Add("Authorization", c.authorizationHeaderValue(req.Method, now))
+	req.Header.Add("Content-Type", "application/json")
 	return c.client.Do(req)
 }
 
 func (c *Client) authorizationHeaderValue(method, now string) string {
 	s := strings.Join([]string{method, c.accessKey, c.secretKey, now}, "")
 	hash := sha256.Sum256([]byte(s))
-	return "VBS " + hex.EncodeToString(hash[:])
+	return "VBS " + strings.Join([]string{c.accessKey, hex.EncodeToString(hash[:])}, ":")
 }

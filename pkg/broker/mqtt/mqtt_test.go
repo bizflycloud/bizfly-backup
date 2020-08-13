@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/ory/dockertest/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,4 +89,54 @@ func runWithVerneMQDockerImage(repo, tag string, env []string, testFunc func(t *
 	}
 
 	testFunc(t)
+}
+
+func Test_mqttBroker_opts(t *testing.T) {
+	defaultBroker, _ := NewBroker(WithURL("mqtt://localhost:1883"))
+	brokerWithAuthinURI, _ := NewBroker(
+		WithURL("mqtt://foo:bar@localhost:1883"),
+		WithUsername("username"),
+		WithPassword("password"),
+	)
+	brokerWithAuth, _ := NewBroker(
+		WithURL("mqtt://localhost:1883"),
+		WithUsername("username"),
+		WithPassword("password"),
+	)
+
+	tests := []struct {
+		name       string
+		m          *MQTTBroker
+		assertFunc func(options *mqtt.ClientOptions) bool
+	}{
+		{
+			"default",
+			defaultBroker,
+			func(opts *mqtt.ClientOptions) bool {
+				return len(opts.Servers) == 1 && opts.Username == "" && opts.Password == ""
+			},
+		},
+		{
+			"auth info in url",
+			brokerWithAuthinURI,
+			func(opts *mqtt.ClientOptions) bool {
+				return len(opts.Servers) == 1 && opts.Username == "foo" && opts.Password == "bar"
+			},
+		},
+		{
+			"auth info from MQTTBroker",
+			brokerWithAuth,
+			func(opts *mqtt.ClientOptions) bool {
+				return len(opts.Servers) == 1 && opts.Username == "username" && opts.Password == "password"
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.True(t, tc.assertFunc(tc.m.opts()))
+		})
+	}
 }

@@ -58,7 +58,12 @@ var agentCmd = &cobra.Command{
 
 		mqttUrl := viper.GetString("broker_url")
 		agentID := viper.GetString("machine_id")
-		b, err := mqtt.NewBroker(mqtt.WithURL(mqttUrl), mqtt.WithClientID(agentID))
+		b, err := mqtt.NewBroker(
+			mqtt.WithURL(mqttUrl),
+			mqtt.WithClientID(agentID),
+			mqtt.WithUsername(accessKey),
+			mqtt.WithPassword(secretKey),
+		)
 		if err != nil {
 			logger.Fatal("failed to create broker", zap.Error(err))
 			os.Exit(1)

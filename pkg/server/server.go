@@ -280,13 +280,14 @@ func (s *Server) subscribeBrokerLoop(ctx context.Context) {
 	}
 	b := &backoff.Backoff{Jitter: true}
 	for {
-		if err := s.b.Connect(); err != nil {
-			time.Sleep(b.Duration())
-			continue
+		if err := s.b.Connect(); err == nil {
+			break
 		}
-		if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
-			s.logger.Error("Subscribe to subscribeTopics return error", zap.Error(err), zap.Strings("subscribeTopics", s.subscribeTopics))
-		}
+		time.Sleep(b.Duration())
+		continue
+	}
+	if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
+		s.logger.Error("Subscribe to subscribeTopics return error", zap.Error(err), zap.Strings("subscribeTopics", s.subscribeTopics))
 	}
 }
 

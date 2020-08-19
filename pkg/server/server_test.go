@@ -3,6 +3,7 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -25,8 +26,9 @@ import (
 )
 
 var (
-	b     broker.Broker
-	topic = "agent/agent1"
+	b       broker.Broker
+	topic   = "agent/agent1"
+	mqttURL string
 )
 
 func TestMain(m *testing.M) {
@@ -44,7 +46,7 @@ func TestMain(m *testing.M) {
 		log.Fatalf("Could not start resource: %s", err)
 	}
 
-	mqttURL := fmt.Sprintf("mqtt://foo:bar@%s", resource.GetHostPort("1883/tcp"))
+	mqttURL = fmt.Sprintf("mqtt://foo:bar@%s", resource.GetHostPort("1883/tcp"))
 	if err := pool.Retry(func() error {
 		var err error
 		b, err = mqtt.NewBroker(mqtt.WithURL(mqttURL), mqtt.WithClientID("sub"))
@@ -94,12 +96,29 @@ func TestServerEventHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	done := make(chan struct{})
+	stop := make(chan struct{})
+	count := 0
+
 	go func() {
-		require.NoError(t, s.b.Subscribe([]string{topic}, s.handleBrokerEvent))
+		require.NoError(t, s.b.Subscribe([]string{topic}, func(e broker.Event) error {
+			count++
+			if count == 2 {
+				close(stop)
+			}
+			return errors.New("unknown event)")
+		}))
 		close(done)
 	}()
 
 	<-done
+	pub, err := mqtt.NewBroker(mqtt.WithURL(mqttURL), mqtt.WithClientID("pub"))
+	require.NoError(t, err)
+	require.NotNil(t, pub)
+	assert.NoError(t, pub.Connect())
+	assert.NoError(t, pub.Publish(topic, `{"event_type": "test"`))
+	assert.NoError(t, pub.Publish(topic, `{"event_type": ""`))
+	<-stop
+	assert.Equal(t, 2, count)
 }
 
 func Test_compressDir(t *testing.T) {

@@ -17,6 +17,8 @@ const (
 	ConfigUpdateActionUpdatePolicy      = "update_policy"
 	ConfigUpdateActionActiveDirectory   = "active_directory"
 	ConfigUpdateActionDeactiveDirectory = "deactive_directory"
+	ConfigUpdateActionAddDirectory      = "add_directory"
+	ConfigUpdateActionDelDirectory      = "del_directory"
 )
 
 // ErrUnknownEventType is raised when receiving unhandled event from broker.

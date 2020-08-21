@@ -115,7 +115,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	case broker.BackupManual:
 		return s.backup(msg.BackupDirectoryID, msg.PolicyID)
 	case broker.RestoreManual:
-		return s.restore(msg.RecoveryPointID, msg.DestinationDirectory)
+		return s.restore(msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
 	case broker.ConfigUpdate:
 		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
 	case broker.ConfigRefresh:
@@ -251,7 +251,7 @@ func (s *Server) Restore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recoveryPointID := chi.URLParam(r, "recoveryPointID")
-	if err := s.restore(recoveryPointID, body.Dest); err != nil {
+	if err := s.restore(recoveryPointID, body.Dest, w); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 	}
@@ -441,7 +441,23 @@ func (s *Server) backup(backupDirectoryID string, policyID string) error {
 	return nil
 }
 
-func (s *Server) restore(recoveryPointID string, destDir string) error {
+func (s *Server) reportStartDownload(w io.Writer) {
+	_, _ = w.Write([]byte("Start downloading ..."))
+}
+
+func (s *Server) reportDownloadCompleted(w io.Writer) {
+	_, _ = w.Write([]byte("Download completed."))
+}
+
+func (s *Server) reportStartRestore(w io.Writer) {
+	_, _ = w.Write([]byte("Start restoring ..."))
+}
+
+func (s *Server) reportRestoreCompleted(w io.Writer) {
+	_, _ = w.Write([]byte("Restore completed."))
+}
+
+func (s *Server) restore(recoveryPointID string, destDir string, progressOutput io.Writer) error {
 	ctx := context.Background()
 
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
@@ -459,10 +475,13 @@ func (s *Server) restore(recoveryPointID string, destDir string) error {
 		s.logger.Warn("failed to notify server before downloading file content", zap.Error(err))
 	}
 
-	if err := s.backupClient.DownloadFileContent(ctx, recoveryPointID, fi); err != nil {
+	s.reportStartDownload(progressOutput)
+	pw := backupapi.NewProgressWriter(progressOutput)
+	if err := s.backupClient.DownloadFileContent(ctx, recoveryPointID, io.MultiWriter(fi, pw)); err != nil {
 		s.logger.Error("failed to download file content", zap.Error(err))
 		return err
 	}
+	s.reportDownloadCompleted(progressOutput)
 	if err := fi.Close(); err != nil {
 		s.logger.Error("failed to save to temporary file", zap.Error(err))
 		return err
@@ -473,10 +492,11 @@ func (s *Server) restore(recoveryPointID string, destDir string) error {
 	if err := s.b.Publish(s.publishTopic, payload); err != nil {
 		s.logger.Warn("failed to notify server before restoring", zap.Error(err))
 	}
+	s.reportStartRestore(progressOutput)
 	if err := unzip(fi.Name(), destDir); err != nil {
 		return err
 	}
-
+	s.reportRestoreCompleted(progressOutput)
 	msg["status"] = statusComplete
 	payload, _ = json.Marshal(msg)
 	if err := s.b.Publish(s.publishTopic, payload); err != nil {

@@ -59,11 +59,11 @@ github.com/docker/go-connections v0.4.0 h1:El9xVISelRB7BuFusrZozjnkIM5YnzCViNKoh
 github.com/docker/go-connections v0.4.0/go.mod h1:Gbd7IOopHjR8Iph03tsViu4nIes5XhDvyHbTtUxmeec=
 github.com/docker/go-units v0.4.0 h1:3uh0PgVws3nIA0Q+MwDC8yjEPf9zjRfZZWXZYDct3Tw=
 github.com/docker/go-units v0.4.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
+github.com/dustin/go-humanize v1.0.0 h1:VSnTsYCnlFHaM2/igO1h6X3HA71jcobQuxemgkq4zYo=
+github.com/dustin/go-humanize v1.0.0/go.mod h1:HtrtbFcZ19U5GC7JDqmcUSB87Iq5E25KnS6fMYU6eOk=
 github.com/eclipse/paho.mqtt.golang v1.2.0 h1:1F8mhG9+aO5/xpdtFkW4SxOJB67ukuDC3t2y2qayIX0=
 github.com/eclipse/paho.mqtt.golang v1.2.0/go.mod h1:H9keYFcgq3Qr5OUJm/JZI/i6U7joQ8SYLhZwfeOo6Ts=
 github.com/fatih/color v1.7.0/go.mod h1:Zm6kSWBoL9eyXnKyktHP6abPY2pDugNf5KwzbycvMj4=
-github.com/favadi/osinfo v0.0.0-20161014112035-325b250bc9df h1:+bfeRGiTkNFKWx1XOgIcEIKTkUhvonTg8cUEW29WCE8=
-github.com/favadi/osinfo v0.0.0-20161014112035-325b250bc9df/go.mod h1:l6qZLbxBj9lW78NOODrcFeNn5jytImSDGxJaRCECxtA=
 github.com/favadi/osinfo v0.0.0-20200812114956-6c7e8ee533c0 h1:/V5aD90VHCUCG56t4tqkQhYeD359s8rzsVrbGRy1IoU=
 github.com/favadi/osinfo v0.0.0-20200812114956-6c7e8ee533c0/go.mod h1:l6qZLbxBj9lW78NOODrcFeNn5jytImSDGxJaRCECxtA=
 github.com/fsnotify/fsnotify v1.4.7 h1:IXs+QLmnXW2CcXuY+8Mzv/fWEsPGWxqefPtCP5CnV9I=

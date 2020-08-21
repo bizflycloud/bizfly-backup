@@ -131,10 +131,13 @@ func (s *Server) handleConfigUpdate(action string, backupDirectories []backupapi
 	switch action {
 	case broker.ConfigUpdateActionAddPolicy,
 		broker.ConfigUpdateActionUpdatePolicy,
-		broker.ConfigUpdateActionActiveDirectory:
+		broker.ConfigUpdateActionActiveDirectory,
+		broker.ConfigUpdateActionAddDirectory:
 		s.removeFromCronManager(backupDirectories)
 		s.addToCronManager(backupDirectories)
-	case broker.ConfigUpdateActionDelPolicy, broker.ConfigUpdateActionDeactiveDirectory:
+	case broker.ConfigUpdateActionDelPolicy,
+		broker.ConfigUpdateActionDeactiveDirectory,
+		broker.ConfigUpdateActionDelDirectory:
 		s.removeFromCronManager(backupDirectories)
 	default:
 		return fmt.Errorf("unhandled action: %s", action)

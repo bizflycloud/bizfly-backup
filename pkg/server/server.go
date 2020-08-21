@@ -113,7 +113,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
 	case broker.BackupManual:
-		return s.backup(msg.BackupDirectoryID, msg.PolicyID)
+		return s.backup(msg.BackupDirectoryID, msg.PolicyID, ioutil.Discard)
 	case broker.RestoreManual:
 		return s.restore(msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
 	case broker.ConfigUpdate:
@@ -175,7 +175,7 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 		}
 		for _, policy := range bd.Policies {
 			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
-				if err := s.backup(bd.ID, policy.ID); err != nil {
+				if err := s.backup(bd.ID, policy.ID, ioutil.Discard); err != nil {
 					zapFields := []zap.Field{
 						zap.Error(err),
 						zap.String("service", "cron"),
@@ -205,7 +205,7 @@ func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {
 		return
 
 	}
-	if err := s.backup(body.ID, body.PolicyID); err != nil {
+	if err := s.backup(body.ID, body.PolicyID, w); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 	}
@@ -373,8 +373,24 @@ func (s *Server) Run() error {
 	return srv.ListenAndServe()
 }
 
+func (s *Server) reportStartCompress(w io.Writer) {
+	_, _ = w.Write([]byte("Start compressing ..."))
+}
+
+func (s *Server) reportCompressDone(w io.Writer) {
+	_, _ = w.Write([]byte("Compressing done ..."))
+}
+
+func (s *Server) reportStartUpload(w io.Writer) {
+	_, _ = w.Write([]byte("Start uploading ..."))
+}
+
+func (s *Server) reportUploadCompleted(w io.Writer) {
+	_, _ = w.Write([]byte("Upload completed ..."))
+}
+
 // backup performs backup flow.
-func (s *Server) backup(backupDirectoryID string, policyID string) error {
+func (s *Server) backup(backupDirectoryID string, policyID string, progressOutput io.Writer) error {
 	ctx := context.Background()
 	// Create recovery point
 	rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{PolicyID: policyID})
@@ -405,6 +421,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string) error {
 	}
 
 	// Compress directory
+	s.reportStartCompress(progressOutput)
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
 	if err != nil {
 		return err
@@ -416,7 +433,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string) error {
 	if err := fi.Close(); err != nil {
 		return err
 	}
-
+	s.reportCompressDone(progressOutput)
 	fi, err = os.Open(fi.Name())
 	if err != nil {
 		return err
@@ -428,9 +445,12 @@ func (s *Server) backup(backupDirectoryID string, policyID string) error {
 		s.logger.Warn("failed to notify server before upload file", zap.Error(err))
 	}
 	// Upload file to server
-	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi); err != nil {
+	s.reportStartUpload(progressOutput)
+	pw := backupapi.NewProgressWriter(progressOutput)
+	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw); err != nil {
 		return nil
 	}
+	s.reportUploadCompleted(progressOutput)
 
 	msg["status"] = statusComplete
 	payload, _ = json.Marshal(msg)

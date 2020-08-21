@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"testing"
 
@@ -34,5 +35,6 @@ func TestClient_uploadFile(t *testing.T) {
 		assert.Equal(t, content, buf.String())
 	})
 
-	assert.NoError(t, client.UploadFile(fn, buf))
+	pw := NewProgressWriter(os.Stderr)
+	assert.NoError(t, client.UploadFile(fn, buf, pw))
 }

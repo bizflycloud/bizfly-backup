@@ -37,7 +37,7 @@ type Part struct {
 }
 
 // UploadFile uploads given file to server.
-func (c *Client) UploadFile(fn string, r io.Reader) error {
+func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer) error {
 	bodyBuf := &bytes.Buffer{}
 	bodyWriter := multipart.NewWriter(bodyBuf)
 	fileWriter, err := bodyWriter.CreateFormFile("data", fn)
@@ -62,7 +62,7 @@ func (c *Client) UploadFile(fn string, r io.Reader) error {
 
 	u := c.ServerURL.ResolveReference(relPath)
 
-	resp, err := c.client.Post(u.String(), contentType, bodyBuf)
+	resp, err := c.client.Post(u.String(), contentType, io.TeeReader(bodyBuf, pw))
 	if err != nil {
 		return err
 	}

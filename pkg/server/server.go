@@ -283,11 +283,21 @@ func (s *Server) subscribeBrokerLoop(ctx context.Context) {
 	}
 	b := &backoff.Backoff{Jitter: true}
 	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 		if err := s.b.Connect(); err == nil {
 			break
 		}
 		time.Sleep(b.Duration())
 		continue
+	}
+	msg := map[string]string{"status": "ONLINE"}
+	payload, _ := json.Marshal(msg)
+	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+		s.logger.Error("failed to notify server status online", zap.Error(err))
 	}
 	if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
 		s.logger.Error("Subscribe to subscribeTopics return error", zap.Error(err), zap.Strings("subscribeTopics", s.subscribeTopics))

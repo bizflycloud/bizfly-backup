@@ -3,6 +3,7 @@ package backupapi
 import (
 	"bytes"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"strings"
 	"testing"
@@ -21,7 +22,6 @@ func TestClient_uploadFile(t *testing.T) {
 
 	mux.HandleFunc(uploadFilePath, func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
-
 		require.NoError(t, r.ParseMultipartForm(64))
 		file, handler, err := r.FormFile("data")
 		require.NoError(t, err)
@@ -34,5 +34,5 @@ func TestClient_uploadFile(t *testing.T) {
 		assert.Equal(t, content, buf.String())
 	})
 
-	assert.NoError(t, client.UploadFile(fn, buf))
+	assert.NoError(t, client.UploadFile(fn, buf, ioutil.Discard))
 }

@@ -4,7 +4,9 @@ go 1.14
 
 require (
 	github.com/bizflycloud/bizflyctl v0.1.1
+	github.com/cenkalti/backoff/v3 v3.0.0
 	github.com/denisbrodbeck/machineid v1.0.1
+	github.com/dustin/go-humanize v1.0.0
 	github.com/eclipse/paho.mqtt.golang v1.2.0
 	github.com/favadi/osinfo v0.0.0-20200812114956-6c7e8ee533c0
 	github.com/go-chi/chi v4.1.2+incompatible

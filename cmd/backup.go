@@ -145,7 +145,8 @@ var backupDownloadRecoveryPointCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
-		if _, err := io.Copy(f, resp.Body); err != nil {
+		pw := backupapi.NewProgressWriter(os.Stderr)
+		if _, err := io.Copy(f, io.TeeReader(resp.Body, pw)); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
@@ -182,7 +183,7 @@ var backupRunCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		defer resp.Body.Close()
-		_, _ = io.Copy(ioutil.Discard, resp.Body)
+		_, _ = io.Copy(os.Stderr, resp.Body)
 	},
 }
 

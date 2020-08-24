@@ -22,7 +22,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -62,7 +61,7 @@ var restoreCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		defer resp.Body.Close()
-		_, _ = io.Copy(ioutil.Discard, resp.Body)
+		_, _ = io.Copy(os.Stderr, resp.Body)
 	},
 }
 

@@ -8,6 +8,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 const uploadFilePath = "/agent/files"
@@ -66,7 +68,10 @@ func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer) error {
 	if err != nil {
 		return err
 	}
-	resp, err := c.do(req, contentType)
+
+	retryClient := retryablehttp.NewClient()
+	retryClient.RetryMax = 50 // Should configurable this?
+	resp, err := c.do(retryClient.StandardClient(), req, contentType)
 	if err != nil {
 		return err
 	}

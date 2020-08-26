@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"mime/multipart"
+	"net/http"
 	"net/url"
 )
 
@@ -59,10 +60,13 @@ func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer) error {
 	if err != nil {
 		return err
 	}
-
 	u := c.ServerURL.ResolveReference(relPath)
 
-	resp, err := c.client.Post(u.String(), contentType, io.TeeReader(bodyBuf, pw))
+	req, err := http.NewRequest(http.MethodPost, u.String(), io.TeeReader(bodyBuf, pw))
+	if err != nil {
+		return err
+	}
+	resp, err := c.do(req, contentType)
 	if err != nil {
 		return err
 	}

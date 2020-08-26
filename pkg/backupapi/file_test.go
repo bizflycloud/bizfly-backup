@@ -22,6 +22,10 @@ func TestClient_uploadFile(t *testing.T) {
 
 	mux.HandleFunc(uploadFilePath, func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
+		require.NotEmpty(t, r.Header.Get("User-Agent"))
+		require.NotEmpty(t, r.Header.Get("Date"))
+		require.NotEmpty(t, r.Header.Get("Authorization"))
+		require.True(t, strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data; "))
 		require.NoError(t, r.ParseMultipartForm(64))
 		file, handler, err := r.FormFile("data")
 		require.NoError(t, err)
@@ -34,5 +38,6 @@ func TestClient_uploadFile(t *testing.T) {
 		assert.Equal(t, content, buf.String())
 	})
 
-	assert.NoError(t, client.UploadFile(fn, buf, ioutil.Discard))
+	pw := NewProgressWriter(ioutil.Discard)
+	assert.NoError(t, client.UploadFile(fn, buf, pw))
 }

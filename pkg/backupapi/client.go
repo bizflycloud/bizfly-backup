@@ -123,12 +123,16 @@ func (c *Client) NewRequest(method, path string, body interface{}) (*http.Reques
 
 // Do makes an http request.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	return c.do(c.client, req, "application/json")
+}
+
+func (c *Client) do(httpClient *http.Client, req *http.Request, contentType string) (*http.Response, error) {
 	req.Header.Add("User-Agent", c.userAgent)
 	now := time.Now().UTC().Format(http.TimeFormat)
 	req.Header.Add("Date", now)
 	req.Header.Add("Authorization", c.authorizationHeaderValue(req.Method, now))
-	req.Header.Add("Content-Type", "application/json")
-	return c.client.Do(req)
+	req.Header.Add("Content-Type", contentType)
+	return httpClient.Do(req)
 }
 
 func (c *Client) authorizationHeaderValue(method, now string) string {

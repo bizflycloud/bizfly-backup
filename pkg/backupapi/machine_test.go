@@ -3,6 +3,7 @@ package backupapi
 import (
 	"encoding/json"
 	"net/http"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -13,7 +14,7 @@ func TestClient_UpdateMachine(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	mux.HandleFunc(updateMachinePath, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(path.Join("/api/v1", updateMachinePath), func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPatch, r.Method)
 		assert.Equal(t, "bizfly-backup-client", r.Header.Get("User-Agent"))
 

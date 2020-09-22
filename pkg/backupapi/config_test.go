@@ -33,7 +33,7 @@ func TestClient_GetConfig(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	mux.HandleFunc("/agent/config", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1/agent/config", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Content-Type", "application/yaml")
 		_, _ = w.Write([]byte(configContent))
 	})

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"path"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ func TestClient_CreateRecoveryPoint(t *testing.T) {
 	policyID := "policy-id"
 	recoveryPointPath := client.recoveryPointPath(backupDirectoryID)
 
-	mux.HandleFunc(recoveryPointPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(path.Join("/api/v1/", recoveryPointPath), func(w http.ResponseWriter, r *http.Request) {
 		crp := &CreateRecoveryPointResponse{
 			ID: "ActionID",
 			RecoveryPoint: &RecoveryPoint{
@@ -51,7 +52,7 @@ func TestClient_UpdateRecoveryPoint(t *testing.T) {
 	recoveryPointPath := client.recoveryPointItemPath(backupDirectoryID, recoveryPointID)
 	status := RecoveryPointStatusFAILED
 
-	mux.HandleFunc(recoveryPointPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(path.Join("/api/v1/", recoveryPointPath), func(w http.ResponseWriter, r *http.Request) {
 		var urcr UpdateRecoveryPointRequest
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&urcr))
 		assert.Equal(t, status, urcr.Status)
@@ -68,7 +69,7 @@ func TestClient_ListRecoveryPoints(t *testing.T) {
 	backupDirectoryID := "1"
 	recoveryPointPath := client.recoveryPointPath(backupDirectoryID)
 
-	mux.HandleFunc(recoveryPointPath, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(path.Join("/api/v1/", recoveryPointPath), func(w http.ResponseWriter, r *http.Request) {
 		resp := []RecoveryPoint{
 			{ID: "1", Status: RecoveryPointStatusCompleted, RecoveryPointType: RecoveryPointTypePoint},
 			{ID: "2", Status: RecoveryPointStatusCreated, RecoveryPointType: RecoveryPointTypePoint},

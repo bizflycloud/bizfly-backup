@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"path"
 
 	"github.com/hashicorp/go-retryablehttp"
 )
@@ -58,11 +59,16 @@ func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer) error {
 		return err
 	}
 
-	relPath, err := url.Parse(uploadFilePath)
+	relPath := uploadFilePath
+	if c.ServerURL.Path != "" && c.ServerURL.Path != "/" {
+		relPath = path.Join(c.ServerURL.Path, relPath)
+	}
+	relURL, err := url.Parse(relPath)
 	if err != nil {
 		return err
 	}
-	u := c.ServerURL.ResolveReference(relPath)
+
+	u := c.ServerURL.ResolveReference(relURL)
 
 	req, err := http.NewRequest(http.MethodPost, u.String(), io.TeeReader(bodyBuf, pw))
 	if err != nil {

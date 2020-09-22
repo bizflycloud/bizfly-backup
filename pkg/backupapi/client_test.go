@@ -24,6 +24,7 @@ func setUp() {
 
 	client, _ = NewClient()
 	serverURL, _ := url.Parse(server.URL)
+	serverURL.Path = "/api/v1"
 	client.ServerURL = serverURL
 }
 
@@ -67,7 +68,7 @@ func TestDo(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1", func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodGet, r.Method)
 		assert.Equal(t, "bizfly-backup-client", r.Header.Get("User-Agent"))
 		assert.NotEmpty(t, r.Header.Get("Date"))

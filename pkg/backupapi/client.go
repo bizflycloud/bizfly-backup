@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 )
@@ -99,13 +100,16 @@ func WithSecretKey(secretKey string) ClientOption {
 }
 
 // NewRequest create new http request
-func (c *Client) NewRequest(method, path string, body interface{}) (*http.Request, error) {
-	relPath, err := url.Parse(path)
+func (c *Client) NewRequest(method, relPath string, body interface{}) (*http.Request, error) {
+	if c.ServerURL.Path != "" && c.ServerURL.Path != "/" {
+		relPath = path.Join(c.ServerURL.Path, relPath)
+	}
+	relURL, err := url.Parse(relPath)
 	if err != nil {
 		return nil, err
 	}
 
-	u := c.ServerURL.ResolveReference(relPath)
+	u := c.ServerURL.ResolveReference(relURL)
 
 	buf := new(bytes.Buffer)
 	if body != nil {

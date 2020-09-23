@@ -406,7 +406,10 @@ func (s *Server) reportUploadCompleted(w io.Writer) {
 func (s *Server) backup(backupDirectoryID string, policyID string, progressOutput io.Writer) error {
 	ctx := context.Background()
 	// Create recovery point
-	rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{PolicyID: policyID})
+	rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
+		PolicyID: policyID,
+		Name:     "auto-" + time.Now().Format(time.RFC3339),
+	})
 	if err != nil {
 		return err
 	}

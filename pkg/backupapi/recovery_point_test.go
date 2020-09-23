@@ -21,6 +21,11 @@ func TestClient_CreateRecoveryPoint(t *testing.T) {
 	recoveryPointPath := client.recoveryPointPath(backupDirectoryID)
 
 	mux.HandleFunc(path.Join("/api/v1/", recoveryPointPath), func(w http.ResponseWriter, r *http.Request) {
+		crr := &CreateRecoveryPointRequest{}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(crr))
+		assert.Equal(t, policyID, crr.PolicyID)
+		assert.Equal(t, "foo", crr.Name)
+
 		crp := &CreateRecoveryPointResponse{
 			ID: "ActionID",
 			RecoveryPoint: &RecoveryPoint{
@@ -35,7 +40,7 @@ func TestClient_CreateRecoveryPoint(t *testing.T) {
 		require.NoError(t, json.NewEncoder(w).Encode(crp))
 	})
 
-	crp, err := client.CreateRecoveryPoint(context.Background(), backupDirectoryID, &CreateRecoveryPointRequest{PolicyID: policyID})
+	crp, err := client.CreateRecoveryPoint(context.Background(), backupDirectoryID, &CreateRecoveryPointRequest{PolicyID: policyID, Name: "foo"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, crp.ID)
 	assert.NotEmpty(t, crp.RecoveryPoint.ID)

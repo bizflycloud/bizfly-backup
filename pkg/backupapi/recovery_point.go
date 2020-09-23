@@ -44,6 +44,7 @@ type CreateRecoveryPointResponse struct {
 // CreateRecoveryPointRequest represents a request to create a recovery point.
 type CreateRecoveryPointRequest struct {
 	PolicyID string `json:"policy_id"`
+	Name     string `json:"name"`
 }
 
 // UpdateRecoveryPointRequest represents a request to update a recovery point.

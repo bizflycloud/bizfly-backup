@@ -113,7 +113,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
 	case broker.BackupManual:
-		return s.backup(msg.BackupDirectoryID, msg.PolicyID, ioutil.Discard)
+		return s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
 	case broker.RestoreManual:
 		return s.restore(msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
 	case broker.ConfigUpdate:
@@ -178,7 +178,10 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 		}
 		for _, policy := range bd.Policies {
 			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
-				if err := s.backup(bd.ID, policy.ID, ioutil.Discard); err != nil {
+				name := "auto-" + time.Now().Format(time.RFC3339)
+				// improve when support incremental backup
+				recoveryPointType := backupapi.RecoveryPointTypeInitialReplica
+				if err := s.backup(bd.ID, policy.ID, name, recoveryPointType, ioutil.Discard); err != nil {
 					zapFields := []zap.Field{
 						zap.Error(err),
 						zap.String("service", "cron"),
@@ -201,6 +204,7 @@ func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ID       string `json:"id"`
 		PolicyID string `json:"policy_id"`
+		Name     string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -208,7 +212,8 @@ func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {
 		return
 
 	}
-	if err := s.backup(body.ID, body.PolicyID, w); err != nil {
+	recoveryPointType := backupapi.RecoveryPointTypeInitialReplica
+	if err := s.backup(body.ID, body.PolicyID, body.Name, recoveryPointType, w); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 	}
@@ -403,10 +408,14 @@ func (s *Server) reportUploadCompleted(w io.Writer) {
 }
 
 // backup performs backup flow.
-func (s *Server) backup(backupDirectoryID string, policyID string, progressOutput io.Writer) error {
+func (s *Server) backup(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer) error {
 	ctx := context.Background()
 	// Create recovery point
-	rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{PolicyID: policyID})
+	rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
+		PolicyID:          policyID,
+		Name:              name,
+		RecoveryPointType: recoveryPointType,
+	})
 	if err != nil {
 		return err
 	}

@@ -34,6 +34,7 @@ type Message struct {
 	BackupDirectory   string `json:"backup_directory"`
 	BackupDirectoryID string `json:"backup_directory_id"`
 	PolicyID          string `json:"policy_id"`
+	Name              string `json:"name"`
 
 	// For performing restore.
 	SourceMachineID      string `json:"source_machine_id"`

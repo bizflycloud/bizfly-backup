@@ -25,7 +25,8 @@ var ErrUpdateRecoveryPoint = errors.New("failed to update recovery point")
 // RecoveryPoint ...
 type RecoveryPoint struct {
 	ID                string `json:"id"`
-	RecoveryPointType string `json:"recoveryPointType"`
+	Name              string `json:"name"`
+	RecoveryPointType string `json:"recovery_point_type"`
 	Status            string `json:"status"`
 	PolicyID          string `json:"policy_id"`
 	BackupDirectoryID string `json:"backup_directory_id"`

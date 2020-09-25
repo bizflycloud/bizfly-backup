@@ -37,7 +37,7 @@ import (
 
 var (
 	listBackupHeaders         = []string{"ID", "Name", "Path", "PolicyID", "Pattern", "Activated"}
-	listRecoveryPointsHeaders = []string{"ID", "Status", "Type"}
+	listRecoveryPointsHeaders = []string{"ID", "Name", "Status", "Type"}
 	backupID                  string
 	policyID                  string
 	recoveryPointID           string
@@ -80,10 +80,16 @@ var backupListCmd = &cobra.Command{
 		}
 		var data [][]string
 		for _, bd := range c.BackupDirectories {
-			for _, policy := range bd.Policies {
+			if len(bd.Policies) == 0 {
 				activated := fmt.Sprintf("%v", bd.Activated)
-				row := []string{bd.ID, bd.Name, bd.Path, policy.ID, policy.SchedulePattern, activated}
+				row := []string{bd.ID, bd.Name, bd.Path, "", "", activated}
 				data = append(data, row)
+			} else {
+				for _, policy := range bd.Policies {
+					activated := fmt.Sprintf("%v", bd.Activated)
+					row := []string{bd.ID, bd.Name, bd.Path, policy.ID, policy.SchedulePattern, activated}
+					data = append(data, row)
+				}
 			}
 		}
 		formatter.Output(listBackupHeaders, data)
@@ -114,7 +120,7 @@ var backupListRecoveryPointCmd = &cobra.Command{
 		}
 		data := make([][]string, 0, len(rps))
 		for _, rp := range rps {
-			data = append(data, []string{rp.ID, rp.Status, rp.RecoveryPointType})
+			data = append(data, []string{rp.ID, rp.Name, rp.Status, rp.RecoveryPointType})
 		}
 		formatter.Output(listRecoveryPointsHeaders, data)
 	},

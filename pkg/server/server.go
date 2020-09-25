@@ -566,7 +566,15 @@ func compressDir(src string, w io.Writer) error {
 		}
 		defer fi.Close()
 
-		fw, err := zw.Create(path)
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+
+		header.Name = path
+		header.Method = zip.Deflate
+
+		fw, err := zw.CreateHeader(header)
 		if err != nil {
 			return err
 		}

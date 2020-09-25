@@ -16,11 +16,12 @@ func TestClient_uploadFile(t *testing.T) {
 	setUp()
 	defer tearDown()
 
+	RecoveryPointId := "1"
 	fn := "test-upload-file"
 	content := "foo\n"
 	buf := strings.NewReader(content)
 
-	mux.HandleFunc(uploadFilePath, func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc(client.uploadFilePath(RecoveryPointId), func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.NotEmpty(t, r.Header.Get("User-Agent"))
 		require.NotEmpty(t, r.Header.Get("Date"))

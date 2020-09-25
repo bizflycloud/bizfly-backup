@@ -13,8 +13,6 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 )
 
-const uploadFilePath = "/agent/files"
-
 // File ...
 type File struct {
 	ID          int    `json:"id"`
@@ -40,6 +38,10 @@ type Part struct {
 	Etag       string `json:"etag"`
 }
 
+func (c *Client) uploadFilePath(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
+}
+
 // UploadFile uploads given file to server.
 func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer) error {
 	bodyBuf := &bytes.Buffer{}
@@ -59,7 +61,7 @@ func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer) error {
 		return err
 	}
 
-	relPath := uploadFilePath
+	relPath := c.uploadFilePath(fn)
 	if c.ServerURL.Path != "" && c.ServerURL.Path != "/" {
 		relPath = path.Join(c.ServerURL.Path, relPath)
 	}

@@ -84,12 +84,11 @@ var backupListCmd = &cobra.Command{
 				activated := fmt.Sprintf("%v", bd.Activated)
 				row := []string{bd.ID, bd.Name, bd.Path, "", "", activated}
 				data = append(data, row)
-			} else {
-				for _, policy := range bd.Policies {
-					activated := fmt.Sprintf("%v", bd.Activated)
-					row := []string{bd.ID, bd.Name, bd.Path, policy.ID, policy.SchedulePattern, activated}
-					data = append(data, row)
-				}
+			}
+			for _, policy := range bd.Policies {
+				activated := fmt.Sprintf("%v", bd.Activated)
+				row := []string{bd.ID, bd.Name, bd.Path, policy.ID, policy.SchedulePattern, activated}
+				data = append(data, row)
 			}
 		}
 		formatter.Output(listBackupHeaders, data)

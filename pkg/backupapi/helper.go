@@ -1,9 +1,12 @@
 package backupapi
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"strings"
 
 	"github.com/dustin/go-humanize"
@@ -34,6 +37,17 @@ func (pc *ProgressWriter) Write(buf []byte) (int, error) {
 func (pc *ProgressWriter) report() {
 	_, _ = fmt.Fprintf(pc.w, "\r%s", strings.Repeat(" ", 20))
 	_, _ = fmt.Fprintf(pc.w, "\rTotal: %s done", humanize.Bytes(pc.total))
+}
+
+func checkResponse(resp *http.Response) error {
+	if resp.StatusCode >= http.StatusOK && resp.StatusCode < 300 {
+		return nil
+	}
+
+	var buf bytes.Buffer
+	_, _ = io.Copy(&buf, resp.Body)
+
+	return errors.New(buf.String())
 }
 
 func getOutboundIP() string {

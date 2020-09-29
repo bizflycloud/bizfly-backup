@@ -76,6 +76,9 @@ func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 	if err != nil {
 		return nil, err
 	}
+	if err := checkResponse(resp); err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 	var crp CreateRecoveryPointResponse
 	if err := json.NewDecoder(resp.Body).Decode(&crp); err != nil {
@@ -93,6 +96,9 @@ func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 
 	resp, err := c.Do(req.WithContext(ctx))
 	if err != nil {
+		return err
+	}
+	if err := checkResponse(resp); err != nil {
 		return err
 	}
 	defer resp.Body.Close()
@@ -120,6 +126,9 @@ func (c *Client) DownloadFileContent(ctx context.Context, recoveryPointID string
 	if err != nil {
 		return err
 	}
+	if err := checkResponse(resp); err != nil {
+		return err
+	}
 	defer resp.Body.Close()
 
 	_, err = io.Copy(w, resp.Body)
@@ -135,6 +144,9 @@ func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID strin
 
 	resp, err := c.Do(req.WithContext(ctx))
 	if err != nil {
+		return nil, err
+	}
+	if err := checkResponse(resp); err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()

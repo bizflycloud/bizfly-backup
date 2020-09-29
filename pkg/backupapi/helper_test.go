@@ -16,3 +16,8 @@ func TestProgressWriter(t *testing.T) {
 	_, _ = io.Copy(ioutil.Discard, io.TeeReader(r, pw))
 	assert.Equal(t, "\r                    \rTotal: 3 B done", buf.String())
 }
+
+func TestGetOutboundIP(t *testing.T) {
+	ip := getOutboundIP()
+	assert.NotEmpty(t, ip)
+}

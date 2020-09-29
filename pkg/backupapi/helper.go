@@ -3,6 +3,7 @@ package backupapi
 import (
 	"fmt"
 	"io"
+	"net"
 	"strings"
 
 	"github.com/dustin/go-humanize"
@@ -33,4 +34,16 @@ func (pc *ProgressWriter) Write(buf []byte) (int, error) {
 func (pc *ProgressWriter) report() {
 	_, _ = fmt.Fprintf(pc.w, "\r%s", strings.Repeat(" ", 20))
 	_, _ = fmt.Fprintf(pc.w, "\rTotal: %s done", humanize.Bytes(pc.total))
+}
+
+func getOutboundIP() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return localAddr.IP.String()
 }

@@ -46,6 +46,7 @@ func (c *Client) UpdateMachine() error {
 		OSVersion:    oi.String(),
 		AgentVersion: agentversion.Version(),
 		OSMachineID:  id,
+		IPAddress:    getOutboundIP(),
 	}
 
 	req, err := c.NewRequest(http.MethodPatch, updateMachinePath, m)

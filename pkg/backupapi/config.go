@@ -41,6 +41,9 @@ func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkResponse(resp); err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 
 	var cfg Config

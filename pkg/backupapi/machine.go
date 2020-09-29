@@ -58,6 +58,9 @@ func (c *Client) UpdateMachine() error {
 	if err != nil {
 		return fmt.Errorf("c.Do(): %w", err)
 	}
+	if err := checkResponse(resp); err != nil {
+		return err
+	}
 	defer resp.Body.Close()
 	buf, err := ioutil.ReadAll(resp.Body)
 	if err != nil {

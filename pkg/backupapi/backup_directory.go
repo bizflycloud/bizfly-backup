@@ -32,6 +32,9 @@ func (c *Client) GetBackupDirectory(id string) (*BackupDirectory, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkResponse(resp); err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 
 	var bd BackupDirectory

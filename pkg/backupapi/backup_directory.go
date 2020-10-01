@@ -63,6 +63,11 @@ func (c *Client) RequestBackupDirectory(id string, cmbr *CreateManualBackupReque
 		return err
 	}
 	resp, err := c.Do(req)
+
+	if err != nil {
+		return err
+	}
+
 	if err := checkResponse(resp); err != nil {
 		return err
 	}

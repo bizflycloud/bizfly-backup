@@ -88,7 +88,7 @@ func New(opts ...Option) (*Server, error) {
 func (s *Server) setupRoutes() {
 	s.router.Route("/backups", func(r chi.Router) {
 		r.Get("/", s.ListBackup)
-		r.Post("/", s.Backup)
+		r.Post("/", s.RequestBackup)
 		r.Get("/{backupID}/recovery-points", s.ListRecoveryPoints)
 		r.Post("/sync", s.SyncConfig)
 	})
@@ -200,11 +200,11 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 	}
 }
 
-func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {
+func (s *Server) RequestBackup(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		ID       string `json:"id"`
-		PolicyID string `json:"policy_id"`
-		Name     string `json:"name"`
+		ID          string `json:"id"`
+		StorageType string `json:"storage_type"`
+		Name        string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -212,10 +212,8 @@ func (s *Server) Backup(w http.ResponseWriter, r *http.Request) {
 		return
 
 	}
-	recoveryPointType := backupapi.RecoveryPointTypeInitialReplica
-	if err := s.backup(body.ID, body.PolicyID, body.Name, recoveryPointType, w); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(err.Error()))
+	if err := s.requestBackup(body.ID, body.Name, body.StorageType); err != nil {
+		return
 	}
 }
 
@@ -480,6 +478,18 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		s.logger.Warn("failed to notify server upload file completed", zap.Error(err))
 	}
 
+	return nil
+}
+
+// requestBackup performs a request backup flow.
+func (s *Server) requestBackup(backupDirectoryID string, name string, storageType string) error {
+	if err := s.backupClient.RequestBackupDirectory(backupDirectoryID, &backupapi.CreateManualBackupRequest{
+		Action:      "backup_manual",
+		StorageType: storageType,
+		Name:        name,
+	}); err != nil {
+		return err
+	}
 	return nil
 }
 

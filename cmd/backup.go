@@ -39,7 +39,7 @@ var (
 	listBackupHeaders         = []string{"ID", "Name", "Path", "PolicyID", "Pattern", "Activated"}
 	listRecoveryPointsHeaders = []string{"ID", "Name", "Status", "Type"}
 	backupID                  string
-	policyID                  string
+	backupName                string
 	recoveryPointID           string
 	backupDownloadOutFile     string
 )
@@ -175,11 +175,13 @@ var backupRunCmd = &cobra.Command{
 			},
 		}
 		var body struct {
-			ID       string `json:"id"`
-			PolicyID string `json:"policy_id"`
+			ID          string `json:"id"`
+			BackupName  string `json:"name"`
+			StorageType string `json:"storage_type"`
 		}
 		body.ID = backupID
-		body.PolicyID = policyID
+		body.BackupName = backupName
+		body.StorageType = "S3"
 		buf, _ := json.Marshal(body)
 
 		resp, err := httpc.Post("http://unix/backups", postContentType, bytes.NewBuffer(buf))
@@ -229,8 +231,8 @@ func init() {
 
 	backupRunCmd.PersistentFlags().StringVar(&backupID, "backup-id", "", "The ID of backup directory")
 	_ = backupRunCmd.MarkPersistentFlagRequired("backup-id")
-	backupRunCmd.PersistentFlags().StringVar(&policyID, "policy-id", "", "The ID of policy")
-	_ = backupRunCmd.MarkPersistentFlagRequired("policy-id")
+	backupRunCmd.PersistentFlags().StringVar(&backupName, "backup-name", "", "The Name of recovery point backup")
+	_ = backupRunCmd.MarkPersistentFlagRequired("backup-name")
 	backupCmd.AddCommand(backupRunCmd)
 
 	backupCmd.AddCommand(backupSyncCmd)

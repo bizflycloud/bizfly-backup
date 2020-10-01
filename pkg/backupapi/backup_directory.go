@@ -2,6 +2,7 @@ package backupapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 )
 
@@ -17,8 +18,19 @@ type BackupDirectory struct {
 	TenantID    string `json:"tenant_id"`
 }
 
+// CreateManualBackupRequest represents a request manual backup.
+type CreateManualBackupRequest struct {
+	Action      string `json:"action"`
+	StorageType string `json:"storage_type"`
+	Name        string `json:"name"`
+}
+
 func (c *Client) backupDirectoryPath(id string) string {
 	return "/agent/backup-directories/" + id
+}
+
+func (c *Client) backupDirectoryActionPath(id string) string {
+	return fmt.Sprintf("/agent/backup-directories/%s/action", id)
 }
 
 // GetBackupDirectory retrieves a backup directory by given id.
@@ -42,4 +54,23 @@ func (c *Client) GetBackupDirectory(id string) (*BackupDirectory, error) {
 		return nil, err
 	}
 	return &bd, err
+}
+
+// RequestBackupDirectory requests a manual backup.
+func (c *Client) RequestBackupDirectory(id string, cmbr *CreateManualBackupRequest) error {
+	req, err := c.NewRequest(http.MethodPost, c.backupDirectoryActionPath(id), cmbr)
+	if err != nil {
+		return err
+	}
+	resp, err := c.Do(req)
+
+	if err != nil {
+		return err
+	}
+
+	if err := checkResponse(resp); err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }

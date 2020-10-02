@@ -66,6 +66,18 @@ func (c *Client) downloadFileContentPath() string {
 	return "/agent/files/download"
 }
 
+func (c *Client) initMultipartPath(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/file/multipart/init", recoveryPointID)
+}
+
+func (c *Client) uploadPartPath(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/file/multipart/put", recoveryPointID)
+}
+
+func (c *Client) completeMultipartPath(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/file/multipart/complete", recoveryPointID)
+}
+
 func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID string, crpr *CreateRecoveryPointRequest) (*CreateRecoveryPointResponse, error) {
 	req, err := c.NewRequest(http.MethodPost, c.recoveryPointPath(backupDirectoryID), crpr)
 	if err != nil {
@@ -156,4 +168,48 @@ func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID strin
 		return nil, err
 	}
 	return rps, nil
+}
+
+func (c *Client) InitMultipart(ctx context.Context, recoveryPointID string) (*Multipart, error) {
+	req, err := c.NewRequest(http.MethodPost, c.initMultipartPath(recoveryPointID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Do(req.WithContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	if err := checkResponse(resp); err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var m Multipart
+	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (c *Client) CompleteMultipart(ctx context.Context, recoveryPointID, uploadID string) error {
+	req, err := c.NewRequest(http.MethodPost, c.completeMultipartPath(recoveryPointID), nil)
+	if err != nil {
+		return err
+	}
+	q := req.URL.Query()
+	q.Add("upload_id", uploadID)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.Do(req.WithContext(ctx))
+	if err != nil {
+		return err
+	}
+	if err := checkResponse(resp); err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	_, err = io.Copy(ioutil.Discard, resp.Body)
+	return err
 }

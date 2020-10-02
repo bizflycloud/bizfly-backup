@@ -458,7 +458,10 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	if err != nil {
 		return err
 	}
-
+	batch := false
+	if f, err := fi.Stat(); err == nil {
+		batch = f.Size() > backupapi.MultipartUploadLowerBound
+	}
 	msg["status"] = statusUploadFile
 	payload, _ = json.Marshal(msg)
 	if err := s.b.Publish(s.publishTopic, payload); err != nil {
@@ -467,7 +470,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	// Upload file to server
 	s.reportStartUpload(progressOutput)
 	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw); err != nil {
+	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, batch); err != nil {
 		return nil
 	}
 	s.reportUploadCompleted(progressOutput)

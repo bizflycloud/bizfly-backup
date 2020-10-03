@@ -2,10 +2,13 @@ package backupapi
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,12 +19,11 @@ func TestClient_uploadFile(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	RecoveryPointId := "1"
-	fn := "test-upload-file"
+	fn := "test-upload-file-1"
 	content := "foo\n"
 	buf := strings.NewReader(content)
 
-	mux.HandleFunc(client.uploadFilePath(RecoveryPointId), func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/v1"+client.uploadFilePath(fn), func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.NotEmpty(t, r.Header.Get("User-Agent"))
 		require.NotEmpty(t, r.Header.Get("Date"))
@@ -40,5 +42,46 @@ func TestClient_uploadFile(t *testing.T) {
 	})
 
 	pw := NewProgressWriter(ioutil.Discard)
-	assert.NoError(t, client.UploadFile(fn, buf, pw))
+	assert.NoError(t, client.UploadFile(fn, buf, pw, false))
+}
+
+func TestClient_uploadMultipart(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	fn := "test-upload-file-2"
+	content := strings.Repeat("a", 20*1000*1000) + "\n"
+	buf := strings.NewReader(content)
+
+	mux.HandleFunc("/api/v1"+client.initMultipartPath(fn), func(w http.ResponseWriter, r *http.Request) {
+		m := Multipart{
+			UploadID: "foo",
+			FileName: "bar",
+		}
+		_ = json.NewEncoder(w).Encode(&m)
+	})
+
+	expectedNum := 0
+	var mu sync.Mutex
+	mux.HandleFunc("/api/v1"+client.uploadPartPath(fn), func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		expectedNum++
+		mu.Unlock()
+
+		assert.Equal(t, http.MethodPut, r.Method)
+		assert.Equal(t, "foo", r.URL.Query().Get("upload_id"))
+		partNumStr := r.URL.Query().Get("part_number")
+		partNum, _ := strconv.ParseInt(partNumStr, 10, 64)
+		assert.Greater(t, partNum, int64(0))
+	})
+
+	mux.HandleFunc("/api/v1"+client.completeMultipartPath(fn), func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "foo", r.URL.Query().Get("upload_id"))
+		assert.Equal(t, 2, expectedNum)
+	})
+
+	pw := NewProgressWriter(ioutil.Discard)
+	assert.NoError(t, client.UploadFile(fn, buf, pw, true))
+
 }

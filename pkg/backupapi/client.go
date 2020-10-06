@@ -22,6 +22,7 @@ const (
 type Client struct {
 	client    *http.Client
 	ServerURL *url.URL
+	Id        string
 	accessKey string
 	secretKey string
 
@@ -78,6 +79,14 @@ func WithServerURL(serverURL string) ClientOption {
 			return err
 		}
 		c.ServerURL = su
+		return nil
+	}
+}
+
+// WithAccessKey sets the access key for Client.
+func WithID(id string) ClientOption {
+	return func(c *Client) error {
+		c.Id = id
 		return nil
 	}
 }

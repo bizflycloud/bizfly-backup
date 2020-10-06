@@ -96,7 +96,7 @@ func (s *Server) setupRoutes() {
 
 	s.router.Route("/recovery-points", func(r chi.Router) {
 		r.Get("/{recoveryPointID}/download", s.DownloadRecoveryPoint)
-		r.Post("/{recoveryPointID}/restore", s.Restore)
+		r.Post("/{recoveryPointID}/restore", s.RequestRestore)
 	})
 
 	s.router.Route("/upgrade", func(r chi.Router) {
@@ -116,7 +116,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	case broker.BackupManual:
 		return s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
 	case broker.RestoreManual:
-		return s.restore(msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
+		return s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
 	case broker.ConfigUpdate:
 		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
 	case broker.ConfigRefresh:
@@ -241,26 +241,33 @@ func (s *Server) ListRecoveryPoints(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) DownloadRecoveryPoint(w http.ResponseWriter, r *http.Request) {
 	recoveryPointID := chi.URLParam(r, "recoveryPointID")
-	if err := s.backupClient.DownloadFileContent(r.Context(), recoveryPointID, w); err != nil {
+	createdAt := r.Header.Get("X-Session-Created-At")
+	restoreSessionKey := r.Header.Get("X-Restore-Session-Key")
+	if err := s.backupClient.DownloadFileContent(r.Context(), createdAt, restoreSessionKey, recoveryPointID, w); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
 }
 
-func (s *Server) Restore(w http.ResponseWriter, r *http.Request) {
+func (s *Server) RequestRestore(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Dest string `json:"destination"`
+		MachineID string `json:"machine_id"`
+		Path      string `json:"path"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = w.Write([]byte(`malformed body`))
 		return
 	}
+
+	if body.MachineID == "" {
+		body.MachineID = s.backupClient.Id
+	}
 	recoveryPointID := chi.URLParam(r, "recoveryPointID")
-	if err := s.restore(recoveryPointID, body.Dest, w); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(err.Error()))
+	if err := s.requestRestore(recoveryPointID, body.MachineID, body.Path); err != nil {
+		return
 	}
 }
 
@@ -513,7 +520,7 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))
 }
 
-func (s *Server) restore(recoveryPointID string, destDir string, progressOutput io.Writer) error {
+func (s *Server) restore(action_id string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, progressOutput io.Writer) error {
 	ctx := context.Background()
 
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
@@ -523,7 +530,7 @@ func (s *Server) restore(recoveryPointID string, destDir string, progressOutput 
 	defer os.Remove(fi.Name())
 
 	msg := map[string]string{
-		"action_id": recoveryPointID,
+		"action_id": action_id,
 		"status":    statusDownloading,
 	}
 	payload, _ := json.Marshal(msg)
@@ -533,7 +540,7 @@ func (s *Server) restore(recoveryPointID string, destDir string, progressOutput 
 
 	s.reportStartDownload(progressOutput)
 	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.DownloadFileContent(ctx, recoveryPointID, io.MultiWriter(fi, pw)); err != nil {
+	if err := s.backupClient.DownloadFileContent(ctx, createdAt, restoreSessionKey, recoveryPointID, io.MultiWriter(fi, pw)); err != nil {
 		s.logger.Error("failed to download file content", zap.Error(err))
 		return err
 	}
@@ -559,6 +566,17 @@ func (s *Server) restore(recoveryPointID string, destDir string, progressOutput 
 		s.logger.Warn("failed to notify server restore progress completed", zap.Error(err))
 	}
 
+	return nil
+}
+
+// requestRestore performs a request restore flow.
+func (s *Server) requestRestore(recoveryPointID string, machineID string, path string) error {
+	if err := s.backupClient.RequestRestore(recoveryPointID, &backupapi.CreateRestoreRequest{
+		MachineID: machineID,
+		Path:      path,
+	}); err != nil {
+		return err
+	}
 	return nil
 }
 

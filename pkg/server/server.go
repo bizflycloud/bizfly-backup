@@ -66,7 +66,8 @@ func New(opts ...Option) (*Server, error) {
 	}
 
 	s.router = chi.NewRouter()
-	s.cronManager = cron.New(cron.WithLocation(time.UTC))
+	s.cronManager = cron.New(cron.WithParser(cron.NewParser(
+		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)))
 	s.cronManager.Start()
 	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 

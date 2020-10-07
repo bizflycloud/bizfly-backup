@@ -32,10 +32,7 @@ import (
 
 const postContentType = "application/octet-stream"
 
-var (
-	restoreDir  string
-	destMachine string
-)
+var restoreDir string
 
 // restoreCmd represents the restore command
 var restoreCmd = &cobra.Command{
@@ -53,11 +50,9 @@ var restoreCmd = &cobra.Command{
 			restoreDir = recoveryPointID
 		}
 		var body struct {
-			Path      string `json:"path"`
-			MachineID string `json:"machine_id"`
+			Path string `json:"path"`
 		}
 		body.Path = restoreDir
-		body.MachineID = destMachine
 		buf, _ := json.Marshal(body)
 
 		resp, err := httpc.Post("http://unix/recovery-points/"+recoveryPointID+"/restore", postContentType, bytes.NewBuffer(buf))
@@ -72,7 +67,6 @@ var restoreCmd = &cobra.Command{
 
 func init() {
 	restoreCmd.PersistentFlags().StringVar(&restoreDir, "dest-directory", "", "The destination directory to restore")
-	restoreCmd.PersistentFlags().StringVar(&destMachine, "dest-machine", "", "The destination machine to restore")
 	restoreCmd.PersistentFlags().StringVar(&recoveryPointID, "recovery-point-id", "", "The ID of recovery point")
 	_ = restoreCmd.MarkPersistentFlagRequired("recovery-point-id")
 	rootCmd.AddCommand(restoreCmd)

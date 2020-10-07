@@ -262,9 +262,8 @@ func (s *Server) RequestRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if body.MachineID == "" {
-		body.MachineID = s.backupClient.Id
-	}
+	body.MachineID = s.backupClient.Id
+
 	recoveryPointID := chi.URLParam(r, "recoveryPointID")
 	if err := s.requestRestore(recoveryPointID, body.MachineID, body.Path); err != nil {
 		return

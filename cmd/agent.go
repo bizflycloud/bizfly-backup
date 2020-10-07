@@ -41,6 +41,7 @@ var agentCmd = &cobra.Command{
 	Use:   "agent",
 	Short: "Run agent.",
 	Run: func(cmd *cobra.Command, args []string) {
+		machineID := viper.GetString("machine_id")
 		accessKey := viper.GetString("access_key")
 		secretKey := viper.GetString("secret_key")
 		api_url := viper.GetString("api_url")
@@ -48,6 +49,7 @@ var agentCmd = &cobra.Command{
 			backupapi.WithAccessKey(accessKey),
 			backupapi.WithSecretKey(secretKey),
 			backupapi.WithServerURL(api_url),
+			backupapi.WithID(machineID),
 		)
 		if err != nil {
 			logger.Error("failed to create new backup client", zap.Error(err))
@@ -69,7 +71,7 @@ var agentCmd = &cobra.Command{
 		}
 
 		mqttUrl := viper.GetString("broker_url")
-		agentID := viper.GetString("machine_id")
+		agentID := machineID
 		b, err := mqtt.NewBroker(
 			mqtt.WithURL(mqttUrl),
 			mqtt.WithClientID(agentID),

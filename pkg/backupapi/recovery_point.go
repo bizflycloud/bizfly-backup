@@ -49,6 +49,12 @@ type CreateRecoveryPointRequest struct {
 	RecoveryPointType string `json:"recovery_point_type"`
 }
 
+// CreateRestoreRequest represents a request manual backup.
+type CreateRestoreRequest struct {
+	MachineID string `json:"machine_id"`
+	Path      string `json:"path"`
+}
+
 // UpdateRecoveryPointRequest represents a request to update a recovery point.
 type UpdateRecoveryPointRequest struct {
 	Status string `json:"status"`
@@ -62,8 +68,12 @@ func (c *Client) recoveryPointItemPath(backupDirectoryID string, recoveryPointID
 	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points/%s", backupDirectoryID, recoveryPointID)
 }
 
-func (c *Client) downloadFileContentPath() string {
-	return "/agent/files/download"
+func (c *Client) downloadFileContentPath(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/file/download", recoveryPointID)
+}
+
+func (c *Client) recoveryPointActionPath(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/action", recoveryPointID)
 }
 
 func (c *Client) initMultipartPath(recoveryPointID string) string {
@@ -125,11 +135,13 @@ func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 }
 
 // DownloadFileContent downloads file content at given recovery point id, write the content to writer.
-func (c *Client) DownloadFileContent(ctx context.Context, recoveryPointID string, w io.Writer) error {
-	req, err := c.NewRequest(http.MethodGet, c.downloadFileContentPath(), nil)
+func (c *Client) DownloadFileContent(ctx context.Context, createdAt string, restoreSessionKey string, recoveryPointID string, w io.Writer) error {
+	req, err := c.NewRequest(http.MethodGet, c.downloadFileContentPath(recoveryPointID), nil)
 	if err != nil {
 		return err
 	}
+	req.Header.Add("X-Session-Created-At", createdAt)
+	req.Header.Add("X-Restore-Session-Key", restoreSessionKey)
 	q := req.URL.Query()
 	q.Set("name", recoveryPointID+".zip")
 	req.URL.RawQuery = q.Encode()
@@ -212,4 +224,23 @@ func (c *Client) CompleteMultipart(ctx context.Context, recoveryPointID, uploadI
 
 	_, err = io.Copy(ioutil.Discard, resp.Body)
 	return err
+}
+
+// RequestRestore requests restore
+func (c *Client) RequestRestore(recoveryPointID string, crr *CreateRestoreRequest) error {
+	req, err := c.NewRequest(http.MethodPost, c.recoveryPointActionPath(recoveryPointID), crr)
+	if err != nil {
+		return err
+	}
+	resp, err := c.Do(req)
+
+	if err != nil {
+		return err
+	}
+
+	if err := checkResponse(resp); err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
 }

@@ -127,7 +127,7 @@ func Test_compressDir(t *testing.T) {
 	defer os.Remove(fi.Name())
 
 	var buf bytes.Buffer
-	assert.NoError(t, compressDir("./testdata/test_compress_dir", &buf))
+	assert.NoError(t, compressDir("/home/runner/work/bizfly-backup/bizfly-backup/pkg/server/testdata/test_compress_dir", &buf))
 
 	zipReader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
 	require.NoError(t, err)

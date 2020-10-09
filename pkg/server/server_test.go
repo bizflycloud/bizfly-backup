@@ -167,7 +167,7 @@ func Test_unzip(t *testing.T) {
 	}
 
 	assert.NoError(t, filepath.Walk(tempDir, walker))
-	assert.Equal(t, 3, count)
+	assert.Equal(t, 2, count)
 }
 
 func TestServerCron(t *testing.T) {
@@ -192,7 +192,7 @@ func TestServerCron(t *testing.T) {
 						{
 							ID:              "policy_1",
 							Name:            "policy_1",
-							SchedulePattern: "* * * * * *",
+							SchedulePattern: "* * * * *",
 						},
 					},
 					Activated: true,
@@ -256,7 +256,7 @@ func TestServerCron(t *testing.T) {
 						{
 							ID:              "policy_1",
 							Name:            "policy_1",
-							SchedulePattern: "* * * *",
+							SchedulePattern: "* * * * *",
 						},
 					},
 					Activated: true,

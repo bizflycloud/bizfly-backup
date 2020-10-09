@@ -137,7 +137,7 @@ func Test_compressDir(t *testing.T) {
 		t.Log(zipFile.Name)
 		count++
 	}
-	assert.Equal(t, 2, count)
+	assert.Equal(t, 4, count)
 }
 
 func Test_unzip(t *testing.T) {

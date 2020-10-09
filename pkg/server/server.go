@@ -585,30 +585,37 @@ func compressDir(src string, w io.Writer) error {
 	defer zw.Close()
 
 	walker := func(path string, info os.FileInfo, err error) error {
+
+		if path == src {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		header, err := zip.FileInfoHeader(info)
+		if err != nil {
+			return err
+		}
+		name := strings.Split(path, src+"/")
+		if info.IsDir() {
+			header.Name = name[1] + "/"
+		} else {
+			header.Name = name[1]
+			header.Method = zip.Store
+		}
+		fw, err := zw.CreateHeader(header)
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
 			return nil
 		}
+
 		fi, err := os.Open(path)
 		if err != nil {
 			return err
 		}
 		defer fi.Close()
-
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-
-		header.Name = path
-		header.Method = zip.Deflate
-
-		fw, err := zw.CreateHeader(header)
-		if err != nil {
-			return err
-		}
 
 		_, err = io.Copy(fw, fi)
 		if err != nil {

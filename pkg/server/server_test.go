@@ -256,7 +256,7 @@ func TestServerCron(t *testing.T) {
 						{
 							ID:              "policy_1",
 							Name:            "policy_1",
-							SchedulePattern: "* * * * *",
+							SchedulePattern: "* * * *",
 						},
 					},
 					Activated: true,

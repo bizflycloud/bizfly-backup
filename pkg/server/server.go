@@ -455,7 +455,10 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 	defer os.Remove(fi.Name())
-	if err := compressDir(backupDir, fi); err != nil {
+	if err := os.Chdir(backupDir); err != nil {
+		return err
+	}
+	if err := compressDir(".", fi); err != nil {
 		return err
 	}
 	if err := fi.Close(); err != nil {
@@ -581,17 +584,13 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 }
 
 func compressDir(src string, w io.Writer) error {
-	absolutePath, err := filepath.Abs(src)
-	if err != nil {
-		return err
-	}
 	// zip > buf
 	zw := zip.NewWriter(w)
 	defer zw.Close()
 
 	walker := func(path string, info os.FileInfo, err error) error {
 
-		if path == absolutePath {
+		if path == "." {
 			return nil
 		}
 		if err != nil {
@@ -601,13 +600,7 @@ func compressDir(src string, w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		name := strings.Split(path, absolutePath+"/")
-		if info.IsDir() {
-			header.Name = name[1] + "/"
-		} else {
-			header.Name = name[1]
-			header.Method = zip.Store
-		}
+		header.Name = path
 		fw, err := zw.CreateHeader(header)
 		if err != nil {
 			return err
@@ -615,6 +608,7 @@ func compressDir(src string, w io.Writer) error {
 		if info.IsDir() {
 			return nil
 		}
+		header.Method = zip.Store
 
 		fi, err := os.Open(path)
 		if err != nil {
@@ -631,7 +625,7 @@ func compressDir(src string, w io.Writer) error {
 	}
 
 	// walk through every file in the folder and add to zip writer.
-	if err := filepath.Walk(absolutePath, walker); err != nil {
+	if err := filepath.Walk(src, walker); err != nil {
 		return err
 	}
 

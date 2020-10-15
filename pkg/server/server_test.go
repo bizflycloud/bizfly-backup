@@ -122,13 +122,14 @@ func TestServerEventHandler(t *testing.T) {
 }
 
 func Test_compressDir(t *testing.T) {
+	originPath, err := os.Getwd()
+	require.NoError(t, err)
+	src := "./testdata/test_compress_dir"
+	require.NoError(t, os.Chdir(src))
+
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-test-compress-*")
 	require.NoError(t, err)
 	defer os.Remove(fi.Name())
-	src := "./testdata/test_compress_dir"
-	if err := os.Chdir(src); err != nil {
-		require.NoError(t, err)
-	}
 	var buf bytes.Buffer
 	assert.NoError(t, compressDir(".", &buf))
 
@@ -141,16 +142,19 @@ func Test_compressDir(t *testing.T) {
 		count++
 	}
 	assert.Equal(t, 3, count)
+	require.NoError(t, os.Chdir(originPath))
 }
 
 func Test_unzip(t *testing.T) {
+	originPath, err := os.Getwd()
+	require.NoError(t, err)
+	src := "./testdata/test_compress_dir"
+	require.NoError(t, os.Chdir(src))
+
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-test-unzip-*")
 	require.NoError(t, err)
 	defer os.Remove(fi.Name())
-	src := "./testdata/test_compress_dir"
-	if err := os.Chdir(src); err != nil {
-		require.NoError(t, err)
-	}
+
 	assert.NoError(t, compressDir(".", fi))
 	require.NoError(t, fi.Close())
 
@@ -174,6 +178,7 @@ func Test_unzip(t *testing.T) {
 
 	assert.NoError(t, filepath.Walk(tempDir, walker))
 	assert.Equal(t, 2, count)
+	require.NoError(t, os.Chdir(originPath))
 }
 
 func TestServerCron(t *testing.T) {

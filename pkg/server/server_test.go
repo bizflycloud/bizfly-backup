@@ -145,7 +145,7 @@ func Test_unzip(t *testing.T) {
 	require.NoError(t, err)
 	defer os.Remove(fi.Name())
 
-	assert.NoError(t, compressDir("/home/runner/work/bizfly-backup/bizfly-backup/pkg/server/testdata/test_compress_dir", fi))
+	assert.NoError(t, compressDir("./testdata/test_compress_dir", fi))
 	require.NoError(t, fi.Close())
 
 	tempDir, err := ioutil.TempDir("", "bizfly-backup-agent-test-unzip-dir-*")

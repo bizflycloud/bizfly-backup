@@ -149,7 +149,8 @@ func (s *Server) handleConfigUpdate(action string, backupDirectories []backupapi
 func (s *Server) handleConfigRefresh(backupDirectories []backupapi.BackupDirectoryConfig) error {
 	ctx := s.cronManager.Stop()
 	<-ctx.Done()
-	s.cronManager = cron.New(cron.WithLocation(time.UTC))
+	s.cronManager = cron.New(cron.WithParser(cron.NewParser(
+		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)))
 	s.cronManager.Start()
 	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 	s.addToCronManager(backupDirectories)
@@ -580,13 +581,17 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 }
 
 func compressDir(src string, w io.Writer) error {
+	absolutePath, err := filepath.Abs(src)
+	if err != nil {
+		return err
+	}
 	// zip > buf
 	zw := zip.NewWriter(w)
 	defer zw.Close()
 
 	walker := func(path string, info os.FileInfo, err error) error {
 
-		if path == src {
+		if path == absolutePath {
 			return nil
 		}
 		if err != nil {
@@ -596,7 +601,7 @@ func compressDir(src string, w io.Writer) error {
 		if err != nil {
 			return err
 		}
-		name := strings.Split(path, src+"/")
+		name := strings.Split(path, absolutePath+"/")
 		if info.IsDir() {
 			header.Name = name[1] + "/"
 		} else {
@@ -626,7 +631,7 @@ func compressDir(src string, w io.Writer) error {
 	}
 
 	// walk through every file in the folder and add to zip writer.
-	if err := filepath.Walk(src, walker); err != nil {
+	if err := filepath.Walk(absolutePath, walker); err != nil {
 		return err
 	}
 

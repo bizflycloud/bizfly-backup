@@ -126,7 +126,9 @@ func Test_compressDir(t *testing.T) {
 	require.NoError(t, err)
 	defer os.Remove(fi.Name())
 	src := "./testdata/test_compress_dir"
-	os.Chdir(src)
+	if err := os.Chdir(src); err != nil {
+		require.NoError(t, err)
+	}
 	var buf bytes.Buffer
 	assert.NoError(t, compressDir(".", &buf))
 
@@ -146,7 +148,9 @@ func Test_unzip(t *testing.T) {
 	require.NoError(t, err)
 	defer os.Remove(fi.Name())
 	src := "./testdata/test_compress_dir"
-	os.Chdir(src)
+	if err := os.Chdir(src); err != nil {
+		require.NoError(t, err)
+	}
 	assert.NoError(t, compressDir(".", fi))
 	require.NoError(t, fi.Close())
 

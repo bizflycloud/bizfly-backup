@@ -166,7 +166,7 @@ func Test_unzip(t *testing.T) {
 		return nil
 	}
 
-	assert.NoError(t, filepath.Walk(filepath.Join(tempDir, "testdata"), walker))
+	assert.NoError(t, filepath.Walk(filepath.Join(tempDir, ""), walker))
 	assert.Equal(t, 2, count)
 }
 

@@ -125,9 +125,10 @@ func Test_compressDir(t *testing.T) {
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-test-compress-*")
 	require.NoError(t, err)
 	defer os.Remove(fi.Name())
-
+	src := "./testdata/test_compress_dir"
+	os.Chdir(src)
 	var buf bytes.Buffer
-	assert.NoError(t, compressDir("/home/runner/work/bizfly-backup/bizfly-backup/pkg/server/testdata/test_compress_dir", &buf))
+	assert.NoError(t, compressDir(".", &buf))
 
 	zipReader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
 	require.NoError(t, err)

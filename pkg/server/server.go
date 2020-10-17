@@ -603,6 +603,9 @@ func compressDir(src string, w io.Writer) error {
 			return nil
 		}
 		fi, err := os.Open(path)
+		if os.IsNotExist(err) && (info.Mode()&os.ModeSymlink != 0) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}

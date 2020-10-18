@@ -244,6 +244,7 @@ func init() {
 	backupDownloadRecoveryPointCmd.PersistentFlags().StringVar(&backupDownloadOutFile, "outfile", "", "Output backup download to file")
 	_ = backupDownloadRecoveryPointCmd.MarkPersistentFlagRequired("recovery-point-id")
 	backupCmd.AddCommand(backupListRecoveryPointCmd)
+	backupCmd.AddCommand(backupDownloadRecoveryPointCmd)
 
 	backupRunCmd.PersistentFlags().StringVar(&backupID, "backup-id", "", "The ID of backup directory")
 	_ = backupRunCmd.MarkPersistentFlagRequired("backup-id")

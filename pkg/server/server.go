@@ -33,6 +33,7 @@ const (
 	statusComplete    = "COMPLETED"
 	statusDownloading = "DOWNLOADING"
 	statusRestoring   = "RESTORING"
+	statusFailed      = "FAILED"
 )
 
 // Server defines parameters for running BizFly Backup HTTP server.
@@ -412,6 +413,20 @@ func (s *Server) reportUploadCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Upload completed ..."))
 }
 
+func (s *Server) notifyMsg(msg map[string]string) {
+	payload, _ := json.Marshal(msg)
+	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+		s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
+	}
+}
+
+func (s *Server) notifyStatusFailed(recoveryPointID string) {
+	s.notifyMsg(map[string]string{
+		"action_id": recoveryPointID,
+		"status":    statusFailed,
+	})
+}
+
 // backup performs backup flow.
 func (s *Server) backup(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer) error {
 	ctx := context.Background()
@@ -428,22 +443,19 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	// Get BackupDirectory
 	bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
 	if err != nil {
+		s.notifyStatusFailed(rp.ID)
 		return err
 	}
 
-	msg := map[string]string{
+	s.notifyMsg(map[string]string{
 		"action_id": rp.ID,
 		"status":    statusZipFile,
-	}
-	payload, _ := json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopic, payload); err != nil {
-		s.logger.Warn("failed to notify server before zip file", zap.Error(err))
-	}
-
+	})
 	wd := filepath.Dir(bd.Path)
 	backupDir := filepath.Base(bd.Path)
 
 	if err := os.Chdir(wd); err != nil {
+		s.notifyStatusFailed(rp.ID)
 		return err
 	}
 
@@ -451,42 +463,46 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	s.reportStartCompress(progressOutput)
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
 	if err != nil {
+		s.notifyStatusFailed(rp.ID)
 		return err
 	}
 	defer os.Remove(fi.Name())
 	if err := compressDir(backupDir, fi); err != nil {
+		s.notifyStatusFailed(rp.ID)
 		return err
 	}
 	if err := fi.Close(); err != nil {
+		s.notifyStatusFailed(rp.ID)
 		return err
 	}
 	s.reportCompressDone(progressOutput)
 	fi, err = os.Open(fi.Name())
 	if err != nil {
+		s.notifyStatusFailed(rp.ID)
 		return err
 	}
 	batch := false
 	if f, err := fi.Stat(); err == nil {
 		batch = f.Size() > backupapi.MultipartUploadLowerBound
 	}
-	msg["status"] = statusUploadFile
-	payload, _ = json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopic, payload); err != nil {
-		s.logger.Warn("failed to notify server before upload file", zap.Error(err))
-	}
+
+	s.notifyMsg(map[string]string{
+		"action_id": rp.ID,
+		"status":    statusUploadFile,
+	})
 	// Upload file to server
 	s.reportStartUpload(progressOutput)
 	pw := backupapi.NewProgressWriter(progressOutput)
 	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, batch); err != nil {
-		return nil
+		s.notifyStatusFailed(rp.ID)
+		return err
 	}
 	s.reportUploadCompleted(progressOutput)
 
-	msg["status"] = statusComplete
-	payload, _ = json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopic, payload); err != nil {
-		s.logger.Warn("failed to notify server upload file completed", zap.Error(err))
-	}
+	s.notifyMsg(map[string]string{
+		"action_id": rp.ID,
+		"status":    statusComplete,
+	})
 
 	return nil
 }
@@ -519,51 +535,49 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))
 }
 
-func (s *Server) restore(action_id string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, progressOutput io.Writer) error {
+func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, progressOutput io.Writer) error {
 	ctx := context.Background()
 
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
 	if err != nil {
+		s.notifyStatusFailed(actionID)
 		return err
 	}
 	defer os.Remove(fi.Name())
 
-	msg := map[string]string{
-		"action_id": action_id,
+	s.notifyMsg(map[string]string{
+		"action_id": actionID,
 		"status":    statusDownloading,
-	}
-	payload, _ := json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopic, payload); err != nil {
-		s.logger.Warn("failed to notify server before downloading file content", zap.Error(err))
-	}
+	})
 
 	s.reportStartDownload(progressOutput)
 	pw := backupapi.NewProgressWriter(progressOutput)
 	if err := s.backupClient.DownloadFileContent(ctx, createdAt, restoreSessionKey, recoveryPointID, io.MultiWriter(fi, pw)); err != nil {
 		s.logger.Error("failed to download file content", zap.Error(err))
+		s.notifyStatusFailed(actionID)
 		return err
 	}
 	s.reportDownloadCompleted(progressOutput)
 	if err := fi.Close(); err != nil {
 		s.logger.Error("failed to save to temporary file", zap.Error(err))
+		s.notifyStatusFailed(actionID)
 		return err
 	}
 
-	msg["status"] = statusRestoring
-	payload, _ = json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopic, payload); err != nil {
-		s.logger.Warn("failed to notify server before restoring", zap.Error(err))
-	}
+	s.notifyMsg(map[string]string{
+		"action_id": actionID,
+		"status":    statusRestoring,
+	})
 	s.reportStartRestore(progressOutput)
 	if err := unzip(fi.Name(), destDir); err != nil {
+		s.notifyStatusFailed(actionID)
 		return err
 	}
 	s.reportRestoreCompleted(progressOutput)
-	msg["status"] = statusComplete
-	payload, _ = json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopic, payload); err != nil {
-		s.logger.Warn("failed to notify server restore progress completed", zap.Error(err))
-	}
+	s.notifyMsg(map[string]string{
+		"action_id": actionID,
+		"status":    statusComplete,
+	})
 
 	return nil
 }

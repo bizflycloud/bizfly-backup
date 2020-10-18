@@ -20,6 +20,8 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,9 +30,11 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/bizflycloud/bizflyctl/formatter"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 )
@@ -136,7 +140,23 @@ var backupDownloadRecoveryPointCmd = &cobra.Command{
 				},
 			},
 		}
-		resp, err := httpc.Get("http://unix/recovery-points/" + recoveryPointID + "/download")
+
+		req, err := http.NewRequest(http.MethodGet, "http://unix/recovery-points/"+recoveryPointID+"/download", nil)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		machineID := viper.GetString("machine_id")
+		secretKey := viper.GetString("secret_key")
+		if machineID == "" || secretKey == "" {
+			logger.Error("The machine ID and secret key is required")
+			os.Exit(1)
+		}
+		createdAt := time.Now().UTC().Format(http.TimeFormat)
+		req.Header.Add("X-Session-Created-At", createdAt)
+		req.Header.Add("X-Restore-Session-Key", restoreSessionKey(secretKey, machineID, createdAt, recoveryPointID))
+
+		resp, err := httpc.Do(req)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
@@ -228,6 +248,7 @@ func init() {
 	backupDownloadRecoveryPointCmd.PersistentFlags().StringVar(&backupDownloadOutFile, "outfile", "", "Output backup download to file")
 	_ = backupDownloadRecoveryPointCmd.MarkPersistentFlagRequired("recovery-point-id")
 	backupCmd.AddCommand(backupListRecoveryPointCmd)
+	backupCmd.AddCommand(backupDownloadRecoveryPointCmd)
 
 	backupRunCmd.PersistentFlags().StringVar(&backupID, "backup-id", "", "The ID of backup directory")
 	_ = backupRunCmd.MarkPersistentFlagRequired("backup-id")
@@ -236,4 +257,10 @@ func init() {
 	backupCmd.AddCommand(backupRunCmd)
 
 	backupCmd.AddCommand(backupSyncCmd)
+}
+
+func restoreSessionKey(key, machineID, createdAt, recoveryPointID string) string {
+	s := strings.Join([]string{key, machineID, createdAt, recoveryPointID}, "")
+	hash := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(hash[:])
 }

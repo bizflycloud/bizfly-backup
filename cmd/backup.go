@@ -148,7 +148,11 @@ var backupDownloadRecoveryPointCmd = &cobra.Command{
 		}
 		machineID := viper.GetString("machine_id")
 		secretKey := viper.GetString("secret_key")
-		createdAt := time.Now().Format(http.TimeFormat)
+		if machineID == "" || secretKey == "" {
+			logger.Error("The machine ID and secret key is required")
+			os.Exit(1)
+		}
+		createdAt := time.Now().UTC().Format(http.TimeFormat)
 		req.Header.Add("X-Session-Created-At", createdAt)
 		req.Header.Add("X-Restore-Session-Key", restoreSessionKey(secretKey, machineID, createdAt, recoveryPointID))
 

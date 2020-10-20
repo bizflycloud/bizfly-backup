@@ -19,6 +19,7 @@ const (
 	ConfigUpdateActionDeactiveDirectory = "deactive_directory"
 	ConfigUpdateActionAddDirectory      = "add_directory"
 	ConfigUpdateActionDelDirectory      = "del_directory"
+	StatusNotify                        = "status_notify"
 )
 
 // ErrUnknownEventType is raised when receiving unhandled event from broker.
@@ -29,6 +30,9 @@ type Message struct {
 	EventType string `json:"event_type"`
 	MachineID string `json:"machine_id"`
 	CreatedAt string `json:"created_at"`
+
+	// For notify status
+	Status string `json:"status"`
 
 	// For performing backup/update cron/manual.
 	BackupDirectory   string `json:"backup_directory"`

@@ -123,6 +123,8 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	case broker.ConfigRefresh:
 		return s.handleConfigRefresh(msg.BackupDirectories)
 	case broker.AgentUpgrade:
+	case broker.StatusNotify:
+		s.logger.Info("Got agent status", zap.String("status", msg.Status))
 	default:
 		return fmt.Errorf("Event %s: %w", msg.EventType, broker.ErrUnknownEventType)
 	}
@@ -305,7 +307,7 @@ func (s *Server) subscribeBrokerLoop(ctx context.Context) {
 		time.Sleep(b.Duration())
 		continue
 	}
-	msg := map[string]string{"status": "ONLINE"}
+	msg := map[string]string{"status": "ONLINE", "event_type": broker.StatusNotify}
 	payload, _ := json.Marshal(msg)
 	if err := s.b.Publish(s.publishTopic, payload); err != nil {
 		s.logger.Error("failed to notify server status online", zap.Error(err))

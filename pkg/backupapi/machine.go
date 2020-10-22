@@ -1,6 +1,7 @@
 package backupapi
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -30,16 +31,21 @@ type Machine struct {
 	OSMachineID  string `json:"os_machine_id"`
 }
 
+// UpdateMachineResponse is the server response when update machine info
+type UpdateMachineResponse struct {
+	BrokerUrl string `json:"broker_url"`
+}
+
 // UpdateMachine updates machine information.
-func (c *Client) UpdateMachine() error {
+func (c *Client) UpdateMachine() (*UpdateMachineResponse, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
-		return fmt.Errorf("os.Hostname(): %w", err)
+		return nil, fmt.Errorf("os.Hostname(): %w", err)
 	}
 	oi := osinfo.New()
 	id, err := machineid.ID()
 	if err != nil {
-		return fmt.Errorf("machineid.ID(): %w", err)
+		return nil, fmt.Errorf("machineid.ID(): %w", err)
 	}
 	m := &Machine{
 		HostName:     hostname,
@@ -51,23 +57,28 @@ func (c *Client) UpdateMachine() error {
 
 	req, err := c.NewRequest(http.MethodPatch, updateMachinePath, m)
 	if err != nil {
-		return fmt.Errorf("c.NewRequest(): %w", err)
+		return nil, fmt.Errorf("c.NewRequest(): %w", err)
 	}
 
 	resp, err := c.Do(req)
 	if err != nil {
-		return fmt.Errorf("c.Do(): %w", err)
+		return nil, fmt.Errorf("c.Do(): %w", err)
 	}
 	if err := checkResponse(resp); err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
+	var umr UpdateMachineResponse
+	if err := json.NewDecoder(resp.Body).Decode(&umr); err != nil {
+		return nil, err
+	}
+
 	buf, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("ioutil.ReadAll(): err")
+		return nil, fmt.Errorf("ioutil.ReadAll(): err")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected error: %s, status: %d", string(buf), resp.StatusCode)
+		return nil, fmt.Errorf("unexpected error: %s, status: %d", string(buf), resp.StatusCode)
 	}
-	return nil
+	return &umr, nil
 }

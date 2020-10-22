@@ -26,6 +26,6 @@ func TestClient_UpdateMachine(t *testing.T) {
 		assert.NotEmpty(t, m.OSMachineID)
 		_, _ = w.Write([]byte(""))
 	})
-
-	assert.NoError(t, client.UpdateMachine())
+	_, err := client.UpdateMachine()
+	assert.NoError(t, err)
 }

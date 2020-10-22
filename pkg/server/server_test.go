@@ -137,7 +137,7 @@ func Test_compressDir(t *testing.T) {
 		t.Log(zipFile.Name)
 		count++
 	}
-	assert.Equal(t, 3, count)
+	assert.Equal(t, 4, count)
 }
 
 func Test_unzip(t *testing.T) {
@@ -167,7 +167,7 @@ func Test_unzip(t *testing.T) {
 	}
 
 	assert.NoError(t, filepath.Walk(filepath.Join(tempDir, ""), walker))
-	assert.Equal(t, 3, count)
+	assert.Equal(t, 4, count)
 }
 
 func TestServerCron(t *testing.T) {

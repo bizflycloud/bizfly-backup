@@ -618,8 +618,9 @@ func compressDir(src string, w io.Writer) error {
 		if info.IsDir() {
 			return nil
 		}
+		isSymlink := info.Mode()&os.ModeSymlink != 0
 		fi, err := os.Open(path)
-		if os.IsNotExist(err) && (info.Mode()&os.ModeSymlink != 0) {
+		if os.IsNotExist(err) && isSymlink {
 			return nil
 		}
 		if err != nil {
@@ -634,10 +635,15 @@ func compressDir(src string, w io.Writer) error {
 
 		header.Name = path
 		header.Method = zip.Deflate
+		header.SetMode(info.Mode())
 
 		fw, err := zw.CreateHeader(header)
 		if err != nil {
 			return err
+		}
+
+		if isSymlink {
+			return nil
 		}
 
 		_, err = io.Copy(fw, fi)

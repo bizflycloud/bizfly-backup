@@ -56,10 +56,11 @@ var agentCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		bo := backoff.WithMaxRetries(backoff.NewConstantBackOff(3*time.Second), 3)
-
+		var brokerUrl string
 		for {
-			err := backupClient.UpdateMachine()
+			umr, err := backupClient.UpdateMachine()
 			if err == nil {
+				brokerUrl = umr.BrokerUrl
 				break
 			}
 			logger.Error("failed to update machine info", zap.Error(err))
@@ -70,7 +71,7 @@ var agentCmd = &cobra.Command{
 			time.Sleep(d)
 		}
 
-		mqttUrl := viper.GetString("broker_url")
+		mqttUrl := brokerUrl
 		agentID := machineID
 		b, err := mqtt.NewBroker(
 			mqtt.WithURL(mqttUrl),

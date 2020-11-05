@@ -126,7 +126,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	case broker.StatusNotify:
 		s.logger.Info("Got agent status", zap.String("status", msg.Status))
 	default:
-		s.logger.Warn("Got unknown event", zap.Any("message", msg))
+		s.logger.Debug("Got unknown event", zap.Any("message", msg))
 	}
 	return nil
 }

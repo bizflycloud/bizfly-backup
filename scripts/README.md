@@ -1,6 +1,6 @@
 # Scripts install Backup Service Agent
 ## **Install on Linux**
-- [Script]()
+- [Script](https://github.com/bizflycloud/bizfly-backup/blob/master/scripts/linux.sh)
 ### **Running**
 - Switch to `root` user :
     ```sh
@@ -12,10 +12,10 @@
     API_URL=https://dev.bizflycloud.vn/api/cloud-backup \
     MACHINE_ID=4a10ed55-812e-429b-a889-877ecae7088d \
     SECRET_KEY=791bc1fac71cef7acb77a4cb306352a5266ffe5f0749c8525d0cffd36c6c4207 \
-    bash -c "$(curl -sSL https://raw.githubusercontent.com/QuocCuong97/Code/master/Bash/install_agent_linux.sh)"
+    bash -c "$(curl -sSL https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/linux.sh)"
     ```
 ## **Install on MacOS**
-- [Script]()
+- [Script](https://github.com/bizflycloud/bizfly-backup/blob/master/scripts/macos.sh)
 ### **Running**
 - Switch to `root` user :
     ```sh
@@ -27,15 +27,15 @@
     API_URL=https://dev.bizflycloud.vn/api/cloud-backup \
     MACHINE_ID=d5655507-82d3-42b1-b276-52c7579ae713 \
     SECRET_KEY=3872a3eecb88812c7e2b20f1219dfec0682b86ddfe8b71d957bebdd5eae8d1a1 \
-    bash -c "$(curl -sSL https://raw.githubusercontent.com/QuocCuong97/Code/master/Bash/install_agent_macos.sh)"
+    bash -c "$(curl -sSL https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/macos.sh)"
     ```
 ## **Install on Windows**
-- [Script]()
+- [Script](https://github.com/bizflycloud/bizfly-backup/blob/master/scripts/windows.ps1)
 ### **Running**
 - Open **Command Prompt (CMD)** or **PowerShell** with **administrator privileges** (*Run as administrator*)
 - With CMD, run command :
     ```powershell
-    powershell -Command ("Invoke-WebRequest -Uri https://raw.githubusercontent.com/QuocCuong97/Code/master/PowerShell/install_agent.ps1 -OutFile agent.ps1") && ^
+    powershell -Command ("Invoke-WebRequest -Uri https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/windows.ps1 -OutFile agent.ps1") && ^
     powershell -ExecutionPolicy Bypass -File agent.ps1 ^
     -ACCESS_KEY VGSG1NGLDALWHS9WKHQP ^
     -API_URL https://dev.bizflycloud.vn/api/cloud-backup ^
@@ -44,7 +44,7 @@
     ```
 - With Powershell run command :
     ```powershell
-    powershell -Command ("Invoke-WebRequest -Uri https://raw.githubusercontent.com/QuocCuong97/Code/master/PowerShell/install_agent.ps1 -OutFile agent.ps1") && `
+    powershell -Command ("Invoke-WebRequest -Uri https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/windows.ps1 -OutFile agent.ps1") && `
     powershell -ExecutionPolicy Bypass -File agent.ps1 `
     -ACCESS_KEY VGSG1NGLDALWHS9WKHQP `
     -API_URL https://dev.bizflycloud.vn/api/cloud-backup `

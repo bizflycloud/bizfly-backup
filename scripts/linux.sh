@@ -99,12 +99,6 @@ printf "Second Step: Run Agent\n"
 printf "=======================================\n"
 run_agent_with_systemd ACCESS_KEY API_URL MACHINE_ID SECRET_KEY
 
-### Usage
-# ACCESS_KEY=OLIQSJ5EQKTRVB01HXJ0 \
-# API_URL=https://dev.bizflycloud.vn/api/cloud-backup \
-# MACHINE_ID=4a10ed55-812e-429b-a889-877ecae7088d \
-# SECRET_KEY=791bc1fac71cef7acb77a4cb306352a5266ffe5f0749c8525d0cffd36c6c4207 \
-# bash -c "$(curl -sSL https://raw.githubusercontent.com/QuocCuong97/Code/master/Bash/install_agent_linux.sh)"
 
 # START SERVICE:
 # systemctl start backup-agent

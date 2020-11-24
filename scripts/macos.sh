@@ -69,13 +69,6 @@ printf "Second Step: Run Agent\n"
 printf "=======================================\n"
 run_agent_with_launchd ACCESS_KEY API_URL MACHINE_ID SECRET_KEY
 
-# INSTALL:
-# sudo -sE & \
-# ACCESS_KEY=1RTTIXPO9KAXH53ARDDB \
-# API_URL=https://dev.bizflycloud.vn/api/cloud-backup \
-# MACHINE_ID=d5655507-82d3-42b1-b276-52c7579ae713 \
-# SECRET_KEY=3872a3eecb88812c7e2b20f1219dfec0682b86ddfe8b71d957bebdd5eae8d1a1 \
-# bash -c "$(curl -sSL https://raw.githubusercontent.com/QuocCuong97/Code/master/Bash/install_agent_macos.sh)"
 
 # START SERVICE:
 # sudo launchctl start backup-agent

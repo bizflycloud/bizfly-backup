@@ -9,7 +9,7 @@
 - Run script :
     ```sh
     ACCESS_KEY=OLIQSJ5EQKTRVB01HXJ0 \
-    API_URL=https://api-backup-hn.manage.bizflycloud.vn/ \
+    API_URL=https://api-backup-hn.manage.bizflycloud.vn \
     MACHINE_ID=4a10ed55-812e-429b-a889-877ecae7088d \
     SECRET_KEY=791bc1fac71cef7acb77a4cb306352a5266ffe5f0749c8525d0cffd36c6c4207 \
     bash -c "$(curl -sSL https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/linux.sh)"

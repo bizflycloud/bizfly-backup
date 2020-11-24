@@ -9,7 +9,7 @@
 - Run script :
     ```sh
     ACCESS_KEY=OLIQSJ5EQKTRVB01HXJ0 \
-    API_URL=https://dev.bizflycloud.vn/api/cloud-backup \
+    API_URL=https://api-backup-hn.manage.bizflycloud.vn/ \
     MACHINE_ID=4a10ed55-812e-429b-a889-877ecae7088d \
     SECRET_KEY=791bc1fac71cef7acb77a4cb306352a5266ffe5f0749c8525d0cffd36c6c4207 \
     bash -c "$(curl -sSL https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/linux.sh)"
@@ -23,10 +23,10 @@
     ```
 - Run script :
     ```sh
-    ACCESS_KEY=1RTTIXPO9KAXH53ARDDB \
-    API_URL=https://dev.bizflycloud.vn/api/cloud-backup \
-    MACHINE_ID=d5655507-82d3-42b1-b276-52c7579ae713 \
-    SECRET_KEY=3872a3eecb88812c7e2b20f1219dfec0682b86ddfe8b71d957bebdd5eae8d1a1 \
+    ACCESS_KEY=<your_access_key> \
+    API_URL=https://api-backup-hn.manage.bizflycloud.vn \
+    MACHINE_ID=<your_machine_id> \
+    SECRET_KEY=<your_secret_key> \
     bash -c "$(curl -sSL https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/macos.sh)"
     ```
 ## **Install on Windows**
@@ -37,17 +37,17 @@
     ```powershell
     powershell -Command ("Invoke-WebRequest -Uri https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/windows.ps1 -OutFile agent.ps1") && ^
     powershell -ExecutionPolicy Bypass -File agent.ps1 ^
-    -ACCESS_KEY VGSG1NGLDALWHS9WKHQP ^
-    -API_URL https://dev.bizflycloud.vn/api/cloud-backup ^
-    -MACHINE_ID 8d8d2df2-3655-4315-9651-6751a81c94db ^
-    -SECRET_KEY 05009fc456e1450d54225c8b4a599c581dee0d9d8ebe2aa6b6a55aee706387d5
+    -ACCESS_KEY <your_access_key> ^
+    -API_URL https://api-backup-hn.manage.bizflycloud.vn ^
+    -MACHINE_ID <your_machine_id> ^
+    -SECRET_KEY <your_secret_key>
     ```
 - With Powershell run command :
     ```powershell
     powershell -Command ("Invoke-WebRequest -Uri https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/windows.ps1 -OutFile agent.ps1") && `
     powershell -ExecutionPolicy Bypass -File agent.ps1 `
-    -ACCESS_KEY VGSG1NGLDALWHS9WKHQP `
-    -API_URL https://dev.bizflycloud.vn/api/cloud-backup `
-    -MACHINE_ID 8d8d2df2-3655-4315-9651-6751a81c94db `
-    -SECRET_KEY 05009fc456e1450d54225c8b4a599c581dee0d9d8ebe2aa6b6a55aee706387d5
+    -ACCESS_KEY <your_access_key> `
+    -API_URL https://api-backup-hn.manage.bizflycloud.vn `
+    -MACHINE_ID <your_machine_id> `
+    -SECRET_KEY <your_secret_key>
     ```

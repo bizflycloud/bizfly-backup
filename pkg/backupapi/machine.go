@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/denisbrodbeck/machineid"
 	"github.com/favadi/osinfo"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/agentversion"
@@ -43,15 +42,10 @@ func (c *Client) UpdateMachine() (*UpdateMachineResponse, error) {
 		return nil, fmt.Errorf("os.Hostname(): %w", err)
 	}
 	oi := osinfo.New()
-	id, err := machineid.ID()
-	if err != nil {
-		return nil, fmt.Errorf("machineid.ID(): %w", err)
-	}
 	m := &Machine{
 		HostName:     hostname,
 		OSVersion:    oi.String(),
 		AgentVersion: agentversion.Version(),
-		OSMachineID:  id,
 		IPAddress:    getOutboundIP(),
 	}
 

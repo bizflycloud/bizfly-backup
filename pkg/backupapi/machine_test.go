@@ -2,11 +2,12 @@ package backupapi
 
 import (
 	"encoding/json"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"path"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestClient_UpdateMachine(t *testing.T) {
@@ -26,7 +27,6 @@ func TestClient_UpdateMachine(t *testing.T) {
 		assert.NotEmpty(t, m.HostName)
 		assert.NotEmpty(t, m.OSVersion)
 		assert.NotEmpty(t, m.AgentVersion)
-		assert.NotEmpty(t, m.OSMachineID)
 		_, _ = w.Write([]byte(""))
 	})
 	umr, err := client.UpdateMachine()

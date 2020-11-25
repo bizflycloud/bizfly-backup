@@ -10,7 +10,7 @@ check_distribution(){
         sudo apt-get install -y jq curl
         echo "support"
     # For CentOS/RHEL 6,7,8
-    elif [[ $distribution_raw == *rhel* || -f "/etc/redhat-release" ]] ; then                       
+    elif [[ $distribution_raw == *rhel* || -f "/etc/redhat-release" ]] ; then
         yum install -y jq curl
         echo "support"
     else
@@ -36,7 +36,7 @@ get_lastest_download_url(){
     else
         i=0
         while [ $i -lt $length ]
-        do  
+        do
             download_url_raw=$(echo $lastest_version | jq -r .[$i].browser_download_url)
             if [[ $download_url_raw == *$filename* ]]; then
                 download_url=$download_url_raw
@@ -57,51 +57,52 @@ download_agent(){
         else
             curl -Ls $(get_lastest_download_url) --output "bizfly-backup.tar.gz"
             tar -xzf bizfly-backup.tar.gz
-            mv bizfly /usr/bin
+            mv bizfly-backup /usr/bin
             rm -f bizfly-backup.tar.gz
         fi
     fi
 }
 
 run_agent_with_systemd(){
-    cat <<EOF > /etc/agent.yaml
+mkdir /etc/bizfly-backup/
+    cat <<EOF > /etc/bizfly-backup/agent.yaml
 access_key: $ACCESS_KEY
 api_url: $API_URL
 machine_id: $MACHINE_ID
 secret_key: $SECRET_KEY
 EOF
-    cat <<EOF > /etc/systemd/system/backup-agent.service
+    cat <<EOF > /etc/systemd/system/bizfly-backup.service
 [Unit]
 Description=Backup Agent Service
 [Service]
 Type=simple
-ExecStart=/usr/bin/bizfly agent --config=/etc/agent.yaml
+ExecStart=/usr/bin/bizfly-backup agent --config=/etc/bizfly-backup/agent.yaml
 [Install]
 WantedBy=multi-user.target
 EOF
-    sudo chmod 644 /etc/systemd/system/backup-agent.service
-    systemctl enable backup-agent
-    systemctl start backup-agent
-    systemctl status backup-agent
+    sudo chmod 644 /etc/systemd/system/bizfly-backup.service
+    systemctl enable bizfly-backup
+    systemctl start bizfly-backup
+    systemctl status bizfly-backup
 }
 
 clear
 printf "=========================================================================\n"
-printf "******************Backup Agent Installation - VCCloud********************\n"
+printf "***********BizFly Backup Agent Installation - BizFly Cloud********************\n"
 printf "=========================================================================\n"
-printf "First Step: Download Agent\n"
+printf "First Step: Download BizFly Backup Agent\n"
 printf "====================================\n"
 download_agent
 
 clear
 printf "=========================================================================\n"
-printf "Second Step: Run Agent\n"
+printf "Second Step: Run BizFly Backup Agent\n"
 printf "=======================================\n"
 run_agent_with_systemd ACCESS_KEY API_URL MACHINE_ID SECRET_KEY
 
 
 # START SERVICE:
-# systemctl start backup-agent
+# systemctl start bizfly-backup
 
 # STOP SERVICE:
-# systemctl stop backup-agent
+# systemctl stop bizfly-backup

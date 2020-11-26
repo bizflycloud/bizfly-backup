@@ -52,10 +52,10 @@ download_agent(){
     if [[ $(check_distribution) == "not support" ]]; then
         echo "Not support!"
     else
-        if [[ "$get_lastest_download_url" == "not support" ]]; then
+        if [[ "$(get_lastest_download_url)" == "not support" ]]; then
             echo "Not support!"
         else
-            curl -Ls "$get_lastest_download_url" --output "bizfly-backup.tar.gz"
+            curl -Ls "$(get_lastest_download_url)" --output "bizfly-backup.tar.gz"
             tar -xzf bizfly-backup.tar.gz
             mv bizfly-backup /usr/bin
             rm -f bizfly-backup.tar.gz

@@ -10,7 +10,7 @@ check_distribution(){
         sudo apt-get install -y jq curl
         echo "support"
     # For CentOS/RHEL 6,7,8
-    elif [[ $distribution_raw == *rhel* || -f "/etc/redhat-release" ]] ; then
+    elif [[ $distribution_raw == *rhel* ]] || [[ -f "/etc/redhat-release" ]]  ; then
         yum install -y jq curl
         echo "support"
     else
@@ -35,7 +35,7 @@ get_lastest_download_url(){
         echo "not support"
     else
         i=0
-        while [ $i -lt $length ]
+        while [ "$i" -lt "$length" ]
         do
             download_url_raw=$(echo $lastest_version | jq -r .[$i].browser_download_url)
             if [[ $download_url_raw == *$filename* ]]; then
@@ -52,10 +52,10 @@ download_agent(){
     if [[ $(check_distribution) == "not support" ]]; then
         echo "Not support!"
     else
-        if [[ $(get_lastest_download_url) == "not support" ]]; then
+        if [[ "$get_lastest_download_url" == "not support" ]]; then
             echo "Not support!"
         else
-            curl -Ls $(get_lastest_download_url) --output "bizfly-backup.tar.gz"
+            curl -Ls "$get_lastest_download_url" --output "bizfly-backup.tar.gz"
             tar -xzf bizfly-backup.tar.gz
             mv bizfly-backup /usr/bin
             rm -f bizfly-backup.tar.gz

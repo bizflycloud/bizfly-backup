@@ -12,7 +12,7 @@
     API_URL=https://api-backup-hn.manage.bizflycloud.vn \
     MACHINE_ID=<your_machine_id> \
     SECRET_KEY=<your_secret_key> \
-    bash -c "$(curl -sSL https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/linux.sh)"
+    bash -c "$(curl -sSL https://get.bizflycloud.vn/cloud-backup/linux.sh)"
     ```
 ## **Install on MacOS**
 - [Script](https://github.com/bizflycloud/bizfly-backup/blob/master/scripts/macos.sh)
@@ -27,7 +27,7 @@
     API_URL=https://api-backup-hn.manage.bizflycloud.vn \
     MACHINE_ID=<your_machine_id> \
     SECRET_KEY=<your_secret_key> \
-    bash -c "$(curl -sSL https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/macos.sh)"
+    bash -c "$(curl -sSL https://get.bizflycloud.vn/cloud-backup/macos.sh)"
     ```
 ## **Install on Windows**
 - [Script](https://github.com/bizflycloud/bizfly-backup/blob/master/scripts/windows.ps1)
@@ -35,7 +35,7 @@
 - Open **Command Prompt (CMD)** or **PowerShell** with **administrator privileges** (*Run as administrator*)
 - With CMD, run command :
     ```powershell
-    powershell -Command ("Invoke-WebRequest -Uri https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/windows.ps1 -OutFile agent.ps1") && ^
+    powershell -Command ("Invoke-WebRequest -Uri https://get.bizflycloud.vn/cloud-backup/windows.ps1 -OutFile agent.ps1") && ^
     powershell -ExecutionPolicy Bypass -File agent.ps1 ^
     -ACCESS_KEY <your_access_key> ^
     -API_URL https://api-backup-hn.manage.bizflycloud.vn ^
@@ -44,7 +44,7 @@
     ```
 - With Powershell run command :
     ```powershell
-    powershell -Command ("Invoke-WebRequest -Uri https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/windows.ps1 -OutFile agent.ps1") && `
+    powershell -Command ("Invoke-WebRequest -Uri https://get.bizflycloud.vn/cloud-backup/windows.ps1 -OutFile agent.ps1") ; `
     powershell -ExecutionPolicy Bypass -File agent.ps1 `
     -ACCESS_KEY <your_access_key> `
     -API_URL https://api-backup-hn.manage.bizflycloud.vn `

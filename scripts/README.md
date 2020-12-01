@@ -44,7 +44,7 @@
     ```
 - With Powershell run command :
     ```powershell
-    powershell -Command ("Invoke-WebRequest -Uri https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/windows.ps1 -OutFile agent.ps1") && `
+    powershell -Command ("Invoke-WebRequest -Uri https://raw.githubusercontent.com/bizflycloud/bizfly-backup/master/scripts/windows.ps1 -OutFile agent.ps1") ; `
     powershell -ExecutionPolicy Bypass -File agent.ps1 `
     -ACCESS_KEY <your_access_key> `
     -API_URL https://api-backup-hn.manage.bizflycloud.vn `

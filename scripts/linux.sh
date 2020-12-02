@@ -3,19 +3,28 @@
 # Script install Agent for Backup Service on Linux
 
 check_distribution(){
-    distribution_raw=$(cat /etc/os-release | grep ID_LIKE)
-    # For Ubuntu/Debian
-    if [[ $distribution_raw == *debian* ]] ; then
-        sudo apt-get update -y
-        sudo apt-get install -y jq curl
-        echo "support"
-    # For CentOS/RHEL 6,7,8
-    elif [[ $distribution_raw == *rhel* ]] || [[ -f "/etc/redhat-release" ]]  ; then
-        yum install -y jq curl
-        echo "support"
-    else
-        echo "not support"
-    fi
+    . /etc/os-release
+    case $ID in
+    # For Ubuntu/Debian/Kali
+        ubuntu | debian | kali)
+            sudo apt-get update -y
+            sudo apt-get install -y jq
+            echo "support"
+            ;;
+    # For CentOS/RHEL 7,8
+        rhel | centos)
+            yum install -y jq
+            echo "support"
+            ;;
+    # For OpenSuse
+        *suse*)
+            zypper install -y jq
+            echo "support"
+            ;;
+        *)
+            echo "not support"
+            ;;
+    esac
 }
 
 get_lastest_download_url(){
@@ -88,16 +97,16 @@ EOF
 
 clear
 printf "=========================================================================\n"
-printf "***********BizFly Backup Agent Installation - BizFly Cloud********************\n"
+printf "********** BizFly Backup Agent Installation - BizFly Cloud **************\n"
 printf "=========================================================================\n"
 printf "First Step: Download BizFly Backup Agent\n"
-printf "====================================\n"
+printf "========================================\n"
 download_agent
 
 clear
 printf "=========================================================================\n"
 printf "Second Step: Run BizFly Backup Agent\n"
-printf "=======================================\n"
+printf "====================================\n"
 run_agent_with_systemd ACCESS_KEY API_URL MACHINE_ID SECRET_KEY
 
 

@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strings"
 	"runtime"
+	"strings"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/agentversion"
 )
@@ -40,9 +40,9 @@ type UpdateMachineResponse struct {
 func os_name() string {
 	os_type := runtime.GOOS
 	switch os_type {
-    case "windows":
-        command := "(Get-ComputerInfo).WindowsProductName"
-        os_name, _ := exec.Command("powershell", "-Command", command).Output()
+	case "windows":
+		command := "(Get-ComputerInfo).WindowsProductName"
+		os_name, _ := exec.Command("powershell", "-Command", command).Output()
 		return string(os_name)
 	case "darwin":
 		out, _ := exec.Command("bash", "-c", "sw_vers -productName").Output()

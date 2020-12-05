@@ -6,8 +6,9 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-
-	"github.com/favadi/osinfo"
+	"os/exec"
+	"strings"
+	"runtime"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/agentversion"
 )
@@ -35,16 +36,37 @@ type UpdateMachineResponse struct {
 	BrokerUrl string `json:"broker_url"`
 }
 
+// Get OS Name
+func os_name() string {
+	os_type := runtime.GOOS
+	switch os_type {
+    case "windows":
+        command := "(Get-ComputerInfo).WindowsProductName"
+        os_name, _ := exec.Command("powershell", "-Command", command).Output()
+		return string(os_name)
+	case "darwin":
+		out, _ := exec.Command("bash", "-c", "sw_vers -productName").Output()
+		os_name := strings.Split(string(out), "\n")
+		os_version, _ := exec.Command("bash", "-c", "sw_vers -productVersion").Output()
+		return (os_name[0] + " " + string(os_version))
+	case "linux":
+		os_name, _ := exec.Command("bash", "-c", ". /etc/os-release; echo $PRETTY_NAME").Output()
+		return string(os_name)
+	default:
+		return string(os_type)
+	}
+}
+
 // UpdateMachine updates machine information.
 func (c *Client) UpdateMachine() (*UpdateMachineResponse, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return nil, fmt.Errorf("os.Hostname(): %w", err)
 	}
-	oi := osinfo.New()
+	os_name := os_name()
 	m := &Machine{
 		HostName:     hostname,
-		OSVersion:    oi.String(),
+		OSVersion:    os_name,
 		AgentVersion: agentversion.Version(),
 		IPAddress:    getOutboundIP(),
 	}

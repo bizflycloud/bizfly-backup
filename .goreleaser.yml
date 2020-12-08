@@ -6,7 +6,6 @@ before:
 builds:
   - env:
       - CGO_ENABLED=0
-      - BIZFLY_BACKUP_VERSION="v{{.Version}}"
     goos:
       - linux
       - windows
@@ -19,6 +18,9 @@ builds:
     ignore:
       - goos: darwin
         goarch: 386
+    ldflags:
+      - -X github.com/bizflycloud/bizfly-backup/cmd.version={{ .Version }}
+      - -X github.com/bizflycloud/bizfly-backup/cmd.gitCommit={{ .ShortCommit }}
     main: main.go
     binary: bizfly-backup
     hooks:

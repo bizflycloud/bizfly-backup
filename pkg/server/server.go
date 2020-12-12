@@ -422,10 +422,11 @@ func (s *Server) notifyMsg(msg map[string]string) {
 	}
 }
 
-func (s *Server) notifyStatusFailed(recoveryPointID string) {
+func (s *Server) notifyStatusFailed(recoveryPointID, reason string) {
 	s.notifyMsg(map[string]string{
 		"action_id": recoveryPointID,
 		"status":    statusFailed,
+		"reason":    reason,
 	})
 }
 
@@ -445,7 +446,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	// Get BackupDirectory
 	bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
 	if err != nil {
-		s.notifyStatusFailed(rp.ID)
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 
@@ -457,7 +458,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	backupDir := filepath.Base(bd.Path)
 
 	if err := os.Chdir(wd); err != nil {
-		s.notifyStatusFailed(rp.ID)
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 
@@ -465,22 +466,22 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	s.reportStartCompress(progressOutput)
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
 	if err != nil {
-		s.notifyStatusFailed(rp.ID)
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 	defer os.Remove(fi.Name())
 	if err := compressDir(backupDir, fi); err != nil {
-		s.notifyStatusFailed(rp.ID)
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 	if err := fi.Close(); err != nil {
-		s.notifyStatusFailed(rp.ID)
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 	s.reportCompressDone(progressOutput)
 	fi, err = os.Open(fi.Name())
 	if err != nil {
-		s.notifyStatusFailed(rp.ID)
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 	batch := false
@@ -496,7 +497,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	s.reportStartUpload(progressOutput)
 	pw := backupapi.NewProgressWriter(progressOutput)
 	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, batch); err != nil {
-		s.notifyStatusFailed(rp.ID)
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 	s.reportUploadCompleted(progressOutput)
@@ -542,7 +543,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
 	if err != nil {
-		s.notifyStatusFailed(actionID)
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 	defer os.Remove(fi.Name())
@@ -556,13 +557,13 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	pw := backupapi.NewProgressWriter(progressOutput)
 	if err := s.backupClient.DownloadFileContent(ctx, createdAt, restoreSessionKey, recoveryPointID, io.MultiWriter(fi, pw)); err != nil {
 		s.logger.Error("failed to download file content", zap.Error(err))
-		s.notifyStatusFailed(actionID)
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 	s.reportDownloadCompleted(progressOutput)
 	if err := fi.Close(); err != nil {
 		s.logger.Error("failed to save to temporary file", zap.Error(err))
-		s.notifyStatusFailed(actionID)
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 
@@ -572,7 +573,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	})
 	s.reportStartRestore(progressOutput)
 	if err := unzip(fi.Name(), destDir); err != nil {
-		s.notifyStatusFailed(actionID)
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 	s.reportRestoreCompleted(progressOutput)

@@ -152,7 +152,7 @@ func (s *Server) handleConfigUpdate(action string, backupDirectories []backupapi
 func (s *Server) handleConfigRefresh(backupDirectories []backupapi.BackupDirectoryConfig) error {
 	ctx := s.cronManager.Stop()
 	<-ctx.Done()
-	s.cronManager = cron.New(cron.WithLocation(time.UTC))
+	s.cronManager = cron.New()
 	s.cronManager.Start()
 	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 	s.addToCronManager(backupDirectories)

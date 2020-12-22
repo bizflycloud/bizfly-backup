@@ -21,6 +21,7 @@ builds:
     ldflags:
       - -X github.com/bizflycloud/bizfly-backup/cmd.version={{ .Version }}
       - -X github.com/bizflycloud/bizfly-backup/cmd.gitCommit={{ .ShortCommit }}
+      - -X github.com/bizflycloud/bizfly-backup/pkg/server.Version={{ .Version }}
     main: main.go
     binary: bizfly-backup
     hooks:

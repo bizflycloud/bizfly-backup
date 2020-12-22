@@ -18,10 +18,15 @@
 package cmd
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"io/ioutil"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v3"
@@ -44,11 +49,11 @@ var agentCmd = &cobra.Command{
 		machineID := viper.GetString("machine_id")
 		accessKey := viper.GetString("access_key")
 		secretKey := viper.GetString("secret_key")
-		api_url := viper.GetString("api_url")
+		apiUrl := viper.GetString("api_url")
 		backupClient, err := backupapi.NewClient(
 			backupapi.WithAccessKey(accessKey),
 			backupapi.WithSecretKey(secretKey),
-			backupapi.WithServerURL(api_url),
+			backupapi.WithServerURL(apiUrl),
 			backupapi.WithID(machineID),
 		)
 		if err != nil {
@@ -103,7 +108,37 @@ var agentCmd = &cobra.Command{
 	},
 }
 
+var agentVersionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Show version of agent server.",
+	Run: func(cmd *cobra.Command, args []string) {
+		httpc := http.Client{
+			Transport: &http.Transport{
+				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+				},
+			},
+		}
+
+		req, err := http.NewRequest(http.MethodPost, "http://unix/version", nil)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		resp, err := httpc.Do(req)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		b, _ := ioutil.ReadAll(resp.Body)
+		fmt.Println(string(b))
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(agentCmd)
 	agentCmd.PersistentFlags().StringVar(&addr, "addr", defaultAddr, "listening address of server.")
+
+	agentCmd.AddCommand(agentVersionCmd)
 }

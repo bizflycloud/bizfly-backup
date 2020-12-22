@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,13 +21,17 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
+	"github.com/inconshreveable/go-update"
 	"github.com/jpillora/backoff"
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
+	"golang.org/x/mod/semver"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 )
+
+var Version string
 
 const (
 	statusZipFile     = "ZIP_FILE"
@@ -102,6 +108,9 @@ func (s *Server) setupRoutes() {
 
 	s.router.Route("/upgrade", func(r chi.Router) {
 		r.Post("/", s.UpgradeAgent)
+	})
+	s.router.Route("/version", func(r chi.Router) {
+		r.Post("/", s.Version)
 	})
 }
 
@@ -290,7 +299,53 @@ func (s *Server) SyncConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {}
+func (s *Server) Version(w http.ResponseWriter, r *http.Request) {
+	_, _ = w.Write([]byte(Version))
+}
+
+func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {
+	if err := s.doUpgrade(); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+	}
+}
+
+func (s *Server) doUpgrade() error {
+	lv, err := s.backupClient.LatestVersion()
+	if err != nil {
+		return err
+	}
+	latestVer := "v" + lv.Ver
+	fields := []zap.Field{zap.String("current_version", Version), zap.String("latest_version", latestVer)}
+	if semver.Compare(latestVer, Version) != 1 {
+		s.logger.Warn("Current version is not less than latest version, do nothing", fields...)
+		return nil
+	}
+	var binURL string
+	switch runtime.GOOS {
+	case "linux":
+		binURL = lv.Linux[runtime.GOARCH]
+	case "macos":
+		binURL = lv.Macos[runtime.GOARCH]
+	case "windows":
+		binURL = lv.Windows[runtime.GOARCH]
+	default:
+		return errors.New("unsupported OS")
+	}
+	if binURL == "" {
+		return errors.New("failed to get download url")
+	}
+	s.logger.Info("Detect new version, downloading...", fields...)
+	resp, err := http.Get(binURL)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	s.logger.Info("Finish downloading, perform upgrading...")
+	err = update.Apply(resp.Body, update.Options{})
+	s.logger.Info("Upgrading done!")
+	return err
+}
 
 func (s *Server) subscribeBrokerLoop(ctx context.Context) {
 	if len(s.subscribeTopics) == 0 {

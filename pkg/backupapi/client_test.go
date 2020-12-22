@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path"
 	"reflect"
 	"testing"
 
@@ -118,4 +119,38 @@ func TestDoError(t *testing.T) {
 		t.Fatalf("Do(): %v", err)
 	}
 	require.Error(t, checkResponse(resp))
+}
+
+var latestVer = `
+{
+    "lastest_version": "0.0.8",
+    "linux": {
+        "386": "https://github.com/bizflycloud/bizfly-backup/releases/download/v0.0.8/bizfly-backup_linux_386.tar.gz",
+        "amd64": "https://github.com/bizflycloud/bizfly-backup/releases/download/v0.0.8/bizfly-backup_linux_amd64.tar.gz",
+        "arm64": "https://github.com/bizflycloud/bizfly-backup/releases/download/v0.0.8/bizfly-backup_linux_arm64.tar.gz",
+        "armv6": "https://github.com/bizflycloud/bizfly-backup/releases/download/v0.0.8/bizfly-backup_linux_armv6.tar.gz"
+    },
+    "macos": {
+        "amd64": "https://github.com/bizflycloud/bizfly-backup/releases/download/v0.0.8/bizfly-backup_darwin_amd64.tar.gz"
+    },
+    "windows": {
+        "386": "https://github.com/bizflycloud/bizfly-backup/releases/download/v0.0.8/bizfly-backup_windows_386.zip",
+        "amd64": "https://github.com/bizflycloud/bizfly-backup/releases/download/v0.0.8/bizfly-backup_windows_amd64.zip"
+    }
+}
+`
+
+func TestClient_LatestVersion(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	mux.HandleFunc(path.Join("/api/v1", latestVersionPath), func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(latestVer))
+	})
+	lv, err := client.LatestVersion()
+	assert.NoError(t, err)
+	assert.Equal(t, "0.0.8", lv.Ver)
+	assert.Len(t, lv.Linux, 4)
+	assert.Len(t, lv.Macos, 1)
+	assert.Len(t, lv.Windows, 2)
 }

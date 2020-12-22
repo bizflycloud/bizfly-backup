@@ -16,6 +16,7 @@ import (
 const (
 	defaultServerURLString = "http://public.vbs.vccloud.vn/v1"
 	userAgent              = "bizfly-backup-client"
+	latestVersionPath      = "/dashboard/download-urls"
 )
 
 // Client is the client for interacting with BackupService API server.
@@ -146,4 +147,28 @@ func (c *Client) authorizationHeaderValue(method, now string) string {
 	s := strings.Join([]string{method, c.accessKey, c.secretKey, now}, "")
 	hash := sha256.Sum256([]byte(s))
 	return "VBS " + strings.Join([]string{c.accessKey, hex.EncodeToString(hash[:])}, ":")
+}
+
+type Version struct {
+	Ver     string            `json:"lastest_version"`
+	Linux   map[string]string `json:"linux"`
+	Macos   map[string]string `json:"macos"`
+	Windows map[string]string `json:"windows"`
+}
+
+func (c *Client) LatestVersion() (*Version, error) {
+	req, err := c.NewRequest(http.MethodGet, latestVersionPath, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var v Version
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		return nil, err
+	}
+	return &v, nil
 }

@@ -181,16 +181,18 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 			continue
 		}
 		for _, policy := range bd.Policies {
+			directoryID := bd.ID
+			policyID := policy.ID
 			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
 				name := "auto-" + time.Now().Format(time.RFC3339)
 				// improve when support incremental backup
 				recoveryPointType := backupapi.RecoveryPointTypeInitialReplica
-				if err := s.backup(bd.ID, policy.ID, name, recoveryPointType, ioutil.Discard); err != nil {
+				if err := s.backup(directoryID, policyID, name, recoveryPointType, ioutil.Discard); err != nil {
 					zapFields := []zap.Field{
 						zap.Error(err),
 						zap.String("service", "cron"),
-						zap.String("backup_directory_id", bd.ID),
-						zap.String("policy_id", policy.ID),
+						zap.String("backup_directory_id", directoryID),
+						zap.String("policy_id", policyID),
 					}
 					s.logger.Error("failed to run backup", zapFields...)
 				}

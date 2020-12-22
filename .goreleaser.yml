@@ -36,10 +36,8 @@ changelog:
       - Merge pull request
       - Merge branch
 archives:
-  - name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
-    format_overrides:
-      - goos: windows
-        format: zip
+  - format: binary
+
 source:
   enabled: true
   name_template: '{{ .ProjectName }}'

@@ -105,5 +105,4 @@ var agentCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(agentCmd)
-	agentCmd.PersistentFlags().StringVar(&addr, "addr", defaultAddr, "listening address of server.")
 }

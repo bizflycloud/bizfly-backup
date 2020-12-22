@@ -347,6 +347,26 @@ func (s *Server) doUpgrade() error {
 	return err
 }
 
+func (s *Server) upgradeLoop(ctx context.Context) {
+	ticker := time.NewTicker(86400 * time.Second)
+	defer ticker.Stop()
+	s.logger.Debug("Start auto upgrade loop.")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case t := <-ticker.C:
+			if err := s.doUpgrade(); err != nil {
+				fields := []zap.Field{
+					zap.Error(err),
+					zap.Time("at", t),
+				}
+				s.logger.Error("Auto upgrade run", fields...)
+			}
+		}
+	}
+}
+
 func (s *Server) subscribeBrokerLoop(ctx context.Context) {
 	if len(s.subscribeTopics) == 0 {
 		return
@@ -434,6 +454,7 @@ func (s *Server) Run() error {
 
 	go s.subscribeBrokerLoop(baseCtx)
 	go s.shutdownSignalLoop(baseCtx, valv)
+	go s.upgradeLoop(baseCtx)
 
 	srv := http.Server{Handler: chi.ServerBaseContext(baseCtx, s.router)}
 

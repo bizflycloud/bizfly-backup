@@ -4,16 +4,15 @@
 
 get_latest_release() {
     lastest_version=`curl -s "https://api.github.com/repos/bizflycloud/bizfly-backup/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'`
-    download_url="https://github.com/bizflycloud/bizfly-backup/releases/download/$lastest_version/bizfly-backup_darwin_amd64.tar.gz"
+    download_url="https://github.com/bizflycloud/bizfly-backup/releases/download/$lastest_version/bizfly-backup_darwin_amd64"
     echo $download_url
 }
 
 download_agent() {
     download_url=$(get_latest_release)
-    curl -fsSL $download_url -o "bizfly-backup.tar.gz"
-    tar -xzf bizfly-backup.tar.gz
-    mv bizfly-backup /usr/local/bin
-    rm -f bizfly-backup.tar.gz
+    curl -fsSL $download_url -o "bizfly-backup"
+    chmod +x bizfly-backup
+    mv bizfly-backup /usr/local/bin/
 }
 
 run_agent_with_launchd(){

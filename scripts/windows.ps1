@@ -30,9 +30,9 @@ function getDownloadURL {
     $responseobj = (ConvertFrom-Json -InputObject $response).assets
     $arch = GetArchitecture
     if ($arch -eq "64bit"){
-        $filename = "bizfly-backup_windows_amd64.zip"
+        $filename = "bizfly-backup_windows_amd64.exe"
     }else {
-        $filename = "bizfly-backup_windows_386.zip"
+        $filename = "bizfly-backup_windows_386.exe"
     }
     for($i = 0; $i -lt $responseobj.length; $i++){
         if ($responseobj[$i].browser_download_url -like "*$filename*"){
@@ -44,9 +44,7 @@ function getDownloadURL {
 
 function downloadAgent {
     $download_url = getDownloadURL
-    Invoke-WebRequest -Method Get -UseBasicParsing -Uri $download_url -OutFile "bizfly-backup.zip"
-    Expand-Archive -LiteralPath 'bizfly-backup.zip' -Force -DestinationPath "\progra~1\BizFlyBackup"
-    Remove-Item 'bizfly-backup.zip'
+    Invoke-WebRequest -Method Get -UseBasicParsing -Uri $download_url -OutFile ( New-Item -Path "\progra~1\BizFlyBackup\bizfly-backup.exe" )
 }
 
 function runAgentasService {

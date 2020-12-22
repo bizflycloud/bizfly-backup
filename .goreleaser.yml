@@ -37,6 +37,7 @@ changelog:
       - Merge branch
 archives:
   - format: binary
+    name_template: '{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}'
 
 source:
   enabled: true

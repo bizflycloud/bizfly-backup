@@ -18,7 +18,11 @@
 package cmd
 
 import (
-	"fmt"
+	"context"
+	"net"
+	"net/http"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -28,7 +32,25 @@ var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Upgrade bizfly-backup to latest version.",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("upgrade called")
+		httpc := http.Client{
+			Transport: &http.Transport{
+				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+				},
+			},
+		}
+
+		req, err := http.NewRequest(http.MethodPost, "http://unix/upgrade", nil)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		resp, err := httpc.Do(req)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
 	},
 }
 

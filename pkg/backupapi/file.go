@@ -109,7 +109,10 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 	var wg sync.WaitGroup
 	var errs []error
 	var mu sync.Mutex
+	const maxConcurrent = 30
+	sem := make(chan int, maxConcurrent)
 	for {
+		sem <- 1
 		partNum++
 		bodyBuf := &bytes.Buffer{}
 		bodyWriter := multipart.NewWriter(bodyBuf)
@@ -171,6 +174,7 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 				errs = append(errs, err)
 				mu.Unlock()
 			}
+			<- sem
 		}(bodyWriter, partNum)
 	}
 	wg.Wait()

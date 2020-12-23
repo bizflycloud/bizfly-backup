@@ -105,29 +105,44 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 		return err
 	}
 
+	bufCh := make(chan []byte, 30)
+	go func() {
+		defer close(bufCh)
+		b := make([]byte, MultipartUploadLowerBound)
+		for {
+			n, err := r.Read(b)
+			if err != nil {
+				return
+			}
+			bufCh <- b[:n]
+		}
+	}()
+
 	partNum := 0
 	var wg sync.WaitGroup
 	var errs []error
 	var mu sync.Mutex
-	for {
+	sem := make(chan struct{}, 15)
+	rc := retryablehttp.NewClient()
+	rc.RetryMax = 50 // TODO: configurable?
+	rcStd := rc.StandardClient()
+	for buf := range bufCh {
+		sem <- struct{}{}
+		buf := buf
 		partNum++
-		bodyBuf := &bytes.Buffer{}
-		bodyWriter := multipart.NewWriter(bodyBuf)
-		fileWriter, err := bodyWriter.CreateFormFile("data", recoveryPointID+"-"+strconv.Itoa(partNum))
-		if err != nil {
-			return fmt.Errorf("bodyWriter.CreateFormFile: %w", err)
-		}
-		written, err := io.CopyN(fileWriter, r, MultipartUploadLowerBound)
-		if err != nil && err != io.EOF {
-			return err
-		}
-		if written == 0 && err == io.EOF {
-			break
-		}
-
 		wg.Add(1)
-		go func(bodyWriter *multipart.Writer, partNum int) {
-			defer wg.Done()
+		go func(buf []byte, partNum int) {
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
+			b := new(bytes.Buffer)
+			bodyWriter := multipart.NewWriter(b)
+			fileWriter, err := bodyWriter.CreateFormFile("data", recoveryPointID+"-"+strconv.Itoa(partNum))
+			if err != nil {
+				return
+			}
+			_, _ = fileWriter.Write(buf)
 			contentType := bodyWriter.FormDataContentType()
 			if err := bodyWriter.Close(); err != nil {
 				mu.Lock()
@@ -143,7 +158,7 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 				mu.Unlock()
 				return
 			}
-			req, err := http.NewRequest(http.MethodPut, reqURL, io.TeeReader(bodyBuf, pw))
+			req, err := http.NewRequest(http.MethodPut, reqURL, io.TeeReader(b, pw))
 			if err != nil {
 				mu.Lock()
 				errs = append(errs, err)
@@ -155,9 +170,7 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 			q.Add("upload_id", m.UploadID)
 			req.URL.RawQuery = q.Encode()
 
-			retryClient := retryablehttp.NewClient()
-			retryClient.RetryMax = 50 // Should configurable this?
-			resp, err := c.do(retryClient.StandardClient(), req, contentType)
+			resp, err := c.do(rcStd, req, contentType)
 			if err != nil {
 				mu.Lock()
 				errs = append(errs, err)
@@ -171,13 +184,14 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 				errs = append(errs, err)
 				mu.Unlock()
 			}
-		}(bodyWriter, partNum)
+		}(buf, partNum)
 	}
 	wg.Wait()
 
 	if len(errs) > 0 {
 		return fmt.Errorf("upload multiparts fails: %v", errs)
 	}
+	rc.HTTPClient.CloseIdleConnections()
 
 	return c.CompleteMultipart(ctx, recoveryPointID, m.UploadID)
 }
@@ -186,6 +200,7 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer, batch bool) error {
 	if batch {
 		return c.uploadMultipart(fn, r, pw)
+
 	}
 	return c.uploadFile(fn, r, pw)
 }

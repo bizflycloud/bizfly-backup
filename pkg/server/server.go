@@ -567,6 +567,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
+	defer fi.Close()
 	batch := false
 	if f, err := fi.Stat(); err == nil {
 		batch = f.Size() > backupapi.MultipartUploadLowerBound

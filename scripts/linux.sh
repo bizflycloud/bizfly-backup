@@ -83,6 +83,7 @@ EOF
 [Unit]
 Description=Backup Agent Service
 [Service]
+Restart=always
 Type=simple
 ExecStart=/usr/bin/bizfly-backup agent --config=/etc/bizfly-backup/agent.yaml
 [Install]

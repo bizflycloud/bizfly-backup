@@ -343,7 +343,12 @@ func (s *Server) doUpgrade() error {
 	defer resp.Body.Close()
 	s.logger.Info("Finish downloading, perform upgrading...")
 	err = update.Apply(resp.Body, update.Options{})
-	s.logger.Info("Upgrading done!")
+	s.logger.Info("Upgrading done! TODO: self restart? For now, call os.Exit so service manager will restart us!")
+	if s.useUnixSock {
+		//	Remove socket and exit
+		os.Remove(s.Addr)
+	}
+	os.Exit(0)
 	return err
 }
 

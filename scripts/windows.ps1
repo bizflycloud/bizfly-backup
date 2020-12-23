@@ -68,6 +68,7 @@ function runAgentasService {
         .\nssm set BizFlyBackup Application "\progra~1\BizFlyBackup\bizfly-backup.exe"
         .\nssm set BizFlyBackup AppParameters "agent --config=\progra~1\BizFlyBackup\agent.yaml"
         .\nssm set BizFlyBackup AppThrottle 0
+        .\nssm set BizFlyBackup AppExit 0 Restart
         .\nssm start BizFlyBackup
         Remove-Item "~\nssm.zip"
         Remove-Item "~\nssm-2.24" -Recurse

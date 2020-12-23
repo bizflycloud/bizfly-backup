@@ -62,6 +62,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.bizfly-backup.yaml)")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug (default is false)")
+	rootCmd.PersistentFlags().StringVar(&addr, "addr", defaultAddr, "listening address of agent server.")
 }
 
 // initConfig reads in config file and ENV variables if set.

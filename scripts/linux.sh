@@ -32,11 +32,11 @@ get_lastest_download_url(){
     length=$(echo $lastest_version | jq '. | length')
     arch=$(uname -m)
     if [[ $arch == x86_64 ]] ; then
-        filename="bizfly-backup_linux_amd64.tar.gz"
+        filename="bizfly-backup_linux_amd64"
     elif [[ $arch == i386 ]] ; then
-        filename="bizfly-backup_linux_386.tar.gz"
+        filename="bizfly-backup_linux_386"
     elif [[ $arch == arm ]] ; then
-        filename="bizfly-backup_linux_arm64.tar.gz"
+        filename="bizfly-backup_linux_arm64"
     else
         filename=""
     fi
@@ -64,10 +64,9 @@ download_agent(){
         if [[ "$(get_lastest_download_url)" == "not support" ]]; then
             echo "Not support!"
         else
-            curl -Ls "$(get_lastest_download_url)" --output "bizfly-backup.tar.gz"
-            tar -xzf bizfly-backup.tar.gz
+            curl -Ls "$(get_lastest_download_url)" --output "bizfly-backup"
+            chmod +x bizfly-backup
             mv bizfly-backup /usr/bin
-            rm -f bizfly-backup.tar.gz
         fi
     fi
 }

@@ -3,7 +3,7 @@
 # Script install Agent for Backup Service on MAC OS
 
 get_latest_release() {
-    lastest_version=`curl -s "https://api.github.com/repos/bizflycloud/bizfly-backup/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'`
+    lastest_version=$(curl -s "https://api.github.com/repos/bizflycloud/bizfly-backup/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
     download_url="https://github.com/bizflycloud/bizfly-backup/releases/download/$lastest_version/bizfly-backup_darwin_amd64"
     echo $download_url
 }
@@ -12,6 +12,15 @@ download_agent() {
     download_url=$(get_latest_release)
     curl -fsSL $download_url -o "bizfly-backup"
     chmod +x bizfly-backup
+    if [[ -f "/usr/local/bin" ]]; then
+        rm -f /usr/local/bin
+    fi
+    if [[ ! -d "/usr/local/bin" ]]; then
+        mkdir /usr/local/bin
+    fi
+    if [[ ! -f "/etc/paths.d/bizfly-backup" ]]; then
+        echo /usr/local/bin/ > /etc/paths.d/bizfly-backup
+    fi
     mv bizfly-backup /usr/local/bin/
 }
 
@@ -102,7 +111,7 @@ upgrade(){
 main(){
     if [[ -x $(command -v bizfly-backup) ]] ; then
         installed_version=$(bizfly-backup version | grep Version | awk '{print $2}' | sed 's/v//g')
-        lastest_version=`curl -s "https://api.github.com/repos/bizflycloud/bizfly-backup/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'`
+        lastest_version=$(curl -s "https://api.github.com/repos/bizflycloud/bizfly-backup/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ "v$installed_version" == $lastest_version ]] ; then
             clear
             printf "=========================================================================\n"

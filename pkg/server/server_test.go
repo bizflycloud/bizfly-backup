@@ -134,7 +134,8 @@ func Test_compressDir(t *testing.T) {
 
 	count := 0
 	for _, zipFile := range zipReader.File {
-		t.Log(zipFile.Name)
+		assert.NotContains(t, zipFile.Name, "testdata/test_compress_dir")
+		assert.False(t, filepath.IsAbs(zipFile.Name))
 		count++
 	}
 	assert.Equal(t, 4, count)
@@ -151,7 +152,6 @@ func Test_unzip(t *testing.T) {
 	tempDir, err := ioutil.TempDir("", "bizfly-backup-agent-test-unzip-dir-*")
 	require.NoError(t, err)
 	defer os.RemoveAll(tempDir)
-
 	assert.NoError(t, unzip(fi.Name(), tempDir))
 
 	count := 0

@@ -44,12 +44,12 @@ function getDownloadURL {
 
 function downloadAgent {
     $download_url = getDownloadURL
-    Invoke-WebRequest -Method Get -UseBasicParsing -Uri $download_url -OutFile ( New-Item -Path "\progra~1\BizFlyBackup\bizfly-backup.exe" )
+    Invoke-WebRequest -Method Get -UseBasicParsing -Uri $download_url -OutFile ( New-Item -Path "C:\progra~1\BizFlyBackup\bizfly-backup.exe" )
 }
 
 function runAgentasService {
-    if ([System.IO.File]::Exists("\progra~1\BizFlyBackup\bizfly-backup.exe") -And [System.IO.File]::Exists("\progra~1\BizFlyBackup\nssm.exe")){
-        Set-Location -Path "\progra~1\BizFlyBackup"
+    if ([System.IO.File]::Exists("C:\progra~1\BizFlyBackup\bizfly-backup.exe") -And [System.IO.File]::Exists("C:\progra~1\BizFlyBackup\nssm.exe")){
+        Set-Location -Path "C:\progra~1\BizFlyBackup"
         Add-Content -Path "agent.yaml" -Value "access_key: $ACCESS_KEY`napi_url: $API_URL`nmachine_id: $MACHINE_ID`nsecret_key: $SECRET_KEY"
         .\nssm restart BizFlyBackup
     }else {
@@ -58,15 +58,15 @@ function runAgentasService {
         Invoke-WebRequest -Method Get -UseBasicParsing -Uri $download_url -OutFile "nssm.zip"
         Expand-Archive -LiteralPath 'nssm.zip' -Force -DestinationPath '.'
         if ($arch -eq "64bit"){
-            Copy-Item -Path ".\nssm-2.24\win64\nssm.exe" "\progra~1\BizFlyBackup"
+            Copy-Item -Path ".\nssm-2.24\win64\nssm.exe" "C:\progra~1\BizFlyBackup"
         }else {
-            Copy-Item -Path ".\nssm-2.24\win32\nssm.exe" "\progra~1\BizFlyBackup"
+            Copy-Item -Path ".\nssm-2.24\win32\nssm.exe" "C:\progra~1\BizFlyBackup"
         }
-        Set-Location -Path "\progra~1\BizFlyBackup"
+        Set-Location -Path "C:\progra~1\BizFlyBackup"
         Add-Content -Path "agent.yaml" -Value "access_key: $ACCESS_KEY`napi_url: $API_URL`nmachine_id: $MACHINE_ID`nsecret_key: $SECRET_KEY"
-        .\nssm install BizFlyBackup "\progra~1\BizFlyBackup\bizfly-backup.exe"
-        .\nssm set BizFlyBackup Application "\progra~1\BizFlyBackup\bizfly-backup.exe"
-        .\nssm set BizFlyBackup AppParameters "agent --config=\progra~1\BizFlyBackup\agent.yaml"
+        .\nssm install BizFlyBackup "C:\progra~1\BizFlyBackup\bizfly-backup.exe"
+        .\nssm set BizFlyBackup Application "C:\progra~1\BizFlyBackup\bizfly-backup.exe"
+        .\nssm set BizFlyBackup AppParameters "agent --config=C:\progra~1\BizFlyBackup\agent.yaml"
         .\nssm set BizFlyBackup AppThrottle 0
         .\nssm set BizFlyBackup AppExit 0 Restart
         .\nssm start BizFlyBackup
@@ -78,6 +78,7 @@ function runAgentasService {
 function fullInstall {
     Clear-Host
     Set-Location -Path "~\"
+    New-Item -ItemType Directory -Path "C:\progra~1\BizFlyBackup" | Out-Null
     Write-Host "=========================================================================`n"
     Write-Host "********** BizFly Backup Agent Installation - BizFly Cloud **************`n"
     Write-Host "=========================================================================`n"
@@ -101,7 +102,7 @@ function upgrade {
     Write-Host "=========================================`n"
 
     Stop-Service -Name "BizFlyBackup"
-    Remove-Item "\progra~1\BizFlyBackup\bizfly-backup.exe"
+    Remove-Item "C:\progra~1\BizFlyBackup\bizfly-backup.exe"
     Remove-Item "~\AppData\Local\Temp\bizfly-backup.sock" -Force -ErrorAction SilentlyContinue
     Set-Location -Path "~\"
     downloadAgent
@@ -114,7 +115,7 @@ function upgrade {
 }
 
 if (checkAdministrator){
-    if ([System.IO.File]::Exists("\progra~1\BizFlyBackup\bizfly-backup.exe")){
+    if ([System.IO.File]::Exists("C:\progra~1\BizFlyBackup\bizfly-backup.exe")){
         $current_version = $((\progra~1\BizFlyBackup\bizfly-backup.exe version | Select-String "Version:")  -split ":  ")[1]
 
         $release_url = "https://api.github.com/repos/bizflycloud/bizfly-backup/releases/latest"

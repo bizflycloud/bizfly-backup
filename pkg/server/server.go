@@ -681,16 +681,10 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 }
 
 func compressDir(src string, w io.Writer) error {
-	curDir, err := os.Getwd()
+	srcAbs, err := filepath.Abs(src)
 	if err != nil {
 		return err
 	}
-	if err := os.Chdir(src); err != nil {
-		return err
-	}
-	defer func() {
-		_ = os.Chdir(curDir)
-	}()
 
 	// zip > buf
 	zw := zip.NewWriter(w)
@@ -718,7 +712,7 @@ func compressDir(src string, w io.Writer) error {
 			return err
 		}
 
-		header.Name = path
+		header.Name = strings.TrimPrefix(path, srcAbs+string(os.PathSeparator))
 		header.Method = zip.Deflate
 		header.SetMode(info.Mode())
 
@@ -740,7 +734,7 @@ func compressDir(src string, w io.Writer) error {
 	}
 
 	// walk through every file in the folder and add to zip writer.
-	if err := filepath.Walk(".", walker); err != nil {
+	if err := filepath.Walk(srcAbs, walker); err != nil {
 		return err
 	}
 
@@ -752,10 +746,6 @@ func compressDir(src string, w io.Writer) error {
 }
 
 func unzip(zipFile, dest string) error {
-	curDir, err := os.Getwd()
-	if err != nil {
-		return err
-	}
 	r, err := zip.OpenReader(zipFile)
 	if err != nil {
 		return fmt.Errorf("zip.OpenReader: %w", err)
@@ -765,13 +755,6 @@ func unzip(zipFile, dest string) error {
 	if err := os.MkdirAll(dest, 0755); err != nil && !os.IsExist(err) {
 		return err
 	}
-
-	if err := os.Chdir(dest); err != nil {
-		return err
-	}
-	defer func() {
-		_ = os.Chdir(curDir)
-	}()
 
 	extractAndWriteFile := func(f *zip.File) error {
 		rc, err := f.Open()

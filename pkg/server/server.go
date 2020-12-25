@@ -316,8 +316,9 @@ func (s *Server) doUpgrade() error {
 		return err
 	}
 	latestVer := "v" + lv.Ver
-	fields := []zap.Field{zap.String("current_version", Version), zap.String("latest_version", latestVer)}
-	if semver.Compare(latestVer, Version) != 1 {
+	currentVer := "v" + Version
+	fields := []zap.Field{zap.String("current_version", currentVer), zap.String("latest_version", latestVer)}
+	if semver.Compare(latestVer, currentVer) != 1 {
 		s.logger.Warn("Current version is not less than latest version, do nothing", fields...)
 		return nil
 	}

@@ -9,9 +9,11 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
 )
@@ -59,10 +61,23 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	return u.String(), nil
 }
 
-func (c *Client) uploadFile(fn string, r io.Reader, pw io.Writer) error {
+func setFields(fi os.FileInfo, w *multipart.Writer) error {
+	w.WriteField("file_name", fi.Name())
+	w.WriteField("size", strconv.FormatInt(fi.Size(), 10))
+	w.WriteField("is_dir", strconv.FormatBool(fi.IsDir()))
+	w.WriteField("mode", fi.Mode().String())
+	w.WriteField("modified_at", fi.ModTime().Format(time.RFC3339))
+	return nil
+}
+
+func (c *Client) uploadFile(fn string, r io.Reader, pw io.Writer, fi os.FileInfo, path string) error {
 	bodyBuf := &bytes.Buffer{}
 	bodyWriter := multipart.NewWriter(bodyBuf)
+	setFields(fi, bodyWriter)
+	bodyWriter.WriteField("path", path)
+	// TODO add hash of file
 	fileWriter, err := bodyWriter.CreateFormFile("data", fn)
+
 	if err != nil {
 		return fmt.Errorf("bodyWriter.CreateFormFile: %w", err)
 	}
@@ -98,7 +113,7 @@ func (c *Client) uploadFile(fn string, r io.Reader, pw io.Writer) error {
 	return err
 }
 
-func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writer) error {
+func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writer, info os.FileInfo, path string) error {
 	ctx := context.Background()
 	m, err := c.InitMultipart(ctx, recoveryPointID)
 	if err != nil {
@@ -193,14 +208,22 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 	}
 	rc.HTTPClient.CloseIdleConnections()
 
-	return c.CompleteMultipart(ctx, recoveryPointID, m.UploadID)
+	cmpur := &CompleteMultiPartUploadRequest{
+		Path:       path,
+		Size:       int(info.Size()),
+		Mode:       info.Mode().String(),
+		IsDir:      info.IsDir(),
+		ModifiedAt: info.ModTime().Format(time.RFC3339),
+	}
+	fmt.Errorf("%v", cmpur)
+	return c.CompleteMultipart(ctx, recoveryPointID, m.UploadID, cmpur)
 }
 
 // UploadFile uploads given file to server.
-func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer, batch bool) error {
+func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer, fi os.FileInfo, path string, batch bool) error {
 	if batch {
-		return c.uploadMultipart(fn, r, pw)
+		return c.uploadMultipart(fn, r, pw, fi, path)
 
 	}
-	return c.uploadFile(fn, r, pw)
+	return c.uploadFile(fn, r, pw, fi, path)
 }

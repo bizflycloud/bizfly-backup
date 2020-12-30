@@ -14,10 +14,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+	//"hash/crc32"
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
@@ -534,62 +536,62 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 
-	s.notifyMsg(map[string]string{
-		"action_id": rp.ID,
-		"status":    statusZipFile,
-	})
-	wd := filepath.Dir(bd.Path)
-	backupDir := filepath.Base(bd.Path)
-
-	if err := os.Chdir(wd); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-
-	// Compress directory
-	s.reportStartCompress(progressOutput)
-	fi, err := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	defer os.Remove(fi.Name())
-	if err := compressDir(backupDir, fi); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	if err := fi.Close(); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	s.reportCompressDone(progressOutput)
-	fi, err = os.Open(fi.Name())
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	defer fi.Close()
-	batch := false
-	if f, err := fi.Stat(); err == nil {
-		batch = f.Size() > backupapi.MultipartUploadLowerBound
-	}
-
+	// Upload file to server
+	s.reportStartUpload(progressOutput)
 	s.notifyMsg(map[string]string{
 		"action_id": rp.ID,
 		"status":    statusUploadFile,
 	})
-	// Upload file to server
-	s.reportStartUpload(progressOutput)
-	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, batch); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
+	backupDir := filepath.Base(bd.Path)
+	srcAbs, err := filepath.Abs(backupDir)
+	if err != nil {
+		return err
+	}
+	var actualSize = 0
+	walker := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		isSymlink := info.Mode()&os.ModeSymlink != 0
+		fi, err := os.Open(path)
+		if os.IsNotExist(err) && isSymlink {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		defer fi.Close()
+
+		if isSymlink {
+			return nil
+		}
+		actualSize += int(info.Size())
+		batch := false
+		if f, err := fi.Stat(); err == nil {
+			batch = f.Size() > backupapi.MultipartUploadLowerBound
+		}
+		pw := backupapi.NewProgressWriter(progressOutput)
+		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, info, path, batch); err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			return err
+		}
+		return nil
+	}
+
+	// walk through every file in the folder and add to zip writer.
+	if err := filepath.Walk(srcAbs, walker); err != nil {
 		return err
 	}
 	s.reportUploadCompleted(progressOutput)
 
 	s.notifyMsg(map[string]string{
-		"action_id": rp.ID,
-		"status":    statusComplete,
+		"action_id":   rp.ID,
+		"status":      statusComplete,
+		"actual_size": strconv.Itoa(actualSize),
+		"is_compressed": "false",
 	})
 
 	return nil
@@ -700,7 +702,13 @@ func compressDir(src string, w io.Writer) error {
 		}
 		isSymlink := info.Mode()&os.ModeSymlink != 0
 		fi, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
 		if os.IsNotExist(err) && isSymlink {
+			return nil
+		}
+		if info.IsDir() && isSymlink {
 			return nil
 		}
 		if err != nil {
@@ -716,7 +724,11 @@ func compressDir(src string, w io.Writer) error {
 		header.Name = strings.TrimPrefix(path, srcAbs+string(os.PathSeparator))
 		header.Method = zip.Deflate
 		header.SetMode(info.Mode())
-
+		//crcHash, err := hash_file_crc32(path)
+		//if err != nil {
+		//	crcHash = 0
+		//}
+		//header.CRC32 = crcHash
 		fw, err := zw.CreateHeader(header)
 		if err != nil {
 			return err
@@ -746,6 +758,21 @@ func compressDir(src string, w io.Writer) error {
 	return nil
 }
 
+//func hash_file_crc32(filePath string ) (uint32, error) {
+//	file, err := os.Open(filePath)
+//	if err != nil {
+//		return 0, err
+//	}
+//	defer file.Close()
+//
+//	tablePolynomial := crc32.MakeTable(0xEDB88320)
+//	hash := crc32.New(tablePolynomial)
+//	if _, err := io.Copy(hash, file); err != nil {
+//		return 0, err
+//	}
+//
+//	return hash.Sum32(), nil
+//}
 func unzip(zipFile, dest string) error {
 	r, err := zip.OpenReader(zipFile)
 	if err != nil {

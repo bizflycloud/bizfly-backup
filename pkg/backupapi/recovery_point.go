@@ -60,6 +60,15 @@ type UpdateRecoveryPointRequest struct {
 	Status string `json:"status"`
 }
 
+//
+type CompleteMultiPartUploadRequest struct {
+	Size       int    `json:"size"`
+	Mode       string `json:"mode"`
+	Path       string `json:"path"`
+	IsDir      bool   `json:"is_dir"`
+	ModifiedAt string `json:"modified_at"`
+}
+
 func (c *Client) recoveryPointPath(backupDirectoryID string) string {
 	return "/agent/backup-directories/" + backupDirectoryID + "/recovery-points"
 }
@@ -204,8 +213,8 @@ func (c *Client) InitMultipart(ctx context.Context, recoveryPointID string) (*Mu
 	return &m, nil
 }
 
-func (c *Client) CompleteMultipart(ctx context.Context, recoveryPointID, uploadID string) error {
-	req, err := c.NewRequest(http.MethodPost, c.completeMultipartPath(recoveryPointID), nil)
+func (c *Client) CompleteMultipart(ctx context.Context, recoveryPointID, uploadID string, cmpr *CompleteMultiPartUploadRequest) error {
+	req, err := c.NewRequest(http.MethodPost, c.completeMultipartPath(recoveryPointID), cmpr)
 	if err != nil {
 		return err
 	}

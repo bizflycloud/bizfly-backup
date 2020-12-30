@@ -112,7 +112,7 @@ main(){
     if [[ -x $(command -v bizfly-backup) ]] ; then
         installed_version=$(bizfly-backup version | grep Version | awk '{print $2}' | sed 's/v//g')
         lastest_version=$(curl -s "https://api.github.com/repos/bizflycloud/bizfly-backup/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-        if [[ "v$installed_version" == $lastest_version ]] ; then
+        if [[ "$installed_version" == $lastest_version ]] ; then
             clear
             printf "=========================================================================\n"
             printf "Run BizFly Backup Agent\n"

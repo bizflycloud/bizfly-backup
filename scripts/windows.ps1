@@ -125,7 +125,7 @@ if (checkAdministrator){
         $release_url = "https://api.github.com/repos/bizflycloud/bizfly-backup/releases/latest"
         $response = (Invoke-WebRequest -UseBasicParsing -Uri $release_url)
         $lastest_version = (ConvertFrom-Json -InputObject $response).tag_name
-        if ("$current_version" -eq $lastest_version){
+        if ("v$current_version" -eq $lastest_version){
             Clear-Host
             Write-Host "=========================================================================`n"
             Write-Host "Run BizFly Backup Agent`n"

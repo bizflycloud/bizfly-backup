@@ -62,7 +62,7 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 }
 
 func setFields(fi os.FileInfo, w *multipart.Writer) error {
-	w.WriteField("file_name", fi.Name())
+	w.WriteField("name", fi.Name())
 	w.WriteField("size", strconv.FormatInt(fi.Size(), 10))
 	w.WriteField("is_dir", strconv.FormatBool(fi.IsDir()))
 	w.WriteField("mode", fi.Mode().String())
@@ -115,7 +115,7 @@ func (c *Client) uploadFile(fn string, r io.Reader, pw io.Writer, fi os.FileInfo
 
 func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writer, info os.FileInfo, path string) error {
 	ctx := context.Background()
-	m, err := c.InitMultipart(ctx, recoveryPointID)
+	m, err := c.InitMultipart(ctx, recoveryPointID, &InitMultiPartUploadRequest{Name: info.Name()})
 	if err != nil {
 		return err
 	}
@@ -183,6 +183,7 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 			q := req.URL.Query()
 			q.Add("part_number", strconv.Itoa(partNum))
 			q.Add("upload_id", m.UploadID)
+			q.Add("name", info.Name())
 			req.URL.RawQuery = q.Encode()
 
 			resp, err := c.do(rcStd, req, contentType)
@@ -214,6 +215,7 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 		Mode:       info.Mode().String(),
 		IsDir:      info.IsDir(),
 		ModifiedAt: info.ModTime().Format(time.RFC3339),
+		Name:       info.Name(),
 	}
 	fmt.Errorf("%v", cmpur)
 	return c.CompleteMultipart(ctx, recoveryPointID, m.UploadID, cmpur)

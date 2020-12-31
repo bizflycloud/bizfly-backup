@@ -588,9 +588,9 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	s.reportUploadCompleted(progressOutput)
 
 	s.notifyMsg(map[string]string{
-		"action_id":   rp.ID,
-		"status":      statusComplete,
-		"actual_size": strconv.Itoa(actualSize),
+		"action_id":     rp.ID,
+		"status":        statusComplete,
+		"actual_size":   strconv.Itoa(actualSize),
 		"is_compressed": "false",
 	})
 
@@ -629,6 +629,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	ctx := context.Background()
 
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
+	//dir, err := ioutil.TempDir("", "bizfly-backup-restore-*")
 	if err != nil {
 		s.notifyStatusFailed(actionID, err.Error())
 		return err

@@ -60,13 +60,19 @@ type UpdateRecoveryPointRequest struct {
 	Status string `json:"status"`
 }
 
-//
+// CompleteMultiPartUploadRequest represents a request to complete a multipart upload
 type CompleteMultiPartUploadRequest struct {
 	Size       int    `json:"size"`
 	Mode       string `json:"mode"`
 	Path       string `json:"path"`
 	IsDir      bool   `json:"is_dir"`
 	ModifiedAt string `json:"modified_at"`
+	Name       string `json:"name"`
+}
+
+// InitMultiPartUploadRequest represents a request to init a multipart upload
+type InitMultiPartUploadRequest struct {
+	Name string `json:"name"`
 }
 
 func (c *Client) recoveryPointPath(backupDirectoryID string) string {
@@ -191,8 +197,8 @@ func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID strin
 	return rps, nil
 }
 
-func (c *Client) InitMultipart(ctx context.Context, recoveryPointID string) (*Multipart, error) {
-	req, err := c.NewRequest(http.MethodPost, c.initMultipartPath(recoveryPointID), nil)
+func (c *Client) InitMultipart(ctx context.Context, recoveryPointID string, impr *InitMultiPartUploadRequest) (*Multipart, error) {
+	req, err := c.NewRequest(http.MethodPost, c.initMultipartPath(recoveryPointID), impr)
 	if err != nil {
 		return nil, err
 	}

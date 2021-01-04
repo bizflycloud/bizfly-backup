@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -228,4 +229,72 @@ func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer, fi os.FileInfo
 
 	}
 	return c.uploadFile(fn, r, pw, fi, path)
+}
+
+// DownloadFile
+func (c *Client) DownloadItems(items []ItemsResponse, createdAt string, restoreSessionKey string, recoveryPointID string, pw io.Writer, dir string) error {
+	var wg sync.WaitGroup
+	var errs []error
+	var mu sync.Mutex
+	rc := retryablehttp.NewClient()
+	rc.RetryMax = 50 // TODO: configurable?
+	rcStd := rc.StandardClient()
+	for _, item := range items {
+		if strings.EqualFold(item.ItemType, ItemFileType) {
+			wg.Add(1)
+			go func(item string) {
+				defer wg.Done()
+				fi, err := os.Create(fmt.Sprintf("%s/%s", dir, item))
+				if err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+					return
+				}
+				defer fi.Close()
+
+				reqURL, err := c.urlStringFromRelPath(c.downloadFileContentPath(recoveryPointID))
+				if err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+					return
+				}
+
+				req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+				if err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+				}
+				req.Header.Add("X-Session-Created-At", createdAt)
+				req.Header.Add("X-Restore-Session-Key", restoreSessionKey)
+				// walk files in
+				q := req.URL.Query()
+				q.Set("name", strings.Split(item, recoveryPointID)[1])
+				req.URL.RawQuery = q.Encode()
+
+				resp, err := c.do(rcStd, req, "application/json")
+				if err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+				}
+				if err := checkResponse(resp); err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+				}
+				defer resp.Body.Close()
+
+				_, err = io.Copy(fi, resp.Body)
+
+			}(item.ItemName)
+		}
+	}
+	wg.Wait()
+	if len(errs) > 0 {
+		return fmt.Errorf("Download recovery point fails: %v", errs)
+	}
+	return nil
 }

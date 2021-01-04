@@ -17,6 +17,9 @@ const (
 	RecoveryPointStatusCreated   = "CREATED"
 	RecoveryPointStatusCompleted = "COMPLETED"
 	RecoveryPointStatusFAILED    = "FAILED"
+
+	ItemFileType      = "FILE"
+	ItemDirectoryType = "DIRECTORY"
 )
 
 // ErrUpdateRecoveryPoint indicates that there is error from server when updating recovery point.
@@ -75,6 +78,20 @@ type InitMultiPartUploadRequest struct {
 	Name string `json:"name"`
 }
 
+// ItemsResponse represents a payload of items api response
+type ItemsResponse struct {
+	ContentType  string `json:"content_type"`
+	Etag         string `json:"etag"`
+	Id           string `json:"id"`
+	ItemName     string `json:"item_name"`
+	ItemType     string `json:"item_type"`
+	LastModified string `json:"last_modified"`
+	Mode         string `json:"mode"`
+	Size         int    `json:"size"`
+	Status       string `json:"status"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
 func (c *Client) recoveryPointPath(backupDirectoryID string) string {
 	return "/agent/backup-directories/" + backupDirectoryID + "/recovery-points"
 }
@@ -101,6 +118,10 @@ func (c *Client) uploadPartPath(recoveryPointID string) string {
 
 func (c *Client) completeMultipartPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file/multipart/complete", recoveryPointID)
+}
+
+func (c *Client) itemsInRecoveryPointpath(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/items", recoveryPointID)
 }
 
 func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID string, crpr *CreateRecoveryPointRequest) (*CreateRecoveryPointResponse, error) {
@@ -150,15 +171,16 @@ func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 }
 
 // DownloadFileContent downloads file content at given recovery point id, write the content to writer.
-func (c *Client) DownloadFileContent(ctx context.Context, createdAt string, restoreSessionKey string, recoveryPointID string, w io.Writer) error {
+func (c *Client) DownloadFileContent(ctx context.Context, createdAt string, restoreSessionKey string, recoveryPointID string, w io.Writer, item string) error {
 	req, err := c.NewRequest(http.MethodGet, c.downloadFileContentPath(recoveryPointID), nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Add("X-Session-Created-At", createdAt)
 	req.Header.Add("X-Restore-Session-Key", restoreSessionKey)
+	// walk files in
 	q := req.URL.Query()
-	q.Set("name", recoveryPointID+".zip")
+	q.Set("name", item)
 	req.URL.RawQuery = q.Encode()
 
 	resp, err := c.Do(req.WithContext(ctx))
@@ -258,4 +280,29 @@ func (c *Client) RequestRestore(recoveryPointID string, crr *CreateRestoreReques
 	}
 	defer resp.Body.Close()
 	return nil
+}
+
+// ListItemsInRecoveryPoint lists all items in a recovery point
+func (c *Client) ListItemsInRecoveryPoint(recoveryPointID string) ([]ItemsResponse, error) {
+	req, err := c.NewRequest(http.MethodGet, c.itemsInRecoveryPointpath(recoveryPointID), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkResponse(resp); err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var items struct {
+		Items []ItemsResponse `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		return nil, err
+	}
+	return items.Items, nil
 }

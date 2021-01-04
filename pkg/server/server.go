@@ -256,14 +256,14 @@ func (s *Server) ListRecoveryPoints(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) DownloadRecoveryPoint(w http.ResponseWriter, r *http.Request) {
-	recoveryPointID := chi.URLParam(r, "recoveryPointID")
-	createdAt := r.Header.Get("X-Session-Created-At")
-	restoreSessionKey := r.Header.Get("X-Restore-Session-Key")
-	if err := s.backupClient.DownloadFileContent(r.Context(), createdAt, restoreSessionKey, recoveryPointID, w); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(err.Error()))
-		return
-	}
+	//recoveryPointID := chi.URLParam(r, "recoveryPointID")
+	//createdAt := r.Header.Get("X-Session-Created-At")
+	//restoreSessionKey := r.Header.Get("X-Restore-Session-Key")
+	//if err := s.backupClient.DownloadFileContent(r.Context(), createdAt, restoreSessionKey, recoveryPointID, w); err != nil {
+	//	w.WriteHeader(http.StatusInternalServerError)
+	//	_, _ = w.Write([]byte(err.Error()))
+	//	return
+	//}
 }
 
 func (s *Server) RequestRestore(w http.ResponseWriter, r *http.Request) {
@@ -626,44 +626,47 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 }
 
 func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, progressOutput io.Writer) error {
-	ctx := context.Background()
-
-	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
-	//dir, err := ioutil.TempDir("", "bizfly-backup-restore-*")
+	dir, err := ioutil.TempDir("", "bizfly-backup-restore-*")
 	if err != nil {
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
-	defer os.Remove(fi.Name())
+	defer os.Remove(dir)
 
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
 		"status":    statusDownloading,
 	})
 
+	// get all items in recovery point
+	items, err := s.backupClient.ListItemsInRecoveryPoint(recoveryPointID)
+	if err != nil {
+		return err
+	}
+	// create all directory in items
+
+	for _, item := range items {
+		if item.ItemType == backupapi.ItemDirectoryType {
+			os.Mkdir(fmt.Sprintf("%s/%s", dir, item.ItemName), 0700)
+		}
+	}
+
 	s.reportStartDownload(progressOutput)
 	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.DownloadFileContent(ctx, createdAt, restoreSessionKey, recoveryPointID, io.MultiWriter(fi, pw)); err != nil {
+	if err := s.backupClient.DownloadItems(items, createdAt, restoreSessionKey, recoveryPointID, pw, dir); err != nil {
 		s.logger.Error("failed to download file content", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 	s.reportDownloadCompleted(progressOutput)
-	if err := fi.Close(); err != nil {
-		s.logger.Error("failed to save to temporary file", zap.Error(err))
-		s.notifyStatusFailed(actionID, err.Error())
-		return err
-	}
 
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
 		"status":    statusRestoring,
 	})
 	s.reportStartRestore(progressOutput)
-	if err := unzip(fi.Name(), destDir); err != nil {
-		s.notifyStatusFailed(actionID, err.Error())
-		return err
-	}
+
+	//copy.Copy(dir, "/tmp/test", copy.Options{})
 	s.reportRestoreCompleted(progressOutput)
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
@@ -725,11 +728,6 @@ func compressDir(src string, w io.Writer) error {
 		header.Name = strings.TrimPrefix(path, srcAbs+string(os.PathSeparator))
 		header.Method = zip.Deflate
 		header.SetMode(info.Mode())
-		//crcHash, err := hash_file_crc32(path)
-		//if err != nil {
-		//	crcHash = 0
-		//}
-		//header.CRC32 = crcHash
 		fw, err := zw.CreateHeader(header)
 		if err != nil {
 			return err
@@ -759,21 +757,6 @@ func compressDir(src string, w io.Writer) error {
 	return nil
 }
 
-//func hash_file_crc32(filePath string ) (uint32, error) {
-//	file, err := os.Open(filePath)
-//	if err != nil {
-//		return 0, err
-//	}
-//	defer file.Close()
-//
-//	tablePolynomial := crc32.MakeTable(0xEDB88320)
-//	hash := crc32.New(tablePolynomial)
-//	if _, err := io.Copy(hash, file); err != nil {
-//		return 0, err
-//	}
-//
-//	return hash.Sum32(), nil
-//}
 func unzip(zipFile, dest string) error {
 	r, err := zip.OpenReader(zipFile)
 	if err != nil {

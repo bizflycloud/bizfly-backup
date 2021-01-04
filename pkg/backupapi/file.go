@@ -232,7 +232,7 @@ func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer, fi os.FileInfo
 }
 
 // DownloadFile
-func (c *Client) DownloadItems(items []ItemsResponse, createdAt string, restoreSessionKey string, recoveryPointID string, pw io.Writer, dir string) error {
+func (c *Client) DownloadItems(items []ItemsResponse, createdAt string, restoreSessionKey string, recoveryPointID string, dir string) error {
 	var wg sync.WaitGroup
 	var errs []error
 	var mu sync.Mutex
@@ -242,9 +242,9 @@ func (c *Client) DownloadItems(items []ItemsResponse, createdAt string, restoreS
 	for _, item := range items {
 		if strings.EqualFold(item.ItemType, ItemFileType) {
 			wg.Add(1)
-			go func(item string) {
+			go func(item ItemsResponse) {
 				defer wg.Done()
-				fi, err := os.Create(fmt.Sprintf("%s/%s", dir, item))
+				fi, err := os.OpenFile(fmt.Sprintf("%s/%s", dir, item.ItemName), os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.FileMode(ConvertPermission(item.Mode)))
 				if err != nil {
 					mu.Lock()
 					errs = append(errs, err)
@@ -271,7 +271,7 @@ func (c *Client) DownloadItems(items []ItemsResponse, createdAt string, restoreS
 				req.Header.Add("X-Restore-Session-Key", restoreSessionKey)
 				// walk files in
 				q := req.URL.Query()
-				q.Set("name", strings.Split(item, recoveryPointID)[1])
+				q.Set("name", strings.Split(item.ItemName, recoveryPointID)[1])
 				req.URL.RawQuery = q.Encode()
 
 				resp, err := c.do(rcStd, req, "application/json")
@@ -289,7 +289,7 @@ func (c *Client) DownloadItems(items []ItemsResponse, createdAt string, restoreS
 
 				_, err = io.Copy(fi, resp.Body)
 
-			}(item.ItemName)
+			}(item)
 		}
 	}
 	wg.Wait()
@@ -297,4 +297,31 @@ func (c *Client) DownloadItems(items []ItemsResponse, createdAt string, restoreS
 		return fmt.Errorf("Download recovery point fails: %v", errs)
 	}
 	return nil
+}
+
+func perm(perm string) int {
+	var permInt int
+	for _, p := range strings.Split(perm, "") {
+		switch p {
+		case "r":
+			permInt += 4
+		case "w":
+			permInt += 2
+		case "x":
+			permInt += 1
+		}
+	}
+	return permInt
+}
+
+func ConvertPermission(permStr string) uint64 {
+	if len(permStr) < 10 {
+		return 420
+	}
+	output, err := strconv.ParseUint(fmt.Sprintf("%d%d%d", perm(permStr[1:4]), perm(permStr[4:7]), perm(permStr[7:10])), 8, 64)
+	if err != nil {
+		return 420
+	}
+	return output
+
 }

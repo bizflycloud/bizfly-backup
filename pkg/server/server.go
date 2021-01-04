@@ -28,6 +28,7 @@ import (
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 	"golang.org/x/mod/semver"
+	"github.com/otiai10/copy"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
@@ -631,7 +632,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
-	defer os.Remove(dir)
+	defer os.RemoveAll(dir)
 
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
@@ -652,8 +653,8 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	}
 
 	s.reportStartDownload(progressOutput)
-	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.DownloadItems(items, createdAt, restoreSessionKey, recoveryPointID, pw, dir); err != nil {
+	//pw := backupapi.NewProgressWriter(progressOutput)
+	if err := s.backupClient.DownloadItems(items, createdAt, restoreSessionKey, recoveryPointID, dir); err != nil {
 		s.logger.Error("failed to download file content", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
@@ -666,7 +667,12 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	})
 	s.reportStartRestore(progressOutput)
 
-	//copy.Copy(dir, "/tmp/test", copy.Options{})
+	if err := copy.Copy(fmt.Sprintf("%s/%s", dir, recoveryPointID), destDir); err != nil {
+		s.logger.Error("Failed to restore directory", zap.Error(err))
+		s.notifyStatusFailed(actionID, err.Error())
+		return err
+	}
+
 	s.reportRestoreCompleted(progressOutput)
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,

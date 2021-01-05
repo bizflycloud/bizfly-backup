@@ -40,9 +40,10 @@ func TestClient_uploadFile(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, content, buf.String())
 	})
-
+	fi, _ := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
+	stats, _ := fi.Stat()
 	pw := NewProgressWriter(ioutil.Discard)
-	assert.NoError(t, client.UploadFile(fn, buf, pw, false))
+	assert.NoError(t, client.UploadFile(fn, buf, pw, stats, fn, false))
 }
 
 func TestClient_uploadMultipart(t *testing.T) {
@@ -80,8 +81,14 @@ func TestClient_uploadMultipart(t *testing.T) {
 		assert.Equal(t, "foo", r.URL.Query().Get("upload_id"))
 		assert.Equal(t, 2, expectedNum)
 	})
-
+	fi, _ := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
+	stats, _ := fi.Stat()
 	pw := NewProgressWriter(ioutil.Discard)
-	assert.NoError(t, client.UploadFile(fn, buf, pw, true))
+	assert.NoError(t, client.UploadFile(fn, buf, pw, stats, fn, true))
 
+}
+
+func TestConvertPermission(t *testing.T) {
+	perm := "-rwxrwxr-x"
+	assert.Equal(t, uint64(0x1fd), ConvertPermission(perm))
 }

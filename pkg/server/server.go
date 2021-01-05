@@ -25,10 +25,10 @@ import (
 	"github.com/go-chi/valve"
 	"github.com/inconshreveable/go-update"
 	"github.com/jpillora/backoff"
+	"github.com/otiai10/copy"
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 	"golang.org/x/mod/semver"
-	"github.com/otiai10/copy"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"

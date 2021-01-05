@@ -543,8 +543,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		"action_id": rp.ID,
 		"status":    statusUploadFile,
 	})
-	backupDir := filepath.Base(bd.Path)
-	srcAbs, err := filepath.Abs(backupDir)
+	srcAbs, err := filepath.Abs(bd.Path)
 	if err != nil {
 		return err
 	}
@@ -575,13 +574,13 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 			batch = f.Size() > backupapi.MultipartUploadLowerBound
 		}
 		pw := backupapi.NewProgressWriter(progressOutput)
+		s.logger.Info("Start goroutine upload file")
 		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, info, path, batch); err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
 			return err
 		}
 		return nil
 	}
-
 	// walk through every file in the folder and add to zip writer.
 	if err := filepath.Walk(srcAbs, walker); err != nil {
 		return err

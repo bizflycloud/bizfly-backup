@@ -19,7 +19,11 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 )
 
-const MultipartUploadLowerBound = 15 * 1000 * 1000
+const (
+	MultipartUploadLowerBound = 15 * 1000 * 1000
+	MaximumParts = 10000
+)
+
 
 // File ...
 type File struct {
@@ -117,6 +121,11 @@ func (c *Client) uploadFile(fn string, r io.Reader, pw io.Writer, fi os.FileInfo
 func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writer, info os.FileInfo, path string) error {
 	ctx := context.Background()
 	m, err := c.InitMultipart(ctx, recoveryPointID, &InitMultiPartUploadRequest{Name: path})
+	partSize := int64(MultipartUploadLowerBound)
+	partNums := info.Size()/MultipartUploadLowerBound
+	if partNums > MaximumParts {
+		partSize = (partNums / MaximumParts + 1) * MultipartUploadLowerBound
+	}
 	if err != nil {
 		return err
 	}
@@ -124,7 +133,7 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 	bufCh := make(chan []byte, 30)
 	go func() {
 		defer close(bufCh)
-		b := make([]byte, MultipartUploadLowerBound)
+		b := make([]byte, partSize)
 		for {
 			n, err := r.Read(b)
 			if err != nil {
@@ -138,7 +147,7 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 	var wg sync.WaitGroup
 	var errs []error
 	var mu sync.Mutex
-	sem := make(chan struct{}, 15)
+	sem := make(chan struct{}, 45)
 	rc := retryablehttp.NewClient()
 	rc.RetryMax = 50 // TODO: configurable?
 	rcStd := rc.StandardClient()

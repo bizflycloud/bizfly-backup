@@ -37,7 +37,7 @@ import (
 var Version string
 
 const (
-	statusZipFile     = "ZIP_FILE"
+	//statusZipFile     = "ZIP_FILE"
 	statusUploadFile  = "UPLOADING"
 	statusComplete    = "COMPLETED"
 	statusDownloading = "DOWNLOADING"
@@ -118,8 +118,6 @@ func (s *Server) setupRoutes() {
 }
 
 func (s *Server) handleBrokerEvent(e broker.Event) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var msg broker.Message
 	if err := json.Unmarshal(e.Payload, &msg); err != nil {
 		return err
@@ -131,8 +129,12 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	case broker.RestoreManual:
 		return s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
 	case broker.ConfigUpdate:
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
 	case broker.ConfigRefresh:
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		return s.handleConfigRefresh(msg.BackupDirectories)
 	case broker.AgentUpgrade:
 	case broker.StatusNotify:
@@ -548,6 +550,8 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 	var actualSize = 0
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 5)
 	walker := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -563,7 +567,6 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		if err != nil {
 			return err
 		}
-		defer fi.Close()
 
 		if isSymlink {
 			return nil
@@ -574,17 +577,24 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 			batch = f.Size() > backupapi.MultipartUploadLowerBound
 		}
 		pw := backupapi.NewProgressWriter(progressOutput)
-		s.logger.Info("Start goroutine upload file")
-		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, info, path, batch); err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
-			return err
-		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer func() {
+				<-sem
+				wg.Done()
+				fi.Close()
+			}()
+			s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, info, path, batch)
+		//	TODO handle error when upload
+		}()
 		return nil
 	}
 	// walk through every file in the folder and add to zip writer.
 	if err := filepath.Walk(srcAbs, walker); err != nil {
 		return err
 	}
+	wg.Wait()
 	s.reportUploadCompleted(progressOutput)
 
 	s.notifyMsg(map[string]string{

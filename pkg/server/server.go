@@ -31,7 +31,7 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 )
 
-var Version string
+var Version = "dev"
 
 const (
 	statusZipFile     = "ZIP_FILE"
@@ -311,6 +311,11 @@ func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) doUpgrade() error {
+	//TODO: do not upgrade when there are running jobs
+	if Version == "dev" {
+		// Do not upgrade dev version
+		return nil
+	}
 	lv, err := s.backupClient.LatestVersion()
 	if err != nil {
 		return err

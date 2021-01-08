@@ -21,9 +21,8 @@ import (
 
 const (
 	MultipartUploadLowerBound = 15 * 1000 * 1000
-	MaximumParts = 10000
+	MaximumParts              = 10000
 )
-
 
 // File ...
 type File struct {
@@ -122,9 +121,9 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 	ctx := context.Background()
 	m, err := c.InitMultipart(ctx, recoveryPointID, &InitMultiPartUploadRequest{Name: path})
 	partSize := int64(MultipartUploadLowerBound)
-	partNums := info.Size()/MultipartUploadLowerBound
+	partNums := info.Size() / MultipartUploadLowerBound
 	if partNums > MaximumParts {
-		partSize = (partNums / MaximumParts + 1) * MultipartUploadLowerBound
+		partSize = (partNums/MaximumParts + 1) * MultipartUploadLowerBound
 	}
 	if err != nil {
 		return err

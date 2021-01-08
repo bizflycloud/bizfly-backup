@@ -118,6 +118,8 @@ func (s *Server) setupRoutes() {
 }
 
 func (s *Server) handleBrokerEvent(e broker.Event) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var msg broker.Message
 	if err := json.Unmarshal(e.Payload, &msg); err != nil {
 		return err
@@ -125,16 +127,14 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
 	case broker.BackupManual:
-		return s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+		go s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+		return nil
 	case broker.RestoreManual:
-		return s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
+		go s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
+		return nil
 	case broker.ConfigUpdate:
-		s.mu.Lock()
-		defer s.mu.Unlock()
 		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
 	case broker.ConfigRefresh:
-		s.mu.Lock()
-		defer s.mu.Unlock()
 		return s.handleConfigRefresh(msg.BackupDirectories)
 	case broker.AgentUpgrade:
 	case broker.StatusNotify:
@@ -591,7 +591,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 				fi.Close()
 			}()
 			s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, info, path, batch)
-		//	TODO handle error when upload
+			//	TODO handle error when upload
 		}()
 		return nil
 	}

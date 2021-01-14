@@ -1,9 +1,5 @@
 package agentversion
 
-import (
-	"fmt"
-)
-
 var (
 	version   string
 	commit    string
@@ -16,5 +12,5 @@ func Version() string {
 		version = "dev"
 	}
 
-	return fmt.Sprintf("version: %s, commit: %s, built: %s", version, commit, buildTime)
+	return version
 }

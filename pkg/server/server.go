@@ -14,15 +14,18 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+	//"hash/crc32"
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
 	"github.com/inconshreveable/go-update"
 	"github.com/jpillora/backoff"
+	"github.com/otiai10/copy"
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 	"golang.org/x/mod/semver"
@@ -34,7 +37,7 @@ import (
 var Version = "dev"
 
 const (
-	statusZipFile     = "ZIP_FILE"
+	//statusZipFile     = "ZIP_FILE"
 	statusUploadFile  = "UPLOADING"
 	statusComplete    = "COMPLETED"
 	statusDownloading = "DOWNLOADING"
@@ -61,6 +64,8 @@ type Server struct {
 	testSignalCh chan os.Signal
 
 	logger *zap.Logger
+
+	sem chan struct{}
 }
 
 // New creates new server instance.
@@ -124,9 +129,11 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
 	case broker.BackupManual:
-		return s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+		go s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+		return nil
 	case broker.RestoreManual:
-		return s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
+		go s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
+		return nil
 	case broker.ConfigUpdate:
 		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
 	case broker.ConfigRefresh:
@@ -254,14 +261,14 @@ func (s *Server) ListRecoveryPoints(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) DownloadRecoveryPoint(w http.ResponseWriter, r *http.Request) {
-	recoveryPointID := chi.URLParam(r, "recoveryPointID")
-	createdAt := r.Header.Get("X-Session-Created-At")
-	restoreSessionKey := r.Header.Get("X-Restore-Session-Key")
-	if err := s.backupClient.DownloadFileContent(r.Context(), createdAt, restoreSessionKey, recoveryPointID, w); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(err.Error()))
-		return
-	}
+	//recoveryPointID := chi.URLParam(r, "recoveryPointID")
+	//createdAt := r.Header.Get("X-Session-Created-At")
+	//restoreSessionKey := r.Header.Get("X-Restore-Session-Key")
+	//if err := s.backupClient.DownloadFileContent(r.Context(), createdAt, restoreSessionKey, recoveryPointID, w); err != nil {
+	//	w.WriteHeader(http.StatusInternalServerError)
+	//	_, _ = w.Write([]byte(err.Error()))
+	//	return
+	//}
 }
 
 func (s *Server) RequestRestore(w http.ResponseWriter, r *http.Request) {
@@ -462,6 +469,7 @@ func (s *Server) Run() error {
 	// Graceful valve shut-off package to manage code preemption and shutdown signaling.
 	valv := valve.New()
 	baseCtx := valv.Context()
+	s.sem = make(chan struct{}, 45)
 
 	go s.subscribeBrokerLoop(baseCtx)
 	go s.shutdownSignalLoop(baseCtx, valv)
@@ -539,62 +547,69 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 
-	s.notifyMsg(map[string]string{
-		"action_id": rp.ID,
-		"status":    statusZipFile,
-	})
-	wd := filepath.Dir(bd.Path)
-	backupDir := filepath.Base(bd.Path)
-
-	if err := os.Chdir(wd); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-
-	// Compress directory
-	s.reportStartCompress(progressOutput)
-	fi, err := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	defer os.Remove(fi.Name())
-	if err := compressDir(backupDir, fi); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	if err := fi.Close(); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	s.reportCompressDone(progressOutput)
-	fi, err = os.Open(fi.Name())
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	defer fi.Close()
-	batch := false
-	if f, err := fi.Stat(); err == nil {
-		batch = f.Size() > backupapi.MultipartUploadLowerBound
-	}
-
+	// Upload file to server
+	s.reportStartUpload(progressOutput)
 	s.notifyMsg(map[string]string{
 		"action_id": rp.ID,
 		"status":    statusUploadFile,
 	})
-	// Upload file to server
-	s.reportStartUpload(progressOutput)
-	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, batch); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
+	srcAbs, err := filepath.Abs(bd.Path)
+	if err != nil {
 		return err
 	}
+	var actualSize = 0
+	var wg sync.WaitGroup
+	//sem := make(chan struct{}, 5)
+	walker := func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		isSymlink := info.Mode()&os.ModeSymlink != 0
+		fi, err := os.Open(path)
+		if os.IsNotExist(err) && isSymlink {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		if isSymlink {
+			return nil
+		}
+		actualSize += int(info.Size())
+		batch := false
+		if f, err := fi.Stat(); err == nil {
+			batch = f.Size() > backupapi.MultipartUploadLowerBound
+		}
+		pw := backupapi.NewProgressWriter(progressOutput)
+		wg.Add(1)
+		s.sem <- struct{}{}
+		go func() {
+			defer func() {
+				<-s.sem
+				wg.Done()
+				fi.Close()
+			}()
+			s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, info, path, batch, s.sem)
+			//	TODO handle error when upload
+		}()
+		return nil
+	}
+	// walk through every file in the folder and add to zip writer.
+	if err := filepath.Walk(srcAbs, walker); err != nil {
+		return err
+	}
+	wg.Wait()
 	s.reportUploadCompleted(progressOutput)
 
 	s.notifyMsg(map[string]string{
-		"action_id": rp.ID,
-		"status":    statusComplete,
+		"action_id":     rp.ID,
+		"status":        statusComplete,
+		"actual_size":   strconv.Itoa(actualSize),
+		"is_compressed": "false",
 	})
 
 	return nil
@@ -629,43 +644,52 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 }
 
 func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, progressOutput io.Writer) error {
-	ctx := context.Background()
-
-	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
+	dir, err := ioutil.TempDir("", "bizfly-backup-restore-*")
 	if err != nil {
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
-	defer os.Remove(fi.Name())
+	defer os.RemoveAll(dir)
 
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
 		"status":    statusDownloading,
 	})
 
+	// get all items in recovery point
+	items, err := s.backupClient.ListItemsInRecoveryPoint(recoveryPointID)
+	if err != nil {
+		return err
+	}
+	// create all directory in items
+
+	for _, item := range items {
+		if item.ItemType == backupapi.ItemDirectoryType {
+			os.Mkdir(fmt.Sprintf("%s/%s", dir, item.ItemName), 0700)
+		}
+	}
+
 	s.reportStartDownload(progressOutput)
-	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.DownloadFileContent(ctx, createdAt, restoreSessionKey, recoveryPointID, io.MultiWriter(fi, pw)); err != nil {
+	//pw := backupapi.NewProgressWriter(progressOutput)
+	if err := s.backupClient.DownloadItems(items, createdAt, restoreSessionKey, recoveryPointID, dir); err != nil {
 		s.logger.Error("failed to download file content", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 	s.reportDownloadCompleted(progressOutput)
-	if err := fi.Close(); err != nil {
-		s.logger.Error("failed to save to temporary file", zap.Error(err))
-		s.notifyStatusFailed(actionID, err.Error())
-		return err
-	}
 
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
 		"status":    statusRestoring,
 	})
 	s.reportStartRestore(progressOutput)
-	if err := unzip(fi.Name(), destDir); err != nil {
+
+	if err := copy.Copy(fmt.Sprintf("%s/%s", dir, recoveryPointID), destDir); err != nil {
+		s.logger.Error("Failed to restore directory", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
+
 	s.reportRestoreCompleted(progressOutput)
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
@@ -705,7 +729,13 @@ func compressDir(src string, w io.Writer) error {
 		}
 		isSymlink := info.Mode()&os.ModeSymlink != 0
 		fi, err := os.Open(path)
+		if err != nil {
+			return nil
+		}
 		if os.IsNotExist(err) && isSymlink {
+			return nil
+		}
+		if info.IsDir() && isSymlink {
 			return nil
 		}
 		if err != nil {
@@ -721,7 +751,6 @@ func compressDir(src string, w io.Writer) error {
 		header.Name = strings.TrimPrefix(path, srcAbs+string(os.PathSeparator))
 		header.Method = zip.Deflate
 		header.SetMode(info.Mode())
-
 		fw, err := zw.CreateHeader(header)
 		if err != nil {
 			return err

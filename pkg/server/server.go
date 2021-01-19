@@ -64,6 +64,8 @@ type Server struct {
 	testSignalCh chan os.Signal
 
 	logger *zap.Logger
+
+	sem chan struct{}
 }
 
 // New creates new server instance.
@@ -467,6 +469,7 @@ func (s *Server) Run() error {
 	// Graceful valve shut-off package to manage code preemption and shutdown signaling.
 	valv := valve.New()
 	baseCtx := valv.Context()
+	s.sem = make(chan struct{}, 45)
 
 	go s.subscribeBrokerLoop(baseCtx)
 	go s.shutdownSignalLoop(baseCtx, valv)
@@ -556,7 +559,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	}
 	var actualSize = 0
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 5)
+	//sem := make(chan struct{}, 5)
 	walker := func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -583,14 +586,14 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		}
 		pw := backupapi.NewProgressWriter(progressOutput)
 		wg.Add(1)
-		sem <- struct{}{}
+		s.sem <- struct{}{}
 		go func() {
 			defer func() {
-				<-sem
+				<-s.sem
 				wg.Done()
 				fi.Close()
 			}()
-			s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, info, path, batch)
+			s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, info, path, batch, s.sem)
 			//	TODO handle error when upload
 		}()
 		return nil

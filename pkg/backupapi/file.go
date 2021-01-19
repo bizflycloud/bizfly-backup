@@ -117,7 +117,7 @@ func (c *Client) uploadFile(fn string, r io.Reader, pw io.Writer, fi os.FileInfo
 	return err
 }
 
-func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writer, info os.FileInfo, path string) error {
+func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writer, info os.FileInfo, path string, sem chan struct{}) error {
 	ctx := context.Background()
 	m, err := c.InitMultipart(ctx, recoveryPointID, &InitMultiPartUploadRequest{Name: path})
 	partSize := int64(MultipartUploadLowerBound)
@@ -146,7 +146,7 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 	var wg sync.WaitGroup
 	var errs []error
 	var mu sync.Mutex
-	sem := make(chan struct{}, 45)
+	//sem := make(chan struct{}, 45)
 	rc := retryablehttp.NewClient()
 	rc.RetryMax = 50 // TODO: configurable?
 	rcStd := rc.StandardClient()
@@ -231,9 +231,9 @@ func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writ
 }
 
 // UploadFile uploads given file to server.
-func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer, fi os.FileInfo, path string, batch bool) error {
+func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer, fi os.FileInfo, path string, batch bool, sem chan struct{}) error {
 	if batch {
-		return c.uploadMultipart(fn, r, pw, fi, path)
+		return c.uploadMultipart(fn, r, pw, fi, path, sem)
 
 	}
 	return c.uploadFile(fn, r, pw, fi, path)

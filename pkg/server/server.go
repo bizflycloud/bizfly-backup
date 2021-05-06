@@ -552,32 +552,32 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	}
 
 	// Compress directory
-	s.reportStartCompress(progressOutput)
-	fi, err := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	defer os.Remove(fi.Name())
-	if err := compressDir(backupDir, fi); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	if err := fi.Close(); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	s.reportCompressDone(progressOutput)
-	fi, err = os.Open(fi.Name())
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	defer fi.Close()
-	batch := false
-	if f, err := fi.Stat(); err == nil {
-		batch = f.Size() > backupapi.MultipartUploadLowerBound
-	}
+	//s.reportStartCompress(progressOutput)
+	//fi, err := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
+	//if err != nil {
+	//	s.notifyStatusFailed(rp.ID, err.Error())
+	//	return err
+	//}
+	//defer os.Remove(fi.Name())
+	//if err := compressDir(backupDir, fi); err != nil {
+	//	s.notifyStatusFailed(rp.ID, err.Error())
+	//	return err
+	//}
+	//if err := fi.Close(); err != nil {
+	//	s.notifyStatusFailed(rp.ID, err.Error())
+	//	return err
+	//}
+	//s.reportCompressDone(progressOutput)
+	//fi, err = os.Open(fi.Name())
+	//if err != nil {
+	//	s.notifyStatusFailed(rp.ID, err.Error())
+	//	return err
+	//}
+	//defer fi.Close()
+	//batch := false
+	//if f, err := fi.Stat(); err == nil {
+	//	batch = f.Size() > backupapi.MultipartUploadLowerBound
+	//}
 
 	s.notifyMsg(map[string]string{
 		"action_id": rp.ID,
@@ -585,8 +585,12 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	})
 	// Upload file to server
 	s.reportStartUpload(progressOutput)
-	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, batch); err != nil {
+	//pw := backupapi.NewProgressWriter(progressOutput)
+	//if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, batch); err != nil {
+	//	s.notifyStatusFailed(rp.ID, err.Error())
+	//	return err
+	//}
+	if err := s.backupClient.SaveFilesInfo(rp.RecoveryPoint.ID, backupDir); err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}

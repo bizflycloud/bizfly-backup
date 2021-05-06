@@ -3,13 +3,16 @@ package backupapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/url"
 	"path"
+	"path/filepath"
 	"strconv"
 	"sync"
 
@@ -18,10 +21,24 @@ import (
 
 const MultipartUploadLowerBound = 15 * 1000 * 1000
 
+// FileInfoRequest is metadata of the file to backup.
+type FileInfo struct {
+	ItemName     string `json:"item_name"`
+	Size         int64  `json:"size"`
+	ItemType     string `json:"item_type"`
+	Mode         string `json:"mode"`
+	LastModified string `json:"last_modified"`
+}
+
+type FileInfoRequest struct {
+	Files []FileInfo `json:"files"`
+	Total int        `json:"total"`
+}
+
 // File ...
 type File struct {
 	ID          int    `json:"id"`
-	Name        string `json:"name"`
+	Name        string `json:"item_name"`
 	Size        int    `json:"size"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
@@ -43,6 +60,10 @@ type Part struct {
 }
 
 func (c *Client) uploadFilePath(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
+}
+
+func (c *Client) saveFileInfoPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
 }
 
@@ -203,4 +224,70 @@ func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer, batch bool) er
 
 	}
 	return c.uploadFile(fn, r, pw)
+}
+
+func (c *Client) SaveFilesInfo(rpID string, dir string) error {
+	fmt.Println("Save file info")
+	filesInfo, err := Scan(dir)
+	if err != nil {
+		return err
+	}
+	for _, info := range filesInfo.Files {
+		file, err := c.saveFileInfo(rpID, &info)
+		if err != nil {
+			return err
+		}
+		fmt.Println(file.ID, file.Name)
+	}
+	return nil
+}
+
+func (c *Client) saveFileInfo(rpId string, fi *FileInfo) (File, error) {
+	reqURL, err := c.urlStringFromRelPath(c.saveFileInfoPath(rpId))
+	if err != nil {
+		return File{}, err
+	}
+
+	req, err := c.NewRequest(http.MethodPost, reqURL, fi)
+	if err != nil {
+		return File{}, err
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return File{}, err
+	}
+	var file File
+	if err = json.NewDecoder(resp.Body).Decode(&file); err != nil {
+		return File{}, err
+	}
+	return file, nil
+}
+
+func Scan(dir string) (FileInfoRequest, error) {
+	var fileInfoRequest FileInfoRequest
+
+	err := filepath.Walk(dir, func(path string, fi fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		fileInfo := FileInfo{}
+
+		if fi.IsDir() {
+			return nil
+		}
+
+		fileInfo.ItemName = fi.Name()
+		fileInfo.Size = fi.Size()
+		fileInfo.ItemType = "FILE"
+		fileInfo.Mode = fi.Mode().Perm().String()
+		fileInfo.LastModified = fi.ModTime().String()
+
+		files := fileInfoRequest.Files
+		fileInfoRequest.Files = append(files, fileInfo)
+		fileInfoRequest.Total += 1
+		return nil
+	})
+
+	return fileInfoRequest, err
 }

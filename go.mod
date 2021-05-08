@@ -1,6 +1,6 @@
 module github.com/bizflycloud/bizfly-backup
 
-go 1.14
+go 1.16
 
 require (
 	github.com/bizflycloud/bizflyctl v0.1.1

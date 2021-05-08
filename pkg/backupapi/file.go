@@ -334,12 +334,3 @@ func walkerDir(src string) ([]FileInfo, []string) {
 
 	return listFileInfo, listFile
 }
-
-// UploadFile uploads given file to server.
-func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer, batch bool) error {
-	if batch {
-		return c.uploadMultipart(fn, r, pw)
-
-	}
-	return c.uploadFile(fn, r, pw)
-}

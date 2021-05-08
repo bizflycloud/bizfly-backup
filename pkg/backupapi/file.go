@@ -134,7 +134,7 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunkInfo *Chu
 	return chunk, nil
 }
 
-func (c *Client) uploadFile(fn string, backupDir string) error {
+func (c *Client) UploadFile(fn string, backupDir string) error {
 	var backend storage.Backend
 
 	listFileInfo, listFile := walkerDir(backupDir)
@@ -273,7 +273,7 @@ func (c *Client) getChunks(recoveryPointID string, fileID string) ([]Chunk, erro
 	return chunks, err
 }
 
-func (c *Client) downloadFile(recoveryPointID string, bucket string) {
+func (c *Client) DownloadFile(recoveryPointID string, bucket string) {
 	var backend storage.Backend
 	req, err := c.NewRequest(http.MethodGet, c.fileDownloadPath(recoveryPointID), nil)
 	if err != nil {

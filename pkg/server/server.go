@@ -1,7 +1,6 @@
 package server
 
 import (
-	"archive/zip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -530,10 +529,6 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 
-	s.notifyMsg(map[string]string{
-		"action_id": rp.ID,
-		"status":    statusZipFile,
-	})
 	wd := filepath.Dir(bd.Path)
 	backupDir := filepath.Base(bd.Path)
 
@@ -542,45 +537,20 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 
-	// Compress directory
-	s.reportStartCompress(progressOutput)
-	fi, err := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	defer os.Remove(fi.Name())
-	if err := compressDir(backupDir, fi); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	if err := fi.Close(); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	s.reportCompressDone(progressOutput)
-	fi, err = os.Open(fi.Name())
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	defer fi.Close()
-	batch := false
-	if f, err := fi.Stat(); err == nil {
-		batch = f.Size() > backupapi.MultipartUploadLowerBound
-	}
-
 	s.notifyMsg(map[string]string{
 		"action_id": rp.ID,
 		"status":    statusUploadFile,
 	})
 	// Upload file to server
 	s.reportStartUpload(progressOutput)
-	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, batch); err != nil {
+	if err := s.backupClient.UploadFilePresignedUrl(rp.RecoveryPoint.ID, backupDir); err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
+	// if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, backupDir); err != nil {
+	// 	s.notifyStatusFailed(rp.ID, err.Error())
+	// 	return err
+	// }
 	s.reportUploadCompleted(progressOutput)
 
 	s.notifyMsg(map[string]string{
@@ -652,11 +622,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		"action_id": actionID,
 		"status":    statusRestoring,
 	})
-	s.reportStartRestore(progressOutput)
-	if err := unzip(fi.Name(), destDir); err != nil {
-		s.notifyStatusFailed(actionID, err.Error())
-		return err
-	}
+
 	s.reportRestoreCompleted(progressOutput)
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
@@ -674,118 +640,5 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 	}); err != nil {
 		return err
 	}
-	return nil
-}
-
-func compressDir(src string, w io.Writer) error {
-	srcAbs, err := filepath.Abs(src)
-	if err != nil {
-		return err
-	}
-
-	// zip > buf
-	zw := zip.NewWriter(w)
-	defer zw.Close()
-
-	walker := func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		isSymlink := info.Mode()&os.ModeSymlink != 0
-		fi, err := os.Open(path)
-		if os.IsNotExist(err) && isSymlink {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		defer fi.Close()
-
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-
-		header.Name = strings.TrimPrefix(path, srcAbs+string(os.PathSeparator))
-		header.Method = zip.Deflate
-		header.SetMode(info.Mode())
-
-		fw, err := zw.CreateHeader(header)
-		if err != nil {
-			return err
-		}
-
-		if isSymlink {
-			return nil
-		}
-
-		_, err = io.Copy(fw, fi)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	// walk through every file in the folder and add to zip writer.
-	if err := filepath.Walk(srcAbs, walker); err != nil {
-		return err
-	}
-
-	if err := zw.Close(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func unzip(zipFile, dest string) error {
-	r, err := zip.OpenReader(zipFile)
-	if err != nil {
-		return fmt.Errorf("zip.OpenReader: %w", err)
-	}
-	defer r.Close()
-
-	if err := os.MkdirAll(dest, 0755); err != nil && !os.IsExist(err) {
-		return err
-	}
-
-	extractAndWriteFile := func(f *zip.File) error {
-		rc, err := f.Open()
-		if err != nil {
-			return fmt.Errorf("extractAndWriteFile: f.Open: %w", err)
-		}
-		defer rc.Close()
-		path := filepath.Join(dest, f.Name)
-
-		if f.FileInfo().IsDir() {
-			_ = os.MkdirAll(path, f.Mode())
-		} else {
-			_ = os.MkdirAll(filepath.Dir(path), 0755)
-			f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-			if err != nil {
-				return fmt.Errorf("extractAndWriteFile: os.OpenFile: %w", err)
-			}
-			defer f.Close()
-
-			if _, err := io.Copy(f, rc); err != nil {
-				return fmt.Errorf("extractAndWriteFile: io.Copy: %w", err)
-			}
-			if err := f.Close(); err != nil {
-				return fmt.Errorf("extractAndWriteFile: f.Close: %w", err)
-			}
-		}
-		return nil
-	}
-
-	for _, f := range r.File {
-		if err := extractAndWriteFile(f); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }

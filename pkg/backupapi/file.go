@@ -104,6 +104,28 @@ func (c *Client) saveListFileInfo(recoveryPointID string, listFileInfo []FileInf
 	return listFileID, nil
 }
 
+func (c *Client) saveChunk(recoveryPointID string, fileID string, chunkInfo *Chunk) (Chunk, error) {
+	reqURL, err := c.urlStringFromRelPath(c.saveChunkPath(recoveryPointID, fileID))
+	if err != nil {
+		return Chunk{}, err
+	}
+
+	req, err := c.NewRequest(http.MethodPost, reqURL, chunkInfo)
+	if err != nil {
+		return Chunk{}, err
+	}
+	resp, reqErr := c.Do(req)
+	if reqErr != nil {
+		return Chunk{}, reqErr
+	}
+	var chunk Chunk
+	if err := json.NewDecoder(resp.Body).Decode(&chunk); err != nil {
+		return Chunk{}, err
+	}
+
+	return chunk, nil
+}
+
 func (c *Client) uploadFile(fn string, r io.Reader, pw io.Writer) error {
 	bodyBuf := &bytes.Buffer{}
 	bodyWriter := multipart.NewWriter(bodyBuf)

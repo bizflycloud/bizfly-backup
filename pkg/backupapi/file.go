@@ -38,12 +38,6 @@ type FileInfo struct {
 	Mode         string `json:"mode"`
 }
 
-// Multipart ...
-type Multipart struct {
-	UploadID string `json:"upload_id"`
-	FileName string `json:"file_name"`
-}
-
 // Part ...
 type Part struct {
 	PartNumber int    `json:"part_number"`

@@ -38,13 +38,6 @@ type FileInfo struct {
 	Mode         string `json:"mode"`
 }
 
-// Part ...
-type Part struct {
-	PartNumber int    `json:"part_number"`
-	Size       int    `json:"size"`
-	Etag       string `json:"etag"`
-}
-
 func (c *Client) uploadFilePath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
 }

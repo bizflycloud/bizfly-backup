@@ -70,7 +70,7 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	return u.String(), nil
 }
 
-func (c *Client) SaveFileInfo(recoveryPointID string, fileInfo *FileInfo) (File, error) {
+func (c *Client) saveFileInfo(recoveryPointID string, fileInfo *FileInfo) (File, error) {
 	reqURL, err := c.urlStringFromRelPath(c.saveFileInfoPath(recoveryPointID))
 	if err != nil {
 		return File{}, err
@@ -89,6 +89,19 @@ func (c *Client) SaveFileInfo(recoveryPointID string, fileInfo *FileInfo) (File,
 	}
 
 	return file, nil
+}
+
+func (c *Client) saveListFileInfo(recoveryPointID string, listFileInfo []FileInfo) ([]string, error) {
+	listFileID := make([]string, 0)
+	for _, fileInfo := range listFileInfo {
+		file, err := c.saveFileInfo(recoveryPointID, &fileInfo)
+		if err != nil {
+			return listFileID, err
+		}
+		listFileID = append(listFileID, file.ID)
+	}
+
+	return listFileID, nil
 }
 
 func (c *Client) uploadFile(fn string, r io.Reader, pw io.Writer) error {

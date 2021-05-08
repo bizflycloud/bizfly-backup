@@ -269,6 +269,7 @@ func (c *Client) getChunks(recoveryPointID string, fileID string) ([]Chunk, erro
 	if err := json.NewDecoder(resp.Body).Decode(&chunks); err != nil {
 		return nil, err
 	}
+
 	return chunks, err
 }
 

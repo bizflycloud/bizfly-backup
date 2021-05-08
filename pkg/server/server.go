@@ -581,9 +581,9 @@ func (s *Server) reportDownloadCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Download completed."))
 }
 
-func (s *Server) reportStartRestore(w io.Writer) {
-	_, _ = w.Write([]byte("Start restoring ..."))
-}
+// func (s *Server) reportStartRestore(w io.Writer) {
+// 	_, _ = w.Write([]byte("Start restoring ..."))
+// }
 
 func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))

@@ -34,7 +34,6 @@ import (
 var Version = "dev"
 
 const (
-	statusZipFile     = "ZIP_FILE"
 	statusUploadFile  = "UPLOADING"
 	statusComplete    = "COMPLETED"
 	statusDownloading = "DOWNLOADING"

@@ -273,6 +273,38 @@ func (c *Client) getChunks(recoveryPointID string, fileID string) ([]Chunk, erro
 	return chunks, err
 }
 
+func (c *Client) downloadFile(recoveryPointID string, bucket string) {
+	var backend storage.Backend
+	req, err := c.NewRequest(http.MethodGet, c.fileDownloadPath(recoveryPointID), nil)
+	if err != nil {
+		log.Println("request error", err)
+	}
+	resp, _ := c.Do(req)
+	var files []File
+
+	if err := json.NewDecoder(resp.Body).Decode(&files); err != nil {
+		log.Println("decode error", err)
+	}
+
+	for _, f := range files {
+		file, err := os.Create(recoveryPointID)
+		if err != nil {
+			log.Println(err)
+		}
+		chunks, err := c.getChunks(recoveryPointID, f.ID)
+		if err != nil {
+			log.Println(err)
+		}
+		for _, chunk := range chunks {
+			data, err := backend.GetObject(chunk.HexSha256)
+			if err != nil {
+				log.Println("download chunk error", err, chunk.HexSha256)
+			}
+			_, _ = file.WriteAt(data, int64(chunk.Offset))
+		}
+	}
+}
+
 func walkerDir(src string) ([]FileInfo, []string) {
 	var listFileInfo []FileInfo
 	listFile := make([]string, 0)

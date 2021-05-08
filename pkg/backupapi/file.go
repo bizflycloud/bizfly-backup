@@ -52,7 +52,7 @@ type Chunk struct {
 	Uri          string `json:"uri"`
 }
 
-func (c *Client) uploadFilePath(recoveryPointID string) string {
+func (c *Client) saveFileInfoPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
 }
 

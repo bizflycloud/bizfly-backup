@@ -487,14 +487,6 @@ func (s *Server) Run() error {
 	return srv.ListenAndServe()
 }
 
-func (s *Server) reportStartCompress(w io.Writer) {
-	_, _ = w.Write([]byte("Start compressing ..."))
-}
-
-func (s *Server) reportCompressDone(w io.Writer) {
-	_, _ = w.Write([]byte("Compressing done ..."))
-}
-
 func (s *Server) reportStartUpload(w io.Writer) {
 	_, _ = w.Write([]byte("Start uploading ..."))
 }

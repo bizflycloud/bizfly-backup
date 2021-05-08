@@ -8,18 +8,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
-	"mime/multipart"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
-	"strconv"
-	"sync"
+	"runtime"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/storage"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/restic/chunker"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 )
 
 const ChunkUploadLowerBound = 15 * 1000 * 1000
@@ -184,102 +184,76 @@ func (c *Client) uploadFile(fn string, backupDir string) error {
 	return nil
 }
 
-func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writer) error {
-	ctx := context.Background()
-	m, err := c.InitMultipart(ctx, recoveryPointID)
+func (c *Client) UploadFilePresignedUrl(fn string, backupDir string) error {
+	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
+	group, ctx := errgroup.WithContext(context.Background())
+
+	listFileInfo, listFile := WalkerDir(backupDir)
+	listFileID, err := c.saveListFileInfo(fn, listFileInfo)
 	if err != nil {
 		return err
 	}
 
-	bufCh := make(chan []byte, 30)
-	go func() {
-		defer close(bufCh)
-		b := make([]byte, MultipartUploadLowerBound)
-		for {
-			n, err := r.Read(b)
+	for _, fileID := range listFileID {
+		for _, singleFile := range listFile {
+			file, err := os.Open(singleFile)
 			if err != nil {
-				return
+				return err
 			}
-			bufCh <- b[:n]
+
+			chk := chunker.New(file, 0x3dea92648f6e83)
+			buf := make([]byte, ChunkUploadLowerBound)
+
+			for {
+				chunk, err := chk.Next(buf)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				hash := sha256.Sum256(chunk.Data)
+				keyObject := hex.EncodeToString(hash[:])
+
+				object, errSave := c.saveChunk(fn, fileID, &Chunk{
+					Offset:    chunk.Start,
+					Length:    chunk.Length,
+					HexSha256: keyObject,
+				})
+				if errSave != nil {
+					return errSave
+				}
+
+				errAcquire := sem.Acquire(ctx, 1)
+				if errAcquire != nil {
+					log.Printf("acquire err = %+v\n", err)
+					continue
+				}
+				buffTemp := chunk.Data
+
+				group.Go(func() error {
+					defer sem.Release(1)
+					req, err := http.NewRequest(http.MethodPut, object.PresignedURl, bytes.NewReader(buffTemp))
+					if err != nil {
+						return err
+					}
+					retryClient := retryablehttp.NewClient()
+					retryClient.RetryMax = 100
+					resp, err := c.do(retryClient.StandardClient(), req, "application/json")
+					if err != nil {
+						return err
+					}
+					defer resp.Body.Close()
+					return nil
+				})
+			}
+			if err := group.Wait(); err != nil {
+				return err
+			}
 		}
-	}()
-
-	partNum := 0
-	var wg sync.WaitGroup
-	var errs []error
-	var mu sync.Mutex
-	sem := make(chan struct{}, 15)
-	rc := retryablehttp.NewClient()
-	rc.RetryMax = 50 // TODO: configurable?
-	rcStd := rc.StandardClient()
-	for buf := range bufCh {
-		sem <- struct{}{}
-		buf := buf
-		partNum++
-		wg.Add(1)
-		go func(buf []byte, partNum int) {
-			defer func() {
-				<-sem
-				wg.Done()
-			}()
-			b := new(bytes.Buffer)
-			bodyWriter := multipart.NewWriter(b)
-			fileWriter, err := bodyWriter.CreateFormFile("data", recoveryPointID+"-"+strconv.Itoa(partNum))
-			if err != nil {
-				return
-			}
-			_, _ = fileWriter.Write(buf)
-			contentType := bodyWriter.FormDataContentType()
-			if err := bodyWriter.Close(); err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				return
-			}
-
-			reqURL, err := c.urlStringFromRelPath(c.uploadPartPath(recoveryPointID))
-			if err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				return
-			}
-			req, err := http.NewRequest(http.MethodPut, reqURL, io.TeeReader(b, pw))
-			if err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				return
-			}
-			q := req.URL.Query()
-			q.Add("part_number", strconv.Itoa(partNum))
-			q.Add("upload_id", m.UploadID)
-			req.URL.RawQuery = q.Encode()
-
-			resp, err := c.do(rcStd, req, contentType)
-			if err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				return
-			}
-			defer resp.Body.Close()
-
-			if _, err := io.Copy(ioutil.Discard, resp.Body); err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-			}
-		}(buf, partNum)
 	}
-	wg.Wait()
 
-	if len(errs) > 0 {
-		return fmt.Errorf("upload multiparts fails: %v", errs)
-	}
-	rc.HTTPClient.CloseIdleConnections()
-
-	return c.CompleteMultipart(ctx, recoveryPointID, m.UploadID)
+	return nil
 }
 
 // UploadFile uploads given file to server.

@@ -16,7 +16,7 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 )
 
-const MultipartUploadLowerBound = 15 * 1000 * 1000
+const ChunkUploadLowerBound = 15 * 1000 * 1000
 
 // File ...
 type File struct {

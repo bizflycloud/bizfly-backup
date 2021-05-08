@@ -3,6 +3,7 @@ package backupapi
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -67,6 +68,27 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 
 	u := c.ServerURL.ResolveReference(relURL)
 	return u.String(), nil
+}
+
+func (c *Client) SaveFileInfo(recoveryPointID string, fileInfo *FileInfo) (File, error) {
+	reqURL, err := c.urlStringFromRelPath(c.saveFileInfoPath(recoveryPointID))
+	if err != nil {
+		return File{}, err
+	}
+	req, err := c.NewRequest(http.MethodPost, reqURL, fileInfo)
+	if err != nil {
+		return File{}, err
+	}
+	resp, reqErr := c.Do(req)
+	if reqErr != nil {
+		return File{}, reqErr
+	}
+	var file File
+	if err := json.NewDecoder(resp.Body).Decode(&file); err != nil {
+		return File{}, err
+	}
+
+	return file, nil
 }
 
 func (c *Client) uploadFile(fn string, r io.Reader, pw io.Writer) error {

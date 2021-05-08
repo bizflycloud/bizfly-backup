@@ -29,6 +29,15 @@ type File struct {
 	Etag        string `json:"eTag"`
 }
 
+// FileInfo ...
+type FileInfo struct {
+	ItemName     string `json:"item_name"`
+	Size         string `json:"size"`
+	LastModified string `json:"last_modified"`
+	ItemType     string `json:"item_type"`
+	Mode         string `json:"mode"`
+}
+
 // Multipart ...
 type Multipart struct {
 	UploadID string `json:"upload_id"`

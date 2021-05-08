@@ -38,6 +38,20 @@ type FileInfo struct {
 	Mode         string `json:"mode"`
 }
 
+// Chunk ...
+type Chunk struct {
+	CreatedAt    string `json:"created_at"`
+	Deleted      bool   `json:"deleted"`
+	DeleteAt     string `json:"delete_at"`
+	ID           string `json:"id"`
+	Offset       uint   `json:"offset"`
+	Length       uint   `json:"length"`
+	HexSha256    string `json:"hex_sha256"`
+	PresignedURl string `json:"presigned_url"`
+	UpdatedAt    string `json:"updated_at"`
+	Uri          string `json:"uri"`
+}
+
 func (c *Client) uploadFilePath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
 }

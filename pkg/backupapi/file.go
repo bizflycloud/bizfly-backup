@@ -259,6 +259,20 @@ func (c *Client) UploadFilePresignedUrl(fn string, backupDir string) error {
 	return nil
 }
 
+func (c *Client) getChunks(recoveryPointID string, fileID string) ([]Chunk, error) {
+	req, err := c.NewRequest(http.MethodGet, c.saveChunkPath(recoveryPointID, fileID), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.Do(req)
+	var chunks []Chunk
+	if err := json.NewDecoder(resp.Body).Decode(&chunks); err != nil {
+		return nil, err
+	}
+
+	return chunks, err
+}
+
 func walkerDir(src string) ([]FileInfo, []string) {
 	var listFileInfo []FileInfo
 	listFile := make([]string, 0)

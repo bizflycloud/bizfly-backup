@@ -13,7 +13,10 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
+	"strconv"
+	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/storage"
 	"github.com/hashicorp/go-retryablehttp"
@@ -134,7 +137,7 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunkInfo *Chu
 func (c *Client) uploadFile(fn string, backupDir string) error {
 	var backend storage.Backend
 
-	listFileInfo, listFile := WalkerDir(backupDir)
+	listFileInfo, listFile := walkerDir(backupDir)
 	listFileID, err := c.saveListFileInfo(fn, listFileInfo)
 	if err != nil {
 		return err
@@ -188,7 +191,7 @@ func (c *Client) UploadFilePresignedUrl(fn string, backupDir string) error {
 	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
 	group, ctx := errgroup.WithContext(context.Background())
 
-	listFileInfo, listFile := WalkerDir(backupDir)
+	listFileInfo, listFile := walkerDir(backupDir)
 	listFileID, err := c.saveListFileInfo(fn, listFileInfo)
 	if err != nil {
 		return err
@@ -254,6 +257,36 @@ func (c *Client) UploadFilePresignedUrl(fn string, backupDir string) error {
 	}
 
 	return nil
+}
+
+func walkerDir(src string) ([]FileInfo, []string) {
+	var listFileInfo []FileInfo
+	listFile := make([]string, 0)
+	currentTime := time.Now()
+
+	err := filepath.Walk(src, func(path string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !fi.IsDir() {
+			fileInfo, _ := os.Lstat(path)
+			singleFile := FileInfo{
+				ItemName:     fileInfo.Name(),
+				Size:         strconv.FormatInt(fileInfo.Size(), 10),
+				LastModified: currentTime.Format("2006-01-02 15:04:05.000000"),
+				ItemType:     "FILE",
+				Mode:         fileInfo.Mode().Perm().String(),
+			}
+			listFileInfo = append(listFileInfo, singleFile)
+			listFile = append(listFile, path)
+		}
+		return nil
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	return listFileInfo, listFile
 }
 
 // UploadFile uploads given file to server.

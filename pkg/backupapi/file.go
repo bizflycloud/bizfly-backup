@@ -3,6 +3,8 @@ package backupapi
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,11 +12,14 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"sync"
 
+	"github.com/bizflycloud/bizfly-backup/pkg/storage"
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/restic/chunker"
 )
 
 const ChunkUploadLowerBound = 15 * 1000 * 1000
@@ -126,43 +131,57 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunkInfo *Chu
 	return chunk, nil
 }
 
-func (c *Client) uploadFile(fn string, r io.Reader, pw io.Writer) error {
-	bodyBuf := &bytes.Buffer{}
-	bodyWriter := multipart.NewWriter(bodyBuf)
-	fileWriter, err := bodyWriter.CreateFormFile("data", fn)
-	if err != nil {
-		return fmt.Errorf("bodyWriter.CreateFormFile: %w", err)
-	}
+func (c *Client) uploadFile(fn string, backupDir string) error {
+	var backend storage.Backend
 
-	_, err = io.Copy(fileWriter, r)
+	listFileInfo, listFile := WalkerDir(backupDir)
+	listFileID, err := c.saveListFileInfo(fn, listFileInfo)
 	if err != nil {
 		return err
 	}
 
-	contentType := bodyWriter.FormDataContentType()
-	if err := bodyWriter.Close(); err != nil {
-		return err
+	for _, fileID := range listFileID {
+		for _, singleFile := range listFile {
+			file, err := os.Open(singleFile)
+			if err != nil {
+				return err
+			}
+
+			chk := chunker.New(file, 0x3dea92648f6e83)
+			buf := make([]byte, ChunkUploadLowerBound)
+
+			for {
+				chunk, err := chk.Next(buf)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
+				hash := sha256.Sum256(chunk.Data)
+				keyObject := hex.EncodeToString(hash[:])
+
+				_, errSave := c.saveChunk(fn, fileID, &Chunk{
+					Offset:    chunk.Start,
+					Length:    chunk.Length,
+					HexSha256: keyObject,
+				})
+				if errSave != nil {
+					return errSave
+				}
+
+				exist, _ := backend.HeadObject(keyObject)
+				if !exist {
+					err := backend.PutObject(keyObject, chunk.Data)
+					if err != nil {
+						return err
+					}
+				}
+			}
+		}
 	}
 
-	reqURL, err := c.urlStringFromRelPath(c.uploadFilePath(fn))
-	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodPost, reqURL, io.TeeReader(bodyBuf, pw))
-	if err != nil {
-		return err
-	}
-
-	retryClient := retryablehttp.NewClient()
-	retryClient.RetryMax = 50 // Should configurable this?
-	resp, err := c.do(retryClient.StandardClient(), req, contentType)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	_, err = io.Copy(ioutil.Discard, resp.Body)
-	return err
+	return nil
 }
 
 func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writer) error {

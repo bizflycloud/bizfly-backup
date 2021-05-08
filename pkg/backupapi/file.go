@@ -20,7 +20,7 @@ const ChunkUploadLowerBound = 15 * 1000 * 1000
 
 // File ...
 type File struct {
-	ID          int    `json:"id"`
+	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Size        int    `json:"size"`
 	CreatedAt   string `json:"created_at"`

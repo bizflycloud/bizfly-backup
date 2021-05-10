@@ -260,7 +260,11 @@ func (c *Client) UploadFilePresignedUrl(fn string, backupDir string) error {
 }
 
 func (c *Client) getChunks(recoveryPointID string, fileID string) ([]Chunk, error) {
-	req, err := c.NewRequest(http.MethodGet, c.saveChunkPath(recoveryPointID, fileID), nil)
+	reqURL, err := c.urlStringFromRelPath(c.saveChunkPath(recoveryPointID, fileID))
+	if err != nil {
+		return nil, err
+	}
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +279,11 @@ func (c *Client) getChunks(recoveryPointID string, fileID string) ([]Chunk, erro
 
 func (c *Client) DownloadFile(recoveryPointID string) error {
 	var backend storage.Backend
-	req, err := c.NewRequest(http.MethodGet, c.fileDownloadPath(recoveryPointID), nil)
+	reqURL, err := c.urlStringFromRelPath(c.fileDownloadPath(recoveryPointID))
+	if err != nil {
+		return err
+	}
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		log.Println("request error", err)
 	}

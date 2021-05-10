@@ -590,8 +590,6 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 }
 
 func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, progressOutput io.Writer) error {
-	ctx := context.Background()
-
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
 	if err != nil {
 		s.notifyStatusFailed(actionID, err.Error())
@@ -605,12 +603,13 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	})
 
 	s.reportStartDownload(progressOutput)
-	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.DownloadFileContent(ctx, createdAt, restoreSessionKey, recoveryPointID, io.MultiWriter(fi, pw)); err != nil {
-		s.logger.Error("failed to download file content", zap.Error(err))
+
+	if err := s.backupClient.DownloadFile(recoveryPointID); err != nil {
+		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
+
 	s.reportDownloadCompleted(progressOutput)
 	if err := fi.Close(); err != nil {
 		s.logger.Error("failed to save to temporary file", zap.Error(err))

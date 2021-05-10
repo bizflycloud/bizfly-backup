@@ -273,7 +273,7 @@ func (c *Client) getChunks(recoveryPointID string, fileID string) ([]Chunk, erro
 	return chunks, err
 }
 
-func (c *Client) DownloadFile(recoveryPointID string, bucket string) {
+func (c *Client) DownloadFile(recoveryPointID string) error {
 	var backend storage.Backend
 	req, err := c.NewRequest(http.MethodGet, c.fileDownloadPath(recoveryPointID), nil)
 	if err != nil {
@@ -303,6 +303,8 @@ func (c *Client) DownloadFile(recoveryPointID string, bucket string) {
 			_, _ = file.WriteAt(data, int64(chunk.Offset))
 		}
 	}
+
+	return nil
 }
 
 func walkerDir(src string) ([]FileInfo, []string) {

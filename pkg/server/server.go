@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 	"io"
 	"io/ioutil"
 	"net"
@@ -532,6 +533,10 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 
+	stroageVolume, err := volume.NewStorageVolume(rp.RecoveryPoint.Volume)
+	if err != nil {
+		return err
+	}
 	// Get BackupDirectory
 	bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
 	if err != nil {
@@ -543,13 +548,6 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		"action_id": rp.ID,
 		"status":    statusZipFile,
 	})
-	wd := filepath.Dir(bd.Path)
-	backupDir := filepath.Base(bd.Path)
-
-	if err := os.Chdir(wd); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
 
 	// Compress directory
 	//s.reportStartCompress(progressOutput)
@@ -590,9 +588,18 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	//	s.notifyStatusFailed(rp.ID, err.Error())
 	//	return err
 	//}
-	if err := s.backupClient.SaveFilesInfo(rp.RecoveryPoint.ID, backupDir); err != nil {
+	filesInfo, err := s.backupClient.SaveFilesInfo(rp.RecoveryPoint.ID, bd.Path)
+	if err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
+	}
+
+	for _, fileInfo := range filesInfo {
+		err = s.backupClient.Chunking(rp.RecoveryPoint.ID, bd.Path, fileInfo, stroageVolume)
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			return err
+		}
 	}
 	s.reportUploadCompleted(progressOutput)
 

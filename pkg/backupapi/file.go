@@ -3,14 +3,19 @@ package backupapi
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/bizflycloud/bizfly-backup/pkg/volume"
+	"github.com/restic/chunker"
 	"io"
 	"io/fs"
 	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -32,18 +37,38 @@ type FileInfo struct {
 
 type FileInfoRequest struct {
 	Files []FileInfo `json:"files"`
-	Total int        `json:"total"`
 }
 
 // File ...
 type File struct {
-	ID          int    `json:"id"`
+	ID          string `json:"id"`
 	Name        string `json:"item_name"`
 	Size        int    `json:"size"`
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
 	ContentType string `json:"content_type"`
 	Etag        string `json:"eTag"`
+	RealName    string `json:"real_name"`
+}
+
+// FileResponse
+type FilesResponse []File
+
+// ChunkRequest
+type ChunkRequest struct {
+	Length    uint   `json:"length"`
+	Offset    uint   `json:"offset"`
+	HexSha256 string `json:"hex_sha256"`
+}
+
+// ChunkResponse
+type ChunkResponse struct {
+	ID           string `json:"id"`
+	Offset       uint   `json:"offset"`
+	Length       uint   `json:"length"`
+	HexSha256    string `json:"hex_sha256"`
+	PresignedUrl string `json:"presigned_url"`
+	Uri          string `json:"uri"`
 }
 
 // Multipart ...
@@ -65,6 +90,10 @@ func (c *Client) uploadFilePath(recoveryPointID string) string {
 
 func (c *Client) saveFileInfoPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
+}
+
+func (c *Client) saveChunksPath(recoveryPointID string, itemID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/file/%s/chunks", recoveryPointID, itemID)
 }
 
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
@@ -226,42 +255,111 @@ func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer, batch bool) er
 	return c.uploadFile(fn, r, pw)
 }
 
-func (c *Client) SaveFilesInfo(rpID string, dir string) error {
-	fmt.Println("Save file info")
+func (c *Client) SaveFilesInfo(rpID string, dir string) (FilesResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.saveFileInfoPath(rpID))
+	if err != nil {
+		return FilesResponse{}, err
+	}
 	filesInfo, err := Scan(dir)
+	if err != nil {
+		return FilesResponse{}, err
+	}
+
+	req, err := c.NewRequest(http.MethodPost, reqURL, filesInfo.Files)
+	if err != nil {
+		return FilesResponse{}, err
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return FilesResponse{}, err
+	}
+	defer resp.Body.Close()
+	var files FilesResponse
+
+	if err = json.NewDecoder(resp.Body).Decode(&files); err != nil {
+		return FilesResponse{}, err
+	}
+	return files, nil
+}
+
+func (c *Client) Chunking(recoveryPointID string, dirPath string, fi File, volume volume.StorageVolume) error {
+	//reqURL, err := c.urlStringFromRelPath(c.saveChunksPath(recoveryPointID, fi.ID))
+	//if err != nil {
+	//	return err
+	//}
+	file, err := os.Open(filepath.Join(dirPath, fi.RealName))
 	if err != nil {
 		return err
 	}
-	for _, info := range filesInfo.Files {
-		file, err := c.saveFileInfo(rpID, &info)
+	chk := chunker.New(file, 0x2b86402d1ae9d5)
+	buf := make([]byte, 16*1024*1024)
+	fmt.Println("Chunking file", filepath.Join(dirPath, fi.RealName))
+	for {
+		chunk, err := chk.Next(buf)
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			panic(err)
+		}
+		//hash := sha256.Sum256(chunk.Data)
+		hash := md5.Sum(chunk.Data)
+		digest := hex.EncodeToString(hash[:])
+
+		chunkReq := ChunkRequest{
+			Length:    chunk.Length,
+			Offset:    chunk.Start,
+			HexSha256: digest,
+		}
+
+		chunkResp, err := c.SaveChunk(recoveryPointID, fi.ID, chunkReq)
 		if err != nil {
 			return err
 		}
-		fmt.Println(file.ID, file.Name)
+		if chunkResp.PresignedUrl != "" {
+			volume.SetCredential(chunkResp.PresignedUrl)
+		}
+		exist, err := volume.TestObject(digest)
+		if err != nil {
+			return err
+		}
+		if exist {
+			fmt.Println("Object exist in storage", digest)
+		} else {
+			fmt.Println("Put chunk to storage", digest)
+			err = volume.PutObject(digest, chunk.Data)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
-func (c *Client) saveFileInfo(rpId string, fi *FileInfo) (File, error) {
-	reqURL, err := c.urlStringFromRelPath(c.saveFileInfoPath(rpId))
+func (c *Client) SaveChunk(recoveryPointID string, fileID string, chunk ChunkRequest) (ChunkResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.saveChunksPath(recoveryPointID, fileID))
 	if err != nil {
-		return File{}, err
+		return ChunkResponse{}, err
 	}
 
-	req, err := c.NewRequest(http.MethodPost, reqURL, fi)
+	req, err := c.NewRequest(http.MethodPost, reqURL, chunk)
 	if err != nil {
-		return File{}, err
+		return ChunkResponse{}, err
 	}
 
 	resp, err := c.Do(req)
 	if err != nil {
-		return File{}, err
+		return ChunkResponse{}, err
 	}
-	var file File
-	if err = json.NewDecoder(resp.Body).Decode(&file); err != nil {
-		return File{}, err
+	defer resp.Body.Close()
+	var chunkResp ChunkResponse
+
+	if err = json.NewDecoder(resp.Body).Decode(&chunkResp); err != nil {
+		return ChunkResponse{}, err
 	}
-	return file, nil
+	fmt.Printf("Chunking response %+v\n", chunkResp)
+	return chunkResp, nil
 }
 
 func Scan(dir string) (FileInfoRequest, error) {
@@ -276,16 +374,13 @@ func Scan(dir string) (FileInfoRequest, error) {
 		if fi.IsDir() {
 			return nil
 		}
-
-		fileInfo.ItemName = fi.Name()
+		fileInfo.ItemName = path
 		fileInfo.Size = fi.Size()
 		fileInfo.ItemType = "FILE"
-		fileInfo.Mode = fi.Mode().Perm().String()
-		fileInfo.LastModified = fi.ModTime().String()
-
+		fileInfo.Mode = "0766"
+		fileInfo.LastModified = fi.ModTime().Format("2006-01-02 15:04:05.000000")
 		files := fileInfoRequest.Files
 		fileInfoRequest.Files = append(files, fileInfo)
-		fileInfoRequest.Total += 1
 		return nil
 	})
 

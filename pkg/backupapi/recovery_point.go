@@ -24,14 +24,15 @@ var ErrUpdateRecoveryPoint = errors.New("failed to update recovery point")
 
 // RecoveryPoint ...
 type RecoveryPoint struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	RecoveryPointType string `json:"recovery_point_type"`
-	Status            string `json:"status"`
-	PolicyID          string `json:"policy_id"`
-	BackupDirectoryID string `json:"backup_directory_id"`
-	CreatedAt         string `json:"created_at"`
-	UpdatedAt         string `json:"updated_at"`
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	RecoveryPointType string  `json:"recovery_point_type"`
+	Status            string  `json:"status"`
+	PolicyID          string  `json:"policy_id"`
+	BackupDirectoryID string  `json:"backup_directory_id"`
+	CreatedAt         string  `json:"created_at"`
+	UpdatedAt         string  `json:"updated_at"`
+	Volume            *Volume `json:"volume"`
 }
 
 // CreateRecoveryPointResponse is the server response when creating recovery point

@@ -80,10 +80,6 @@ func (c *Client) saveChunkPath(recoveryPointID string, fileID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file/%s/chunks", recoveryPointID, fileID)
 }
 
-func (c *Client) fileDownloadPath(recoveryPointID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/list-files", recoveryPointID)
-}
-
 func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID string, crpr *CreateRecoveryPointRequest) (*CreateRecoveryPointResponse, error) {
 	req, err := c.NewRequest(http.MethodPost, c.recoveryPointPath(backupDirectoryID), crpr)
 	if err != nil {

@@ -1,4 +1,4 @@
-machine_id: foo
-access_key: <Access Key>
-secret_key: <Secret Key>
-api_url: <API URL>
+machine_id: ddd1ee87-61a6-4e99-955c-914537bf3770
+access_key: S70QJU80GQNH9SXT2NEG
+secret_key: f1590291d1636c2f62470fb392e826277f7084f11c890d8b20a27e7e1776f768
+api_url: http://103.56.157.213:5000

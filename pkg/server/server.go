@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -529,28 +528,25 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 
-	wd := filepath.Dir(bd.Path)
-	backupDir := filepath.Base(bd.Path)
-
-	if err := os.Chdir(wd); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-
 	s.notifyMsg(map[string]string{
 		"action_id": rp.ID,
 		"status":    statusUploadFile,
 	})
+
 	// Upload file to server
 	s.reportStartUpload(progressOutput)
-	if err := s.backupClient.UploadFilePresignedUrl(rp.RecoveryPoint.ID, backupDir); err != nil {
+	filesInfo, err := s.backupClient.SaveFilesInfo(rp.RecoveryPoint.ID, bd.Path)
+	if err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
-	// if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, backupDir); err != nil {
-	// 	s.notifyStatusFailed(rp.ID, err.Error())
-	// 	return err
-	// }
+
+	for _, fileInfo := range filesInfo {
+		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, fileInfo); err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			return err
+		}
+	}
 	s.reportUploadCompleted(progressOutput)
 
 	s.notifyMsg(map[string]string{
@@ -604,11 +600,11 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	s.reportStartDownload(progressOutput)
 
-	if err := s.backupClient.DownloadFile(recoveryPointID); err != nil {
-		s.logger.Error("failed to download file", zap.Error(err))
-		s.notifyStatusFailed(actionID, err.Error())
-		return err
-	}
+	// if err := s.backupClient.DownloadFile(recoveryPointID); err != nil {
+	// 	s.logger.Error("failed to download file", zap.Error(err))
+	// 	s.notifyStatusFailed(actionID, err.Error())
+	// 	return err
+	// }
 
 	s.reportDownloadCompleted(progressOutput)
 	if err := fi.Close(); err != nil {

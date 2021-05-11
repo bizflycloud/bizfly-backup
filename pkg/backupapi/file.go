@@ -318,21 +318,23 @@ func (c *Client) Chunking(recoveryPointID string, dirPath string, fi File, volum
 			return err
 		}
 		if chunkResp.PresignedUrl != "" {
-			volume.SetCredential(chunkResp.PresignedUrl)
+			//volume.SetCredential(chunkResp.PresignedUrl)
+			fmt.Println("Response pre sign url", chunkResp.PresignedUrl)
 		}
-		exist, err := volume.TestObject(digest)
-		if err != nil {
-			return err
-		}
-		if exist {
-			fmt.Println("Object exist in storage", digest)
-		} else {
-			fmt.Println("Put chunk to storage", digest)
-			err = volume.PutObject(digest, chunk.Data)
-			if err != nil {
-				return err
-			}
-		}
+		fmt.Printf("Chunk Info %d\t%d\t%016x\t%032x\n", chunk.Start, chunk.Length, chunk.Cut, hash)
+		//exist, err := volume.TestObject(digest)
+		//if err != nil {
+		//	return err
+		//}
+		//if exist {
+		//	fmt.Println("Object exist in storage", digest)
+		//} else {
+		//	fmt.Println("Put chunk to storage", digest)
+		//	//err = volume.PutObject(digest, chunk.Data)
+		//	//if err != nil {
+		//	//	return err
+		//	//}
+		//}
 	}
 	return nil
 }

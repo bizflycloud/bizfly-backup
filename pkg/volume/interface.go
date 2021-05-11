@@ -1,12 +1,5 @@
 package volume
 
-import (
-	"errors"
-	"fmt"
-	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
-	"github.com/bizflycloud/bizfly-backup/pkg/volume/s3"
-)
-
 // A StorageVolume manages data stored somewhere.
 type StorageVolume interface {
 	// PutObject stores the data to the storage backend.
@@ -20,11 +13,4 @@ type StorageVolume interface {
 
 	// SetCredential sets a new credential with backend credential not constant.
 	SetCredential(preSign string)
-}
-
-func NewStorageVolume(volume *backupapi.Volume) (StorageVolume, error) {
-	if volume.VolumeType == "S3" {
-		return s3.NewS3Default(volume.Name, volume.StorageBucket, volume.SecretRef), nil
-	}
-	return nil, errors.New(fmt.Sprintf("volume type unsupport %s", volume.VolumeType))
 }

@@ -40,6 +40,7 @@ type CreateRecoveryPointResponse struct {
 	RecoveryPoint *RecoveryPoint `json:"recovery_point"`
 	Action        string         `json:"action"`
 	Status        string         `json:"status"`
+	Volume        *Volume        `json:"volume"`
 }
 
 // CreateRecoveryPointRequest represents a request to create a recovery point.

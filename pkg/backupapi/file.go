@@ -14,6 +14,7 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/restic/chunker"
 )
@@ -136,7 +137,7 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunk ChunkReq
 	return chunkResp, nil
 }
 
-func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File) error {
+func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, volume volume.StorageVolume) error {
 	log.Println("UPLOADING PRE-URL")
 	// sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
 	// group, ctx := errgroup.WithContext(context.Background())
@@ -196,6 +197,9 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File) e
 			return err
 		}
 		defer resp.Body.Close()
+
+		log.Println(resp.Status)
+
 		// return nil
 		// })
 	}

@@ -27,6 +27,8 @@ import (
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
+	"github.com/bizflycloud/bizfly-backup/pkg/volume"
+	"github.com/bizflycloud/bizfly-backup/pkg/volume/s3"
 )
 
 var Version = "dev"
@@ -521,6 +523,11 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 
+	storageVolume, err := NewStorageVolume(rp.Volume)
+	if err != nil {
+		return err
+	}
+
 	// Get BackupDirectory
 	bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
 	if err != nil {
@@ -542,7 +549,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	}
 
 	for _, fileInfo := range filesInfo {
-		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, fileInfo); err != nil {
+		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, fileInfo, storageVolume); err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
 			return err
 		}
@@ -636,4 +643,11 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 		return err
 	}
 	return nil
+}
+
+func NewStorageVolume(volume *backupapi.Volume) (volume.StorageVolume, error) {
+	if volume.VolumeType == "S3" {
+		return s3.NewS3Default(volume.Name, volume.StorageBucket, volume.SecretRef), nil
+	}
+	return nil, fmt.Errorf(fmt.Sprintf("volume type unsupport %s", volume.VolumeType))
 }

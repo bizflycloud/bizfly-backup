@@ -646,8 +646,10 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 }
 
 func NewStorageVolume(volume *backupapi.Volume) (volume.StorageVolume, error) {
-	if volume.VolumeType == "S3" {
+	switch volume.VolumeType {
+	case "S3":
 		return s3.NewS3Default(volume.Name, volume.StorageBucket, volume.SecretRef), nil
+	default:
+		return nil, fmt.Errorf(fmt.Sprintf("volume type not supported %s", volume.VolumeType))
 	}
-	return nil, fmt.Errorf(fmt.Sprintf("volume type unsupport %s", volume.VolumeType))
 }

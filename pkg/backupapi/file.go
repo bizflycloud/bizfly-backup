@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/restic/chunker"
 )
 
@@ -190,9 +189,10 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 		if err != nil {
 			return err
 		}
-		retryClient := retryablehttp.NewClient()
-		retryClient.RetryMax = 100
-		resp, err := c.do(retryClient.StandardClient(), req, "application/json")
+		// retryClient := retryablehttp.NewClient()
+		// retryClient.RetryMax = 100
+		// resp, err := c.do(retryClient.StandardClient(), req, "application/json")
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return err
 		}

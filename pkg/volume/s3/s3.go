@@ -2,17 +2,12 @@ package s3
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"runtime"
 	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
-	"golang.org/x/sync/errgroup"
-	"golang.org/x/sync/semaphore"
 )
 
 type S3 struct {
@@ -56,7 +51,6 @@ var backoffSchedule = []time.Duration{
 }
 
 func (s3 *S3) PutSingleRequest(uri string, buf []byte) error {
-	log.Println("put put")
 	req, _ := http.NewRequest("PUT", uri, bytes.NewReader(buf))
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -76,32 +70,48 @@ func (s3 *S3) PutSingleRequest(uri string, buf []byte) error {
 }
 
 func (s3 *S3) PutObject(key string, data []byte) error {
-	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
-	group, ctx := errgroup.WithContext(context.Background())
+	// sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
+	// group, ctx := errgroup.WithContext(context.Background())
 
-	for _, backoff := range backoffSchedule {
-		err := sem.Acquire(ctx, 1)
-		if err != nil {
-			log.Printf("acquire err = %+v\n", err)
-			continue
-		}
+	// for _, backoff := range backoffSchedule {
+	// 	err := sem.Acquire(ctx, 1)
+	// 	if err != nil {
+	// 		log.Printf("acquire err = %+v\n", err)
+	// 		continue
+	// 	}
 
-		group.Go(func() error {
-			defer sem.Release(1)
+	// 	group.Go(func() error {
+	// 		defer sem.Release(1)
 
-			err := s3.PutSingleRequest(key, data)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "request error: %+v\n", err)
-				_, _ = fmt.Fprintf(os.Stderr, "retrying in %v\n", backoff)
-				time.Sleep(backoff)
-			}
-			return nil
-		})
+	// 		err := s3.PutSingleRequest(key, data)
+	// 		if err != nil {
+	// 			fmt.Fprintf(os.Stderr, "request error: %+v\n", err)
+	// 			_, _ = fmt.Fprintf(os.Stderr, "retrying in %v\n", backoff)
+	// 			time.Sleep(backoff)
+	// 		}
+	// 		return nil
+	// 	})
+	// }
+
+	// if err := group.Wait(); err != nil {
+	// 	log.Printf("g.Wait() err = %+v\n", err)
+	// }
+
+	// return nil
+
+	req, err := http.NewRequest("PUT", key, bytes.NewReader(data))
+	if err != nil {
+		fmt.Println("error creating request", key)
+		return err
 	}
 
-	if err := group.Wait(); err != nil {
-		log.Printf("g.Wait() err = %+v\n", err)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Println("failed making request")
+		return err
 	}
+	log.Printf("PUT %s -> %d", req.URL, resp.StatusCode)
+	defer resp.Body.Close()
 
 	return nil
 }

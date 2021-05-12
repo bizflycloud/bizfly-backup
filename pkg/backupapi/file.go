@@ -166,6 +166,8 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 		if err != nil {
 			return err
 		}
+		log.Println("save chunkResp", chunkResp)
+
 		if chunkResp.PresignedUrl != "" {
 			log.Println("response pre sign url", chunkResp.PresignedUrl)
 			// volume.SetCredential(chunkResp.PresignedUrl)

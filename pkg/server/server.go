@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -547,6 +548,8 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
+
+	log.Println("save filesInfo", filesInfo)
 
 	for _, fileInfo := range filesInfo {
 		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, fileInfo, storageVolume); err != nil {

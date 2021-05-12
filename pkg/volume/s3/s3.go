@@ -120,8 +120,13 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 	panic("implement")
 }
 
-func (s3 *S3) HeadObject(key string) (bool, error) {
-	panic("implement")
+func (s3 *S3) HeadObject(listKey []string, key string) (int, bool) {
+	for i, item := range listKey {
+		if item == key {
+			return i, true
+		}
+	}
+	return -1, false
 }
 
 func (s3 *S3) SetCredential(preSign string) {

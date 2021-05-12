@@ -3,7 +3,7 @@ package volume
 // StorageVolume ...
 type StorageVolume interface {
 	// HeadObject a boolean value whether object name existing in storage.
-	HeadObject(key string) (bool, error)
+	HeadObject(listKey []string, key string) (int, bool)
 
 	// PutObject stores the data to the storage backend.
 	PutObject(key string, data []byte) error

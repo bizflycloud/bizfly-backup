@@ -174,7 +174,7 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 		}
 		// log.Printf("chunk Info %d\t%d\t%016x\t%032x\n", chunk.Start, chunk.Length, chunk.Cut, hash)
 
-		// exist, _ := volume.HeadObject(keyObject)
+		// _, exist := volume.HeadObject(listKey, keyObject)
 		// if exist {
 		// 	log.Printf("exists object, key: %s", keyObject)
 		// } else {

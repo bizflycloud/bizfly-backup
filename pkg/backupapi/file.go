@@ -1,7 +1,6 @@
 package backupapi
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -132,15 +131,11 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunk ChunkReq
 		return ChunkResponse{}, err
 	}
 
-	log.Printf("chunking response %+v\n", chunkResp)
+	// log.Printf("chunking response %+v\n", chunkResp)
 	return chunkResp, nil
 }
 
 func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, volume volume.StorageVolume) error {
-	log.Println("UPLOADING PRE-URL")
-	// sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
-	// group, ctx := errgroup.WithContext(context.Background())
-
 	file, err := os.Open(filepath.Join(backupDir, fi.RealName))
 	if err != nil {
 		return err
@@ -148,7 +143,7 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 
 	chk := chunker.New(file, 0x3dea92648f6e83)
 	buf := make([]byte, ChunkUploadLowerBound)
-	log.Println("Chunking file", filepath.Join(backupDir, fi.RealName))
+	// log.Println("Chunking file", filepath.Join(backupDir, fi.RealName))
 
 	for {
 		chunk, err := chk.Next(buf)
@@ -173,39 +168,25 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 		}
 		if chunkResp.PresignedUrl != "" {
 			log.Println("response pre sign url", chunkResp.PresignedUrl)
+			// volume.SetCredential(chunkResp.PresignedUrl)
 		}
-		log.Printf("chunk Info %d\t%d\t%016x\t%032x\n", chunk.Start, chunk.Length, chunk.Cut, hash)
+		// log.Printf("chunk Info %d\t%d\t%016x\t%032x\n", chunk.Start, chunk.Length, chunk.Cut, hash)
 
-		// errAcquire := sem.Acquire(ctx, 1)
-		// if errAcquire != nil {
-		// 	log.Printf("acquire err = %+v\n", err)
-		// 	continue
+		// exist, _ := volume.HeadObject(keyObject)
+		// if exist {
+		// 	log.Printf("exists object, key: %s", keyObject)
+		// } else {
+		// 	err = volume.PutObject(chunkResp.PresignedUrl, chunk.Data)
+		// 	if err != nil {
+		// 		return err
+		// 	}
 		// }
-		// buffTemp := chunk.Data
 
-		// group.Go(func() error {
-		// defer sem.Release(1)
-		req, err := http.NewRequest(http.MethodPut, chunkResp.PresignedUrl, bytes.NewReader(chunk.Data))
+		err = volume.PutObject(chunkResp.PresignedUrl, chunk.Data)
 		if err != nil {
 			return err
 		}
-		// retryClient := retryablehttp.NewClient()
-		// retryClient.RetryMax = 100
-		// resp, err := c.do(retryClient.StandardClient(), req, "application/json")
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		log.Println(resp.Status)
-
-		// return nil
-		// })
 	}
-	// if err := group.Wait(); err != nil {
-	// 	return err
-	// }
 
 	return nil
 }

@@ -1,7 +1,7 @@
 package backupapi
 
 import (
-	"crypto/sha256"
+	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -59,8 +59,11 @@ type ChunkResponse struct {
 	Offset       uint   `json:"offset"`
 	Length       uint   `json:"length"`
 	HexSha256    string `json:"hex_sha256"`
-	PresignedUrl string `json:"presigned_url"`
 	Uri          string `json:"uri"`
+	PresignedURL struct {
+		Head string `json:"head"`
+		Put  string `json:"put"`
+	} `json:"presigned_url"`
 }
 
 func (c *Client) saveFileInfoPath(recoveryPointID string) string {
@@ -131,7 +134,6 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunk ChunkReq
 		return ChunkResponse{}, err
 	}
 
-	// log.Printf("chunking response %+v\n", chunkResp)
 	return chunkResp, nil
 }
 
@@ -140,10 +142,8 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 	if err != nil {
 		return err
 	}
-
 	chk := chunker.New(file, 0x3dea92648f6e83)
 	buf := make([]byte, ChunkUploadLowerBound)
-	// log.Println("Chunking file", filepath.Join(backupDir, fi.RealName))
 
 	for {
 		chunk, err := chk.Next(buf)
@@ -153,40 +153,30 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 		if err != nil {
 			return err
 		}
-		hash := sha256.Sum256(chunk.Data)
-		keyObject := hex.EncodeToString(hash[:])
-
+		hash := md5.Sum(chunk.Data)
+		key := hex.EncodeToString(hash[:])
 		chunkReq := ChunkRequest{
 			Length:    chunk.Length,
 			Offset:    chunk.Start,
-			HexSha256: keyObject,
+			HexSha256: key,
 		}
-
 		chunkResp, err := c.saveChunk(recoveryPointID, fi.ID, chunkReq)
 		if err != nil {
 			return err
 		}
-		log.Println("save chunkResp", chunkResp)
+		log.Printf("chunk info %d\t%d\t%016x\t%032x\n", chunk.Start, chunk.Length, chunk.Cut, hash)
 
-		if chunkResp.PresignedUrl != "" {
-			log.Println("response pre sign url", chunkResp.PresignedUrl)
-			// volume.SetCredential(chunkResp.PresignedUrl)
-		}
-		// log.Printf("chunk Info %d\t%d\t%016x\t%032x\n", chunk.Start, chunk.Length, chunk.Cut, hash)
-
-		// _, exist := volume.HeadObject(listKey, keyObject)
-		// if exist {
-		// 	log.Printf("exists object, key: %s", keyObject)
-		// } else {
-		// 	err = volume.PutObject(chunkResp.PresignedUrl, chunk.Data)
-		// 	if err != nil {
-		// 		return err
-		// 	}
-		// }
-
-		err = volume.PutObject(chunkResp.PresignedUrl, chunk.Data)
+		statusCode, err := volume.HeadObject(chunkResp.PresignedURL.Head)
 		if err != nil {
 			return err
+		}
+		if statusCode != 200 {
+			err = volume.PutObject(chunkResp.PresignedURL.Put, chunk.Data)
+			if err != nil {
+				return err
+			}
+		} else {
+			log.Printf("exists object, key: %s", key)
 		}
 	}
 

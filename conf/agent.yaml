@@ -1,4 +1,4 @@
-machine_id: ddd1ee87-61a6-4e99-955c-914537bf3770
-access_key: S70QJU80GQNH9SXT2NEG
-secret_key: f1590291d1636c2f62470fb392e826277f7084f11c890d8b20a27e7e1776f768
-api_url: http://103.56.157.213:5000
+machine_id: e24076ae-7d79-4ddd-9147-8717cdf3a094
+access_key: 4JHSZE50HFPK2ZIJSRWI
+secret_key: e872b02e69d1ea992238efa3180ab8bdef9fd493eb698fdb1afb838ca02fab50
+api_url: http://localhost:5000

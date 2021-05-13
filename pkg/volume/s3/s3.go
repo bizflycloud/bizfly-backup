@@ -101,13 +101,13 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 
 	req, err := http.NewRequest("PUT", key, bytes.NewReader(data))
 	if err != nil {
-		fmt.Println("error creating request", key)
+		log.Println("error creating request", key)
 		return err
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		fmt.Println("failed making request")
+		log.Println("failed making request")
 		return err
 	}
 	log.Printf("PUT %s -> %d", req.URL, resp.StatusCode)
@@ -120,13 +120,14 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 	panic("implement")
 }
 
-func (s3 *S3) HeadObject(listKey []string, key string) (int, bool) {
-	for i, item := range listKey {
-		if item == key {
-			return i, true
-		}
+func (s3 *S3) HeadObject(key string) (int, error) {
+	resp, err := http.Head(key)
+	if err != nil {
+		log.Println(err)
 	}
-	return -1, false
+	defer resp.Body.Close()
+
+	return resp.StatusCode, nil
 }
 
 func (s3 *S3) SetCredential(preSign string) {

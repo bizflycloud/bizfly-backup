@@ -170,7 +170,6 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 		// log.Println("SAVE CHUNK KEY", chunkReq.HexSha256)
 		// log.Printf("chunk info %d\t%d\t%016x\t%032x\n", chunk.Start, chunk.Length, chunk.Cut, hash)
 
-		log.Println("HEAD", chunkResp.PresignedURL.Head)
 		statusCode, err := volume.HeadObject(chunkResp.PresignedURL.Head)
 		if err != nil {
 			return err
@@ -181,7 +180,7 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 				return err
 			}
 		} else {
-			log.Printf("exists object, key: %s", key)
+			log.Printf("exist key: %s", key)
 		}
 	}
 
@@ -201,8 +200,8 @@ func WalkerDir(dir string) (FileInfoRequest, error) {
 				Size:         fi.Size(),
 				LastModified: fi.ModTime().Format("2006-01-02 15:04:05.000000"),
 				ItemType:     "FILE",
-				// Mode:         fileInfo.Mode().Perm().String(),
-				Mode: "0123",
+				Mode:         fi.Mode().Perm().String(),
+				// Mode: "0123",
 			}
 			fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
 		}

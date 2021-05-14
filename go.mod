@@ -23,5 +23,6 @@ require (
 	go.uber.org/zap v1.15.0
 	golang.org/x/mod v0.1.0
 	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b // indirect
+	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	gopkg.in/yaml.v2 v2.2.8
 )

@@ -3,7 +3,6 @@ package s3
 import (
 	"bytes"
 	"log"
-	"net/http"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 	"github.com/hashicorp/go-retryablehttp"
@@ -75,7 +74,7 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 }
 
 func (s3 *S3) HeadObject(key string) (int, error) {
-	resp, err := http.Head(key)
+	resp, err := retryablehttp.Head(key)
 	if err != nil {
 		log.Println(err)
 	}

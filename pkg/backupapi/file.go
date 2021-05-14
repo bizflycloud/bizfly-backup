@@ -200,8 +200,8 @@ func WalkerDir(dir string) (FileInfoRequest, error) {
 				Size:         fi.Size(),
 				LastModified: fi.ModTime().Format("2006-01-02 15:04:05.000000"),
 				ItemType:     "FILE",
-				Mode:         fi.Mode().Perm().String(),
-				// Mode: "0123",
+				// Mode:         fi.Mode().Perm().String(),
+				Mode: "0123",
 			}
 			fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
 		}

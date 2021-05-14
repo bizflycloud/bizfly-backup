@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 	"github.com/restic/chunker"
@@ -160,11 +161,14 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 			Offset:    chunk.Start,
 			HexSha256: key,
 		}
+		time.Sleep(500 * time.Millisecond)
 		chunkResp, err := c.saveChunk(recoveryPointID, fi.ID, chunkReq)
 		if err != nil {
 			return err
 		}
-		log.Printf("chunk info %d\t%d\t%016x\t%032x\n", chunk.Start, chunk.Length, chunk.Cut, hash)
+
+		// log.Println("SAVE CHUNK KEY", chunkReq.HexSha256)
+		// log.Printf("chunk info %d\t%d\t%016x\t%032x\n", chunk.Start, chunk.Length, chunk.Cut, hash)
 
 		statusCode, err := volume.HeadObject(chunkResp.PresignedURL.Head)
 		if err != nil {

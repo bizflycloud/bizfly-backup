@@ -2,12 +2,11 @@ package s3
 
 import (
 	"bytes"
-	"fmt"
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 type S3 struct {
@@ -25,48 +24,6 @@ func NewS3Default(name string, storageBucket string, secretRef string) *S3 {
 		StorageBucket: storageBucket,
 		SecretRef:     secretRef,
 	}
-}
-
-const (
-	errUnexpectedResponse = "unexpected response: %s"
-)
-
-type HTTPClient struct{}
-
-var (
-	HttpClient = HTTPClient{}
-)
-
-var backoffSchedule = []time.Duration{
-	5 * time.Second,
-	10 * time.Second,
-	20 * time.Second,
-	40 * time.Second,
-	1 * time.Minute,
-	2 * time.Minute,
-	3 * time.Minute,
-	5 * time.Minute,
-	10 * time.Minute,
-	20 * time.Minute,
-}
-
-func (s3 *S3) PutSingleRequest(uri string, buf []byte) error {
-	req, _ := http.NewRequest("PUT", uri, bytes.NewReader(buf))
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	log.Printf("PUT %s -> %d", req.URL, resp.StatusCode)
-
-	if resp.StatusCode != 200 {
-		respErr := fmt.Errorf(errUnexpectedResponse, resp.Status)
-		_ = fmt.Sprintf("request failed: %v", respErr)
-		return respErr
-	}
-	defer resp.Body.Close()
-
-	return nil
 }
 
 func (s3 *S3) PutObject(key string, data []byte) error {
@@ -99,15 +56,12 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 
 	// return nil
 
-	req, err := http.NewRequest("PUT", key, bytes.NewReader(data))
+	req, err := retryablehttp.NewRequest("PUT", key, bytes.NewReader(data))
 	if err != nil {
-		log.Println("error creating request", key)
 		return err
 	}
-
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := retryablehttp.NewClient().Do(req)
 	if err != nil {
-		log.Println("failed making request")
 		return err
 	}
 	log.Printf("PUT %s -> %d", req.URL, resp.StatusCode)

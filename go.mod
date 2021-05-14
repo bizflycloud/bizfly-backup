@@ -9,7 +9,6 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.2.0
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/go-chi/valve v0.0.0-20170920024740-9e45288364f4
-	github.com/hashicorp/go-retryablehttp v0.7.0
 	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf
 	github.com/jpillora/backoff v1.0.0
 	github.com/mitchellh/go-homedir v1.1.0
@@ -23,6 +22,5 @@ require (
 	go.uber.org/zap v1.15.0
 	golang.org/x/mod v0.1.0
 	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b // indirect
-	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	gopkg.in/yaml.v2 v2.2.8
 )

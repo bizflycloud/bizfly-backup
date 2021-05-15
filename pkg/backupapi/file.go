@@ -67,6 +67,17 @@ type ChunkResponse struct {
 	} `json:"presigned_url"`
 }
 
+// InfoDownload
+type InfoDownload struct {
+	Get    string `json:"get"`
+	Offset int    `json:"offset"`
+}
+
+// FileDownloadResponse
+type FileDownloadResponse struct {
+	Info []InfoDownload `json:"info"`
+}
+
 func (c *Client) saveFileInfoPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
 }
@@ -187,6 +198,69 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 	return nil
 }
 
+func (c *Client) Restore(recoveryPointID string, volume volume.StorageVolume) error {
+	reqURL, err := c.urlStringFromRelPath(c.getListFilePath(recoveryPointID))
+	if err != nil {
+		return err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+
+	var files FilesResponse
+	if err := json.NewDecoder(resp.Body).Decode(&files); err != nil {
+		log.Println("Decode Error", err)
+	}
+
+	for _, f := range files {
+		file, err := os.Create(recoveryPointID)
+		if err != nil {
+			panic("Create file to read error")
+		}
+
+		infos, err := c.GetInfoFileDownload(recoveryPointID, f.ID)
+		if err != nil {
+			return err
+		}
+
+		for _, info := range infos {
+			data, err := volume.GetObject(info.Get)
+			if err != nil {
+				return err
+			}
+			file.WriteAt(data, int64(info.Offset))
+		}
+	}
+
+	return nil
+}
+
+func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string) ([]InfoDownload, error) {
+	reqURL, err := c.urlStringFromRelPath(c.getInfoFileDownload(recoveryPointID, itemID))
+	if err != nil {
+		return []InfoDownload{}, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return []InfoDownload{}, err
+	}
+	resp, err := c.Do(req)
+	var fileDownload FileDownloadResponse
+	if err := json.NewDecoder(resp.Body).Decode(&fileDownload); err != nil {
+		log.Println("Decode Error", err)
+	}
+
+	return fileDownload.Info, nil
+}
+
 func WalkerDir(dir string) (FileInfoRequest, error) {
 	var fileInfoRequest FileInfoRequest
 
@@ -200,8 +274,7 @@ func WalkerDir(dir string) (FileInfoRequest, error) {
 				Size:         fi.Size(),
 				LastModified: fi.ModTime().Format("2006-01-02 15:04:05.000000"),
 				ItemType:     "FILE",
-				// Mode:         fi.Mode().Perm().String(),
-				Mode: "001",
+				Mode:         fi.Mode().Perm().String(),
 			}
 			fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
 		}

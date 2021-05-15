@@ -2,6 +2,7 @@ package s3
 
 import (
 	"bytes"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"time"
@@ -51,8 +52,8 @@ var backoffSchedule = []time.Duration{
 	30 * time.Minute,
 }
 
-func putRequest(uri string, buf []byte) error {
-	req, err := http.NewRequest("PUT", uri, bytes.NewReader(buf))
+func putRequest(uri string, data []byte) error {
+	req, err := http.NewRequest("PUT", uri, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}
@@ -65,6 +66,27 @@ func putRequest(uri string, buf []byte) error {
 	defer resp.Body.Close()
 
 	return nil
+}
+
+func getRequest(uri string) ([]byte, error) {
+	req, _ := http.NewRequest("GET", uri, nil)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("GET %s -> %d", req.URL, resp.StatusCode)
+
+	if resp.StatusCode != 200 {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func (s3 *S3) PutObject(key string, data []byte) error {
@@ -88,7 +110,24 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 }
 
 func (s3 *S3) GetObject(key string) ([]byte, error) {
-	panic("implement")
+	var resp []byte
+	var err error
+	for _, backoff := range backoffSchedule {
+		resp, err = getRequest(key)
+		if err == nil {
+			break
+		}
+		log.Printf("request error: %+v\n", err)
+		log.Printf("retrying in %v\n", backoff)
+		time.Sleep(backoff)
+	}
+
+	// all retries failed
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
 }
 
 func (s3 *S3) HeadObject(key string) (int, error) {

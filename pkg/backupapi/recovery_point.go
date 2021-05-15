@@ -85,6 +85,10 @@ func (c *Client) getListFilePath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/list-files", recoveryPointID)
 }
 
+func (c *Client) getInfoFileDownload(recoveryPointID string, itemID string) string {
+	return fmt.Sprintf("/agent/auth/%s/file/%s", recoveryPointID, itemID)
+}
+
 func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID string, crpr *CreateRecoveryPointRequest) (*CreateRecoveryPointResponse, error) {
 	req, err := c.NewRequest(http.MethodPost, c.recoveryPointPath(backupDirectoryID), crpr)
 	if err != nil {

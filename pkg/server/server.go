@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -520,8 +519,6 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		Name:              name,
 		RecoveryPointType: recoveryPointType,
 	})
-	log.Println(rp.ID)
-	log.Println(rp.RecoveryPoint.ID)
 	if err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
@@ -614,7 +611,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	s.reportStartDownload(progressOutput)
 
-	if err := s.backupClient.RestoreFile(recoveryPointID); err != nil {
+	if err := s.backupClient.RestoreFile(recoveryPointID, destDir); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err

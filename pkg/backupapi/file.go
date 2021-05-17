@@ -12,7 +12,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"reflect"
 	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
@@ -151,7 +150,6 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunk ChunkReq
 		return ChunkResponse{}, err
 	}
 	defer resp.Body.Close()
-	fmt.Println("save type", reflect.TypeOf(resp.Body))
 
 	var chunkResp ChunkResponse
 
@@ -211,7 +209,7 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 	return nil
 }
 
-func (c *Client) RestoreFile(recoveryPointID string) error {
+func (c *Client) RestoreFile(recoveryPointID string, destDir string) error {
 	// var volume volume.StorageVolume
 	s3 := &s3.S3{}
 
@@ -221,18 +219,16 @@ func (c *Client) RestoreFile(recoveryPointID string) error {
 	}
 
 	for _, f := range rp.Files {
-		fmt.Println("Restore file", f.ItemName)
-		file, err := os.Create(recoveryPointID)
+		file, err := os.Create(filepath.Join(destDir, filepath.Base(f.RealName)))
 		if err != nil {
-			log.Println(err)
+			return err
 		}
+		defer file.Close()
 
 		infos, err := c.GetInfoFileDownload(recoveryPointID, f.ID)
 		if err != nil {
 			return err
 		}
-
-		log.Println(infos.Info)
 
 		for _, info := range infos.Info {
 			data, err := s3.GetObject(info.Get)

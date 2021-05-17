@@ -198,7 +198,8 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 	return nil
 }
 
-func (c *Client) Restore(recoveryPointID string, volume volume.StorageVolume) error {
+func (c *Client) RestoreFile(recoveryPointID string) error {
+	var volume volume.StorageVolume
 	reqURL, err := c.urlStringFromRelPath(c.getListFilePath(recoveryPointID))
 	if err != nil {
 		return err
@@ -253,6 +254,9 @@ func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string) ([]I
 		return []InfoDownload{}, err
 	}
 	resp, err := c.Do(req)
+	if err != nil {
+		return []InfoDownload{}, err
+	}
 	var fileDownload FileDownloadResponse
 	if err := json.NewDecoder(resp.Body).Decode(&fileDownload); err != nil {
 		log.Println("Decode Error", err)

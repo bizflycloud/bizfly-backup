@@ -520,6 +520,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		RecoveryPointType: recoveryPointType,
 	})
 	if err != nil {
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 
@@ -610,11 +611,11 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	s.reportStartDownload(progressOutput)
 
-	// if err := s.backupClient.DownloadFile(recoveryPointID); err != nil {
-	// 	s.logger.Error("failed to download file", zap.Error(err))
-	// 	s.notifyStatusFailed(actionID, err.Error())
-	// 	return err
-	// }
+	if err := s.backupClient.RestoreFile(recoveryPointID); err != nil {
+		s.logger.Error("failed to download file", zap.Error(err))
+		s.notifyStatusFailed(actionID, err.Error())
+		return err
+	}
 
 	s.reportDownloadCompleted(progressOutput)
 	if err := fi.Close(); err != nil {

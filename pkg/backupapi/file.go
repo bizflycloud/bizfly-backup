@@ -210,7 +210,6 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 }
 
 func (c *Client) RestoreFile(recoveryPointID string, destDir string) error {
-	// var volume volume.StorageVolume
 	s3 := &s3.S3{}
 
 	rp, err := c.GetListFilePath(recoveryPointID)

@@ -257,7 +257,7 @@ func (c *Client) GetListFilePath(recoveryPointID string) (RecoveryPointResponse,
 	}
 	var rp RecoveryPointResponse
 	if err := json.NewDecoder(resp.Body).Decode(&rp); err != nil {
-		log.Println("Decode Error", err)
+		return RecoveryPointResponse{}, err
 	}
 
 	return rp, nil
@@ -279,7 +279,7 @@ func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string) (Fil
 	}
 	var fileDownload FileDownloadResponse
 	if err := json.NewDecoder(resp.Body).Decode(&fileDownload); err != nil {
-		log.Println("Decode Error", err)
+		return FileDownloadResponse{}, err
 	}
 
 	return fileDownload, nil

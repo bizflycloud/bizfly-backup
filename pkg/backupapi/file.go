@@ -12,9 +12,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
+	"github.com/bizflycloud/bizfly-backup/pkg/volume/s3"
 	"github.com/restic/chunker"
 )
 
@@ -34,18 +36,28 @@ type FileInfoRequest struct {
 
 // File ...
 type File struct {
-	ID          string `json:"id"`
-	Name        string `json:"item_name"`
-	Size        int    `json:"size"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
-	ContentType string `json:"content_type"`
-	Etag        string `json:"eTag"`
-	RealName    string `json:"real_name"`
+	ContentType  string `json:"content_type"`
+	CreatedAt    string `json:"created_at"`
+	Etag         string `json:"etag"`
+	ID           string `json:"id"`
+	ItemName     string `json:"item_name"`
+	ItemType     string `json:"item_type"`
+	LastModified string `json:"last_modified"`
+	Mode         string `json:"mode"`
+	RealName     string `json:"real_name"`
+	Size         int    `json:"size"`
+	Status       string `json:"status"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 // FileResponse
 type FilesResponse []File
+
+// RecoveryPointResponse
+type RecoveryPointResponse struct {
+	Files []File `json:"files"`
+	Total int    `json:"total"`
+}
 
 // ChunkRequest
 type ChunkRequest struct {
@@ -139,6 +151,7 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunk ChunkReq
 		return ChunkResponse{}, err
 	}
 	defer resp.Body.Close()
+	fmt.Println("save type", reflect.TypeOf(resp.Body))
 
 	var chunkResp ChunkResponse
 
@@ -199,31 +212,19 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 }
 
 func (c *Client) RestoreFile(recoveryPointID string) error {
-	var volume volume.StorageVolume
-	reqURL, err := c.urlStringFromRelPath(c.getListFilePath(recoveryPointID))
+	// var volume volume.StorageVolume
+	s3 := &s3.S3{}
+
+	rp, err := c.GetListFilePath(recoveryPointID)
 	if err != nil {
 		return err
 	}
 
-	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := c.Do(req)
-	if err != nil {
-		return err
-	}
-
-	var files FilesResponse
-	if err := json.NewDecoder(resp.Body).Decode(&files); err != nil {
-		log.Println("Decode Error", err)
-	}
-
-	for _, f := range files {
+	for _, f := range rp.Files {
+		fmt.Println("Restore file", f.ItemName)
 		file, err := os.Create(recoveryPointID)
 		if err != nil {
-			panic("Create file to read error")
+			log.Println(err)
 		}
 
 		infos, err := c.GetInfoFileDownload(recoveryPointID, f.ID)
@@ -231,8 +232,10 @@ func (c *Client) RestoreFile(recoveryPointID string) error {
 			return err
 		}
 
-		for _, info := range infos {
-			data, err := volume.GetObject(info.Get)
+		log.Println(infos.Info)
+
+		for _, info := range infos.Info {
+			data, err := s3.GetObject(info.Get)
 			if err != nil {
 				return err
 			}
@@ -243,26 +246,48 @@ func (c *Client) RestoreFile(recoveryPointID string) error {
 	return nil
 }
 
-func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string) ([]InfoDownload, error) {
-	reqURL, err := c.urlStringFromRelPath(c.getInfoFileDownload(recoveryPointID, itemID))
+func (c *Client) GetListFilePath(recoveryPointID string) (RecoveryPointResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.getListFilePath(recoveryPointID))
 	if err != nil {
-		return []InfoDownload{}, err
+		return RecoveryPointResponse{}, err
 	}
 
 	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
-		return []InfoDownload{}, err
+		return RecoveryPointResponse{}, err
 	}
 	resp, err := c.Do(req)
 	if err != nil {
-		return []InfoDownload{}, err
+		return RecoveryPointResponse{}, err
+	}
+	var rp RecoveryPointResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rp); err != nil {
+		log.Println("Decode Error", err)
+	}
+
+	return rp, nil
+}
+
+func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string) (FileDownloadResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.getInfoFileDownload(recoveryPointID, itemID))
+	if err != nil {
+		return FileDownloadResponse{}, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return FileDownloadResponse{}, err
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return FileDownloadResponse{}, err
 	}
 	var fileDownload FileDownloadResponse
 	if err := json.NewDecoder(resp.Body).Decode(&fileDownload); err != nil {
 		log.Println("Decode Error", err)
 	}
 
-	return fileDownload.Info, nil
+	return fileDownload, nil
 }
 
 func WalkerDir(dir string) (FileInfoRequest, error) {

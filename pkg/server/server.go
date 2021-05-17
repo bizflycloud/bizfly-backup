@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -519,6 +520,8 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		Name:              name,
 		RecoveryPointType: recoveryPointType,
 	})
+	log.Println(rp.ID)
+	log.Println(rp.RecoveryPoint.ID)
 	if err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
@@ -628,7 +631,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		"action_id": actionID,
 		"status":    statusRestoring,
 	})
-
+	s.reportStartRestore(progressOutput)
 	s.reportRestoreCompleted(progressOutput)
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,

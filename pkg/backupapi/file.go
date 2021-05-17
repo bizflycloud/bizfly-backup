@@ -192,11 +192,11 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 		// log.Println("SAVE CHUNK KEY", chunkReq.HexSha256)
 		// log.Printf("chunk info %d\t%d\t%016x\t%032x\n", chunk.Start, chunk.Length, chunk.Cut, hash)
 
-		statusCode, err := volume.HeadObject(chunkResp.PresignedURL.Head)
+		exist, err := volume.HeadObject(chunkResp.PresignedURL.Head)
 		if err != nil {
 			return err
 		}
-		if statusCode != 200 {
+		if exist != 200 {
 			err = volume.PutObject(chunkResp.PresignedURL.Put, chunk.Data)
 			if err != nil {
 				return err

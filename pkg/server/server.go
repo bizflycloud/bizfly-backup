@@ -125,7 +125,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	case broker.BackupManual:
 		return s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
 	case broker.RestoreManual:
-		return s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
+		return s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.VolumeType, ioutil.Discard)
 	case broker.ConfigUpdate:
 		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
 	case broker.ConfigRefresh:
@@ -525,6 +525,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	}
 
 	// Get storage volume
+	// storageVolume, err := NewStorageVolume(rp.Volume.VolumeType)
 	storageVolume, err := NewStorageVolume(rp.Volume)
 	if err != nil {
 		return err
@@ -596,7 +597,7 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))
 }
 
-func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, progressOutput io.Writer) error {
+func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, volumeType string, progressOutput io.Writer) error {
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
 	if err != nil {
 		s.notifyStatusFailed(actionID, err.Error())
@@ -609,8 +610,19 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		"status":    statusDownloading,
 	})
 
+	// Get storage volume
+	// storageVolume, err := NewStorageVolume(strings.Split(volumeType, ".")[1])
+	// if err != nil {
+	// 	return err
+	// }
+
 	s.reportStartDownload(progressOutput)
 
+	// if err := s.backupClient.RestoreFile(recoveryPointID, destDir, storageVolume); err != nil {
+	// 	s.logger.Error("failed to download file", zap.Error(err))
+	// 	s.notifyStatusFailed(actionID, err.Error())
+	// 	return err
+	// }
 	if err := s.backupClient.RestoreFile(recoveryPointID, destDir); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
@@ -648,6 +660,16 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 	}
 	return nil
 }
+
+// func NewStorageVolume(volumeType string) (volume.StorageVolume, error) {
+// 	var volume backupapi.Volume
+// 	switch volumeType {
+// 	case "S3":
+// 		return s3.NewS3Default(volume.Name, volume.StorageBucket, volume.SecretRef), nil
+// 	default:
+// 		return nil, fmt.Errorf(fmt.Sprintf("volume type not supported %s", volume.VolumeType))
+// 	}
+// }
 
 func NewStorageVolume(volume *backupapi.Volume) (volume.StorageVolume, error) {
 	switch volume.VolumeType {

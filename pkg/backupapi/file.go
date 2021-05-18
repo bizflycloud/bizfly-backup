@@ -206,9 +206,9 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 	return nil
 }
 
+// func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume) error {
 func (c *Client) RestoreFile(recoveryPointID string, destDir string) error {
 	s3 := &s3.S3{}
-
 	rp, err := c.GetListFilePath(recoveryPointID)
 	if err != nil {
 		return err
@@ -227,6 +227,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string) error {
 		}
 
 		for _, info := range infos.Info {
+			// data, err := volume.GetObject(info.Get)
 			data, err := s3.GetObject(info.Get)
 			if err != nil {
 				return err

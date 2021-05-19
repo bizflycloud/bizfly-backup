@@ -12,10 +12,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
-	"github.com/bizflycloud/bizfly-backup/pkg/volume/s3"
 	"github.com/restic/chunker"
 )
 
@@ -206,16 +206,22 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 	return nil
 }
 
-// func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume) error {
-func (c *Client) RestoreFile(recoveryPointID string, destDir string) error {
-	s3 := &s3.S3{}
+func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume) error {
 	rp, err := c.GetListFilePath(recoveryPointID)
 	if err != nil {
 		return err
 	}
 
 	for _, f := range rp.Files {
-		file, err := os.Create(filepath.Join(destDir, filepath.Base(f.RealName)))
+		relativePathRealName := strings.Join(strings.Split(f.RealName, "/")[0:len(strings.Split(f.RealName, "/"))-1], "/")
+		absolutePathRealName := filepath.Join(destDir, relativePathRealName)
+		fileResore := filepath.Join(absolutePathRealName, filepath.Base(f.RealName))
+
+		if err := EnsureDir(absolutePathRealName); err != nil {
+			return err
+		}
+
+		file, err := CreateFile(fileResore)
 		if err != nil {
 			return err
 		}
@@ -227,8 +233,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string) error {
 		}
 
 		for _, info := range infos.Info {
-			// data, err := volume.GetObject(info.Get)
-			data, err := s3.GetObject(info.Get)
+			data, err := volume.GetObject(info.Get)
 			if err != nil {
 				return err
 			}
@@ -307,4 +312,22 @@ func WalkerDir(dir string) (FileInfoRequest, error) {
 	}
 
 	return fileInfoRequest, err
+}
+
+func EnsureDir(dirName string) error {
+	err := os.MkdirAll(dirName, os.ModePerm)
+	if err == nil || os.IsExist(err) {
+		return nil
+	} else {
+		return err
+	}
+}
+
+func CreateFile(name string) (*os.File, error) {
+	file, err := os.Create(name)
+	if err != nil {
+		log.Println(err)
+	}
+
+	return file, nil
 }

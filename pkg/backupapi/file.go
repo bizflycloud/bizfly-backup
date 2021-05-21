@@ -165,6 +165,7 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 	if err != nil {
 		return err
 	}
+
 	chk := chunker.New(file, 0x3dea92648f6e83)
 	buf := make([]byte, ChunkUploadLowerBound)
 
@@ -189,50 +190,66 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 			return err
 		}
 
-		exist, err := volume.HeadObject(chunkResp.PresignedURL.Head)
+		resp, err := volume.HeadObject(chunkResp.PresignedURL.Head)
 		if err != nil {
 			return err
 		}
-		if exist != 200 {
-			err = volume.PutObject(chunkResp.PresignedURL.Put, chunk.Data)
+
+		if etagHead, ok := resp.Header["Etag"]; ok {
+			integrity := strings.Contains(etagHead[0], key)
+			if !integrity {
+				_, err := volume.PutObject(chunkResp.PresignedURL.Put, chunk.Data)
+				if err != nil {
+					return err
+				}
+			} else {
+				log.Printf("exist key: %s, etag head: %s", key, etagHead)
+			}
+		} else {
+			etagPut, err := volume.PutObject(chunkResp.PresignedURL.Put, chunk.Data)
 			if err != nil {
 				return err
 			}
-		} else {
-			log.Printf("exist key: %s", key)
+			integrity := strings.Contains(etagPut, key)
+			if !integrity {
+				_, err := volume.PutObject(chunkResp.PresignedURL.Put, chunk.Data)
+				if err != nil {
+					return err
+				}
+			}
 		}
 	}
 
 	return nil
 }
 
-func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume) error {
+func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreSessionKey string, createdAt string) error {
 	rp, err := c.GetListFilePath(recoveryPointID)
 	if err != nil {
 		return err
 	}
 
 	for _, f := range rp.Files {
-		relativePathRealName := strings.Join(strings.Split(f.RealName, "/")[0:len(strings.Split(f.RealName, "/"))-1], "/")
-		absolutePathRealName := filepath.Join(destDir, relativePathRealName)
-		fileResore := filepath.Join(absolutePathRealName, filepath.Base(f.RealName))
-
-		if err := EnsureDir(absolutePathRealName); err != nil {
-			return err
-		}
-
-		file, err := CreateFile(fileResore)
-		if err != nil {
-			return err
-		}
-		defer file.Close()
-
-		infos, err := c.GetInfoFileDownload(recoveryPointID, f.ID)
+		infos, err := c.GetInfoFileDownload(recoveryPointID, f.ID, restoreSessionKey, createdAt)
 		if err != nil {
 			return err
 		}
 
 		for _, info := range infos.Info {
+			relativePathRealName := strings.Join(strings.Split(f.RealName, "/")[0:len(strings.Split(f.RealName, "/"))-1], "/")
+			absolutePathRealName := filepath.Join(destDir, relativePathRealName)
+			fileResore := filepath.Join(absolutePathRealName, filepath.Base(f.RealName))
+
+			if err := EnsureDir(absolutePathRealName); err != nil {
+				return err
+			}
+
+			file, err := CreateFile(fileResore)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
 			data, err := volume.GetObject(info.Get)
 			if err != nil {
 				return err
@@ -266,7 +283,7 @@ func (c *Client) GetListFilePath(recoveryPointID string) (RecoveryPointResponse,
 	return rp, nil
 }
 
-func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string) (FileDownloadResponse, error) {
+func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string, restoreSessionKey string, createdAt string) (FileDownloadResponse, error) {
 	reqURL, err := c.urlStringFromRelPath(c.getInfoFileDownload(recoveryPointID, itemID))
 	if err != nil {
 		return FileDownloadResponse{}, err
@@ -276,6 +293,9 @@ func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string) (Fil
 	if err != nil {
 		return FileDownloadResponse{}, err
 	}
+	req.Header.Add("X-Session-Created-At", createdAt)
+	req.Header.Add("X-Restore-Session-Key", restoreSessionKey)
+
 	resp, err := c.Do(req)
 	if err != nil {
 		return FileDownloadResponse{}, err

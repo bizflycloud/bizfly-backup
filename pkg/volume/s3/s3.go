@@ -52,20 +52,20 @@ var backoffSchedule = []time.Duration{
 	30 * time.Minute,
 }
 
-func putRequest(uri string, data []byte) error {
+func putRequest(uri string, data []byte) (string, error) {
 	req, err := http.NewRequest("PUT", uri, bytes.NewReader(data))
 	if err != nil {
-		return err
+		return "", err
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		return "", err
 	}
 	log.Printf("PUT %s -> %d", req.URL, resp.StatusCode)
 
 	defer resp.Body.Close()
 
-	return nil
+	return resp.Header.Get("Etag"), nil
 }
 
 func getRequest(uri string) ([]byte, error) {
@@ -89,10 +89,11 @@ func getRequest(uri string) ([]byte, error) {
 	return data, nil
 }
 
-func (s3 *S3) PutObject(key string, data []byte) error {
+func (s3 *S3) PutObject(key string, data []byte) (string, error) {
 	var err error
+	var etag string
 	for _, backoff := range backoffSchedule {
-		err = putRequest(key, data)
+		etag, err = putRequest(key, data)
 		if err == nil {
 			break
 		}
@@ -101,12 +102,11 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 		time.Sleep(backoff)
 	}
 
-	// all retries failed
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	return nil
+	return etag, nil
 }
 
 func (s3 *S3) GetObject(key string) ([]byte, error) {
@@ -122,7 +122,6 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 		time.Sleep(backoff)
 	}
 
-	// all retries failed
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +129,7 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 	return resp, nil
 }
 
-func (s3 *S3) HeadObject(key string) (int, error) {
+func (s3 *S3) HeadObject(key string) (*http.Response, error) {
 	var resp *http.Response
 	var err error
 	for _, backoff := range backoffSchedule {
@@ -143,12 +142,11 @@ func (s3 *S3) HeadObject(key string) (int, error) {
 		time.Sleep(backoff)
 	}
 
-	// all retries failed
 	if err != nil {
 		log.Println(err)
 	}
 
-	return resp.StatusCode, nil
+	return resp, nil
 }
 
 func (s3 *S3) SetCredential(preSign string) {

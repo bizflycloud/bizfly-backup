@@ -1,6 +1,7 @@
 package backupapi
 
 import (
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -12,11 +13,14 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 	"github.com/restic/chunker"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 )
 
 const ChunkUploadLowerBound = 15 * 1000 * 1000
@@ -228,34 +232,53 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 	if err != nil {
 		return err
 	}
+	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
+	group, ctx := errgroup.WithContext(context.Background())
 
 	for _, f := range rp.Files {
 		infos, err := c.GetInfoFileDownload(recoveryPointID, f.ID, restoreSessionKey, createdAt)
 		if err != nil {
 			return err
 		}
+		if len(infos.Info) == 0 {
+			break
+		}
+
+		relativePathRealName := strings.Join(strings.Split(f.RealName, "/")[0:len(strings.Split(f.RealName, "/"))-1], "/")
+		absolutePathRealName := filepath.Join(destDir, relativePathRealName)
+		fileResore := filepath.Join(absolutePathRealName, filepath.Base(f.RealName))
+
+		if err := EnsureDir(absolutePathRealName); err != nil {
+			return err
+		}
+
+		file, err := CreateFile(fileResore)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
 
 		for _, info := range infos.Info {
-			relativePathRealName := strings.Join(strings.Split(f.RealName, "/")[0:len(strings.Split(f.RealName, "/"))-1], "/")
-			absolutePathRealName := filepath.Join(destDir, relativePathRealName)
-			fileResore := filepath.Join(absolutePathRealName, filepath.Base(f.RealName))
-
-			if err := EnsureDir(absolutePathRealName); err != nil {
-				return err
+			errAcquire := sem.Acquire(ctx, 1)
+			if errAcquire != nil {
+				continue
 			}
-
-			file, err := CreateFile(fileResore)
-			if err != nil {
-				return err
-			}
-			defer file.Close()
-
-			data, err := volume.GetObject(info.Get)
-			if err != nil {
-				return err
-			}
-			file.WriteAt(data, int64(info.Offset))
+			offset := info.Offset
+			getURl := info.Get
+			group.Go(func() error {
+				defer sem.Release(1)
+				data, err := volume.GetObject(getURl)
+				if err != nil {
+					return err
+				}
+				file.WriteAt(data, int64(offset))
+				return nil
+			})
 		}
+
+	}
+	if err := group.Wait(); err != nil {
+		return err
 	}
 
 	return nil

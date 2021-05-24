@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 	"io"
 	"io/ioutil"
 	"net"
@@ -545,15 +546,17 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	// Upload file to storage
 	s.reportStartUpload(progressOutput)
 
+	progressScan := s.newProgressScanDir()
 	// Save files info
-	filesInfo, err := s.backupClient.SaveFilesInfo(rp.RecoveryPoint.ID, bd.Path)
+	itemTodo, filesInfo, err := s.backupClient.SaveFilesInfo(rp.RecoveryPoint.ID, bd.Path, progressScan)
 	if err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
-
+	progressUpload := s.newUploadProgress(itemTodo)
+	defer progressUpload.Done()
 	for _, fileInfo := range filesInfo {
-		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, fileInfo, storageVolume); err != nil {
+		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, fileInfo, storageVolume, progressUpload); err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
 			return err
 		}
@@ -566,6 +569,109 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	})
 
 	return nil
+}
+
+func (s *Server) newProgressScanDir() *progress.Progress {
+	p := progress.NewProgress(time.Second)
+	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
+		s.notifyMsg(map[string]string{
+			"STATISTIC=====================": stat.String(),
+		})
+	}
+	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
+		s.notifyMsg(map[string]string{
+			"SCANNED=======================": stat.String(),
+		})
+	}
+	return p
+}
+
+func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
+	p := progress.NewProgress(time.Second)
+
+	var bps, eta uint64
+	itemsTodo := todo.Files
+
+	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
+		sec := uint64(d / time.Second)
+		fmt.Println("Duration", d)
+		fmt.Println("Seconds", sec)
+		fmt.Println("todo.bytes", todo.Bytes)
+		fmt.Println("ticker", ticker)
+		if todo.Bytes > 0 && sec > 0 && ticker {
+			bps = stat.Bytes / sec
+			if stat.Bytes >= todo.Bytes {
+				eta = 0
+			} else if bps > 0 {
+				eta = (todo.Bytes - stat.Bytes) / bps
+			}
+		}
+
+		if ticker {
+			itemsDone := stat.Files
+
+			status1 := fmt.Sprintf("[Duration %s] %s [speed:%s/s] [%s/%s (Total)] [%d/%d items] %d erros ",
+				formatDuration(d), formatPercent(stat.Bytes, todo.Bytes), formatBytes(bps), formatBytes(stat.Bytes), formatBytes(todo.Bytes), itemsDone, itemsTodo, stat.Errors)
+			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
+
+			message := fmt.Sprintf("%s %s", status1, status2)
+			s.notifyMsg(map[string]string{
+				"Uploading": message,
+			})
+		}
+	}
+
+	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
+		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Bytes))
+		s.notifyMsg(map[string]string{
+			"COMPLETE UPLOAD": message,
+		})
+	}
+	return p
+}
+
+func formatBytes(c uint64) string {
+	b := float64(c)
+
+	switch {
+	case c > 1<<40:
+		return fmt.Sprintf("%.3f TiB", b/(1<<40))
+	case c > 1<<30:
+		return fmt.Sprintf("%.3f GiB", b/(1<<30))
+	case c > 1<<20:
+		return fmt.Sprintf("%.3f MiB", b/(1<<20))
+	case c > 1<<10:
+		return fmt.Sprintf("%.3f KiB", b/(1<<10))
+	default:
+		return fmt.Sprintf("%dB", c)
+	}
+}
+
+func formatPercent(numerator uint64, denominator uint64) string {
+	if denominator == 0 {
+		return ""
+	}
+	percent := 100.0 * float64(numerator) / float64(denominator)
+	if percent > 100 {
+		percent = 100
+	}
+	return fmt.Sprintf("%3.2f%%", percent)
+}
+
+func formatSeconds(sec uint64) string {
+	hours := sec / 3600
+	sec -= hours * 3600
+	min := sec / 60
+	sec -= min * 60
+	if hours > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", hours, min, sec)
+	}
+	return fmt.Sprintf("%d:%02d", min, sec)
+}
+
+func formatDuration(d time.Duration) string {
+	sec := uint64(d / time.Second)
+	return formatSeconds(sec)
 }
 
 // requestBackup performs a request backup flow.

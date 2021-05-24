@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 	"io"
 	"log"
 	"net/http"
@@ -106,32 +107,33 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	return u.String(), nil
 }
 
-func (c *Client) SaveFilesInfo(recoveryPointID string, dir string) (FilesResponse, error) {
+func (c *Client) SaveFilesInfo(recoveryPointID string, dir string, p *progress.Progress) (progress.Stat, FilesResponse, error) {
+
 	reqURL, err := c.urlStringFromRelPath(c.saveFileInfoPath(recoveryPointID))
 	if err != nil {
-		return FilesResponse{}, err
+		return progress.Stat{}, FilesResponse{}, err
 	}
-	filesInfo, err := WalkerDir(dir)
+	stat, filesInfo, err := WalkerDir(dir, p)
 	if err != nil {
-		return FilesResponse{}, err
+		return progress.Stat{}, FilesResponse{}, err
 	}
 	req, err := c.NewRequest(http.MethodPost, reqURL, filesInfo.Files)
 	if err != nil {
-		return FilesResponse{}, err
+		return progress.Stat{}, FilesResponse{}, err
 	}
 	resp, err := c.Do(req)
 	if err != nil {
-		return FilesResponse{}, err
+		return progress.Stat{}, FilesResponse{}, err
 	}
 
 	defer resp.Body.Close()
 
 	var files FilesResponse
 	if err = json.NewDecoder(resp.Body).Decode(&files); err != nil {
-		return nil, err
+		return progress.Stat{}, nil, err
 	}
 
-	return files, nil
+	return stat, files, nil
 }
 
 func (c *Client) saveChunk(recoveryPointID string, fileID string, chunk ChunkRequest) (ChunkResponse, error) {
@@ -160,7 +162,9 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunk ChunkReq
 	return chunkResp, nil
 }
 
-func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, volume volume.StorageVolume) error {
+func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, volume volume.StorageVolume, p *progress.Progress) error {
+	p.Start()
+
 	file, err := os.Open(filepath.Join(backupDir, fi.RealName))
 	if err != nil {
 		return err
@@ -169,6 +173,7 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 	chk := chunker.New(file, 0x3dea92648f6e83)
 	buf := make([]byte, ChunkUploadLowerBound)
 
+	s := progress.Stat{}
 	for {
 		chunk, err := chk.Next(buf)
 		if err == io.EOF {
@@ -218,7 +223,11 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 				}
 			}
 		}
+		s.Bytes = uint64(chunk.Length)
+		p.Report(s)
 	}
+	s.Files++
+	p.Report(s)
 
 	return nil
 }
@@ -308,13 +317,18 @@ func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string, rest
 	return fileDownload, nil
 }
 
-func WalkerDir(dir string) (FileInfoRequest, error) {
-	var fileInfoRequest FileInfoRequest
+func WalkerDir(dir string, p *progress.Progress) (progress.Stat, FileInfoRequest, error) {
+	p.Start()
+	defer p.Done()
 
+	var fileInfoRequest FileInfoRequest
+	var stat progress.Stat
 	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
+
+		s := progress.Stat{}
 		if !fi.IsDir() {
 			singleFile := FileInfo{
 				ItemName:     path,
@@ -324,14 +338,20 @@ func WalkerDir(dir string) (FileInfoRequest, error) {
 				Mode:         fi.Mode().Perm().String(),
 			}
 			fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
+			s.Files++
+			s.Bytes += uint64(fi.Size())
+		} else {
+			s.Dirs++
 		}
+		p.Report(s)
+		stat.Add(s)
 		return nil
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	return fileInfoRequest, err
+	return stat, fileInfoRequest, err
 }
 
 func EnsureDir(dirName string) error {

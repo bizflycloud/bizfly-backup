@@ -276,7 +276,10 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 				if err != nil {
 					return err
 				}
-				file.WriteAt(data, int64(offset))
+				_, errWriteFile := file.WriteAt(data, int64(offset))
+				if errWriteFile != nil {
+					return nil
+				}
 				return nil
 			})
 		}

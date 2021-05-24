@@ -25,6 +25,7 @@ import (
 
 const ChunkUploadLowerBound = 15 * 1000 * 1000
 
+// FileInfo ...
 type FileInfo struct {
 	ItemName     string `json:"item_name"`
 	Size         int64  `json:"size"`
@@ -33,6 +34,7 @@ type FileInfo struct {
 	LastModified string `json:"last_modified"`
 }
 
+// FileInfoRequest ...
 type FileInfoRequest struct {
 	Files []FileInfo `json:"files"`
 }
@@ -181,6 +183,7 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 		if err != nil {
 			return err
 		}
+
 		hash := md5.Sum(chunk.Data)
 		key := hex.EncodeToString(hash[:])
 		chunkReq := ChunkRequest{
@@ -189,6 +192,7 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 			HexSha256: key,
 		}
 		time.Sleep(500 * time.Millisecond)
+
 		chunkResp, err := c.saveChunk(recoveryPointID, fi.ID, chunkReq)
 		if err != nil {
 			return err
@@ -228,12 +232,13 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 }
 
 func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreSessionKey string, createdAt string) error {
+	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
+	group, ctx := errgroup.WithContext(context.Background())
+
 	rp, err := c.GetListFilePath(recoveryPointID)
 	if err != nil {
 		return err
 	}
-	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
-	group, ctx := errgroup.WithContext(context.Background())
 
 	for _, f := range rp.Files {
 		infos, err := c.GetInfoFileDownload(recoveryPointID, f.ID, restoreSessionKey, createdAt)

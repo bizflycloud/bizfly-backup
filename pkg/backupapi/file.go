@@ -69,9 +69,9 @@ type RecoveryPointResponse struct {
 
 // ChunkRequest
 type ChunkRequest struct {
-	Length    uint   `json:"length"`
-	Offset    uint   `json:"offset"`
-	HexSha256 string `json:"hex_sha256"`
+	Length uint   `json:"length"`
+	Offset uint   `json:"offset"`
+	Etag   string `json:"etag"`
 }
 
 // ChunkResponse
@@ -79,8 +79,10 @@ type ChunkResponse struct {
 	ID           string `json:"id"`
 	Offset       uint   `json:"offset"`
 	Length       uint   `json:"length"`
-	HexSha256    string `json:"hex_sha256"`
+	Etag         string `json:"etag"`
 	Uri          string `json:"uri"`
+	DeletedAt    string `json:"deleted_at"`
+	Deleted      bool   `json:"deleted"`
 	PresignedURL struct {
 		Head string `json:"head"`
 		Put  string `json:"put"`

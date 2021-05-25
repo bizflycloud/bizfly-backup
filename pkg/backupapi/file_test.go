@@ -15,15 +15,17 @@ package backupapi
 // 	"github.com/stretchr/testify/require"
 // )
 
-// func TestClient_uploadFile(t *testing.T) {
+// func TestClient_UploadFile(t *testing.T) {
 // 	setUp()
 // 	defer tearDown()
 
-// 	fn := "test-upload-file-1"
+// 	recoveryPointID := "recovery-point-id"
+// 	backupDir := "backup-dir"
+// 	fileID := "file-id"
 // 	content := "foo\n"
 // 	buf := strings.NewReader(content)
 
-// 	mux.HandleFunc("/api/v1"+client.uploadFilePath(fn), func(w http.ResponseWriter, r *http.Request) {
+// 	mux.HandleFunc("/api/v1"+client.saveChunk(recoveryPointID, fileID), func(w http.ResponseWriter, r *http.Request) {
 // 		require.Equal(t, http.MethodPost, r.Method)
 // 		require.NotEmpty(t, r.Header.Get("User-Agent"))
 // 		require.NotEmpty(t, r.Header.Get("Date"))

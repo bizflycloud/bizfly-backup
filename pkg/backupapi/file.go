@@ -192,9 +192,9 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 		hash := md5.Sum(chunk.Data)
 		key := hex.EncodeToString(hash[:])
 		chunkReq := ChunkRequest{
-			Length:    chunk.Length,
-			Offset:    chunk.Start,
-			HexSha256: key,
+			Length: chunk.Length,
+			Offset: chunk.Start,
+			Etag:   key,
 		}
 		time.Sleep(500 * time.Millisecond)
 
@@ -203,32 +203,31 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 			return err
 		}
 
-		resp, err := volume.HeadObject(chunkResp.PresignedURL.Head)
+		if chunkResp.PresignedURL.Head != "" {
+			key = chunkResp.PresignedURL.Head
+		}
+
+		resp, err := volume.HeadObject(key)
 		if err != nil {
 			return err
 		}
 
 		if etagHead, ok := resp.Header["Etag"]; ok {
-			integrity := strings.Contains(etagHead[0], key)
+			integrity := strings.Contains(etagHead[0], chunkResp.Etag)
 			if !integrity {
-				_, err := volume.PutObject(chunkResp.PresignedURL.Put, chunk.Data)
+				key = chunkResp.PresignedURL.Put
+				_, err := volume.PutObject(key, chunk.Data)
 				if err != nil {
 					return err
 				}
 			} else {
-				log.Printf("exist key: %s, etag head: %s", key, etagHead)
+				log.Printf("exist key: %s, etag head: %s", chunkResp.Etag, etagHead)
 			}
 		} else {
-			etagPut, err := volume.PutObject(chunkResp.PresignedURL.Put, chunk.Data)
+			key = chunkResp.PresignedURL.Put
+			_, err := volume.PutObject(key, chunk.Data)
 			if err != nil {
 				return err
-			}
-			integrity := strings.Contains(etagPut, key)
-			if !integrity {
-				_, err := volume.PutObject(chunkResp.PresignedURL.Put, chunk.Data)
-				if err != nil {
-					return err
-				}
 			}
 		}
 	}
@@ -274,10 +273,10 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 				continue
 			}
 			offset := info.Offset
-			getURl := info.Get
+			key := info.Get
 			group.Go(func() error {
 				defer sem.Release(1)
-				data, err := volume.GetObject(getURl)
+				data, err := volume.GetObject(key)
 				if err != nil {
 					return err
 				}

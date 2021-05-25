@@ -173,7 +173,7 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 	chk := chunker.New(file, 0x3dea92648f6e83)
 	buf := make([]byte, ChunkUploadLowerBound)
 
-	s := progress.Stat{}
+	s := progress.Stat{Files: 1}
 	for {
 		chunk, err := chk.Next(buf)
 		if err == io.EOF {
@@ -225,9 +225,8 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 		}
 		s.Bytes = uint64(chunk.Length)
 		p.Report(s)
+		s.Files = 0
 	}
-	s.Files++
-	p.Report(s)
 
 	return nil
 }

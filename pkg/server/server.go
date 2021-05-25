@@ -546,14 +546,14 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	// Upload file to storage
 	s.reportStartUpload(progressOutput)
 
-	progressScan := s.newProgressScanDir()
+	progressScan := s.newProgressScanDir(rp.ID)
 	// Save files info
 	itemTodo, filesInfo, err := s.backupClient.SaveFilesInfo(rp.RecoveryPoint.ID, bd.Path, progressScan)
 	if err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
-	progressUpload := s.newUploadProgress(itemTodo)
+	progressUpload := s.newUploadProgress(itemTodo, rp.ID)
 	defer progressUpload.Done()
 	for _, fileInfo := range filesInfo {
 		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, fileInfo, storageVolume, progressUpload); err != nil {
@@ -571,22 +571,24 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	return nil
 }
 
-func (s *Server) newProgressScanDir() *progress.Progress {
+func (s *Server) newProgressScanDir(actionID string) *progress.Progress {
 	p := progress.NewProgress(time.Second)
 	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
 		s.notifyMsg(map[string]string{
-			"STATISTIC=====================": stat.String(),
+			"action_id": actionID,
+			"scanning":  stat.String(),
 		})
 	}
 	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
 		s.notifyMsg(map[string]string{
-			"SCANNED=======================": stat.String(),
+			"action_id":         actionID,
+			"SCANNED_TO_BACKUP": stat.String(),
 		})
 	}
 	return p
 }
 
-func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
+func (s *Server) newUploadProgress(todo progress.Stat, actionID string) *progress.Progress {
 	p := progress.NewProgress(time.Second)
 
 	var bps, eta uint64
@@ -594,10 +596,6 @@ func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
 
 	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
 		sec := uint64(d / time.Second)
-		fmt.Println("Duration", d)
-		fmt.Println("Seconds", sec)
-		fmt.Println("todo.bytes", todo.Bytes)
-		fmt.Println("ticker", ticker)
 		if todo.Bytes > 0 && sec > 0 && ticker {
 			bps = stat.Bytes / sec
 			if stat.Bytes >= todo.Bytes {
@@ -616,6 +614,7 @@ func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
 
 			message := fmt.Sprintf("%s %s", status1, status2)
 			s.notifyMsg(map[string]string{
+				"action_id": actionID,
 				"Uploading": message,
 			})
 		}
@@ -624,6 +623,7 @@ func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
 	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
 		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Bytes))
 		s.notifyMsg(map[string]string{
+			"action_id":       actionID,
 			"COMPLETE UPLOAD": message,
 		})
 	}

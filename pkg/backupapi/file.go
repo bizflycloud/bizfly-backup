@@ -274,6 +274,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 			}
 			offset := info.Offset
 			key := info.Get
+
 			group.Go(func() error {
 				defer sem.Release(1)
 				data, err := volume.GetObject(key)

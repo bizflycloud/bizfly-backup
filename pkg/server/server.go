@@ -251,17 +251,6 @@ func (s *Server) ListRecoveryPoints(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(rps)
 }
 
-// func (s *Server) DownloadRecoveryPoint(w http.ResponseWriter, r *http.Request) {
-// 	recoveryPointID := chi.URLParam(r, "recoveryPointID")
-// 	createdAt := r.Header.Get("X-Session-Created-At")
-// 	restoreSessionKey := r.Header.Get("X-Restore-Session-Key")
-// 	if err := s.backupClient.DownloadFileContent(r.Context(), createdAt, restoreSessionKey, recoveryPointID, w); err != nil {
-// 		w.WriteHeader(http.StatusInternalServerError)
-// 		_, _ = w.Write([]byte(err.Error()))
-// 		return
-// 	}
-// }
-
 func (s *Server) RequestRestore(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		MachineID string `json:"machine_id"`

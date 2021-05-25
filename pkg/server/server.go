@@ -101,7 +101,7 @@ func (s *Server) setupRoutes() {
 	})
 
 	s.router.Route("/recovery-points", func(r chi.Router) {
-		r.Get("/{recoveryPointID}/download", s.DownloadRecoveryPoint)
+		// r.Get("/{recoveryPointID}/download", s.DownloadRecoveryPoint)
 		r.Post("/{recoveryPointID}/restore", s.RequestRestore)
 	})
 
@@ -252,16 +252,16 @@ func (s *Server) ListRecoveryPoints(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(rps)
 }
 
-func (s *Server) DownloadRecoveryPoint(w http.ResponseWriter, r *http.Request) {
-	recoveryPointID := chi.URLParam(r, "recoveryPointID")
-	createdAt := r.Header.Get("X-Session-Created-At")
-	restoreSessionKey := r.Header.Get("X-Restore-Session-Key")
-	if err := s.backupClient.DownloadFileContent(r.Context(), createdAt, restoreSessionKey, recoveryPointID, w); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(err.Error()))
-		return
-	}
-}
+// func (s *Server) DownloadRecoveryPoint(w http.ResponseWriter, r *http.Request) {
+// 	recoveryPointID := chi.URLParam(r, "recoveryPointID")
+// 	createdAt := r.Header.Get("X-Session-Created-At")
+// 	restoreSessionKey := r.Header.Get("X-Restore-Session-Key")
+// 	if err := s.backupClient.DownloadFileContent(r.Context(), createdAt, restoreSessionKey, recoveryPointID, w); err != nil {
+// 		w.WriteHeader(http.StatusInternalServerError)
+// 		_, _ = w.Write([]byte(err.Error()))
+// 		return
+// 	}
+// }
 
 func (s *Server) RequestRestore(w http.ResponseWriter, r *http.Request) {
 	var body struct {

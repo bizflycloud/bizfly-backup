@@ -53,9 +53,9 @@ func TestClient_UpdateRecoveryPoint(t *testing.T) {
 	status := RecoveryPointStatusFAILED
 
 	mux.HandleFunc(path.Join("/api/v1/", recoveryPointPath), func(w http.ResponseWriter, r *http.Request) {
-		var urcr UpdateRecoveryPointRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&urcr))
-		assert.Equal(t, status, urcr.Status)
+		var urpr UpdateRecoveryPointRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&urpr))
+		assert.Equal(t, status, urpr.Status)
 	})
 
 	err := client.UpdateRecoveryPoint(context.Background(), backupDirectoryID, recoveryPointID, &UpdateRecoveryPointRequest{Status: RecoveryPointStatusFAILED})
@@ -80,4 +80,27 @@ func TestClient_ListRecoveryPoints(t *testing.T) {
 	rps, err := client.ListRecoveryPoints(context.Background(), backupDirectoryID)
 	require.NoError(t, err)
 	assert.Len(t, rps, 2)
+}
+
+func TestClient_RequestRestore(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	recoveryPointID := "recovery-point-id"
+	recoveryPointActionPath := client.recoveryPointActionPath(recoveryPointID)
+	machine_id := "machine-id"
+	path_restore := "path"
+
+	mux.HandleFunc(path.Join("/api/v1/", recoveryPointActionPath), func(w http.ResponseWriter, r *http.Request) {
+		var crr CreateRestoreRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&crr))
+		assert.Equal(t, machine_id, crr.MachineID)
+		assert.Equal(t, path_restore, crr.Path)
+	})
+
+	err := client.RequestRestore(recoveryPointID, &CreateRestoreRequest{
+		MachineID: machine_id,
+		Path:      path_restore,
+	})
+	require.NoError(t, err)
 }

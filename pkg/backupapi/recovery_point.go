@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+
 	"io/ioutil"
 	"net/http"
 )
@@ -67,10 +67,6 @@ func (c *Client) recoveryPointPath(backupDirectoryID string) string {
 
 func (c *Client) recoveryPointItemPath(backupDirectoryID string, recoveryPointID string) string {
 	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points/%s", backupDirectoryID, recoveryPointID)
-}
-
-func (c *Client) downloadFileContentPath(recoveryPointID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/file/download", recoveryPointID)
 }
 
 func (c *Client) recoveryPointActionPath(recoveryPointID string) string {
@@ -135,31 +131,6 @@ func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 	return nil
 }
 
-// DownloadFileContent downloads file content at given recovery point id, write the content to writer.
-func (c *Client) DownloadFileContent(ctx context.Context, createdAt string, restoreSessionKey string, recoveryPointID string, w io.Writer) error {
-	req, err := c.NewRequest(http.MethodGet, c.downloadFileContentPath(recoveryPointID), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Add("X-Session-Created-At", createdAt)
-	req.Header.Add("X-Restore-Session-Key", restoreSessionKey)
-	q := req.URL.Query()
-	q.Set("name", recoveryPointID+".zip")
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := c.Do(req.WithContext(ctx))
-	if err != nil {
-		return err
-	}
-	if err := checkResponse(resp); err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	_, err = io.Copy(w, resp.Body)
-	return err
-}
-
 // ListRecoveryPoints list all recovery points of given backup directory.
 func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID string) ([]RecoveryPoint, error) {
 	req, err := c.NewRequest(http.MethodGet, c.recoveryPointPath(backupDirectoryID), nil)
@@ -190,7 +161,6 @@ func (c *Client) RequestRestore(recoveryPointID string, crr *CreateRestoreReques
 		return err
 	}
 	resp, err := c.Do(req)
-
 	if err != nil {
 		return err
 	}

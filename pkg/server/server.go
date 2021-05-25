@@ -101,7 +101,6 @@ func (s *Server) setupRoutes() {
 	})
 
 	s.router.Route("/recovery-points", func(r chi.Router) {
-		// r.Get("/{recoveryPointID}/download", s.DownloadRecoveryPoint)
 		r.Post("/{recoveryPointID}/restore", s.RequestRestore)
 	})
 

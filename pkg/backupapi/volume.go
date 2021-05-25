@@ -1,6 +1,6 @@
 package backupapi
 
-// Volume
+// Volume ...
 type Volume struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`

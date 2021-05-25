@@ -53,6 +53,9 @@ type File struct {
 	Size         int    `json:"size"`
 	Status       string `json:"status"`
 	UpdatedAt    string `json:"updated_at"`
+	DeletedAt    string `json:"deleted_at"`
+	Deleted      bool   `json:"deleted"`
+	IsDir        bool   `json:"is_dir"`
 }
 
 // FileResponse

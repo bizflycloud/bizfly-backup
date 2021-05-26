@@ -61,7 +61,7 @@ func putRequest(uri string, data []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	log.Printf("PUT %s -> %d", req.URL, resp.StatusCode)
+	// log.Printf("PUT %s -> %d", req.URL, resp.StatusCode)
 
 	defer resp.Body.Close()
 
@@ -75,7 +75,7 @@ func getRequest(uri string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("GET %s -> %d", req.URL, resp.StatusCode)
+	// log.Printf("GET %s -> %d", req.URL, resp.StatusCode)
 
 	if resp.StatusCode != 200 {
 		return nil, err

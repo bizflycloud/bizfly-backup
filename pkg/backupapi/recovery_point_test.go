@@ -32,6 +32,16 @@ func TestClient_recoveryPointItemPath(t *testing.T) {
 	assert.Equal(t, "/agent/backup-directories/backup-directory-id/recovery-points/recovery-point-id", rpip)
 }
 
+func TestClient_recoveryPointActionPath(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	recoveryPointID := "recovery-point-id"
+
+	rpap := client.recoveryPointActionPath(recoveryPointID)
+	assert.Equal(t, "/agent/recovery-points/recovery-point-id/action", rpap)
+}
+
 func TestClient_CreateRecoveryPoint(t *testing.T) {
 	setUp()
 	defer tearDown()

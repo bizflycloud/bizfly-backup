@@ -61,7 +61,7 @@ func TestClient_RequestBackupDirectory(t *testing.T) {
 
 	id := "id"
 	action := "action"
-	storageType := "S3"
+	storageType := "storage-type"
 	name := "name"
 	bdap := client.backupDirectoryActionPath(id)
 

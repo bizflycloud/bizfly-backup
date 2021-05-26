@@ -220,8 +220,6 @@ func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, v
 				if err != nil {
 					return err
 				}
-			} else {
-				log.Printf("exist key: %s, etag head: %s", chunkResp.Etag, etagHead)
 			}
 		} else {
 			key = chunkResp.PresignedURL.Put

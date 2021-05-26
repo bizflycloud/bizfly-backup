@@ -12,6 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestClient_recoveryPointPath(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	backupDirectoryID := "backup-directory-id"
+	rpp := client.recoveryPointPath(backupDirectoryID)
+	assert.Equal(t, "/agent/backup-directories/backup-directory-id/recovery-points", rpp)
+}
+
 func TestClient_CreateRecoveryPoint(t *testing.T) {
 	setUp()
 	defer tearDown()

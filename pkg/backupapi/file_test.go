@@ -1,19 +1,19 @@
 package backupapi
 
-// import (
-// 	"bytes"
-// 	"encoding/json"
-// 	"io"
-// 	"io/ioutil"
-// 	"net/http"
-// 	"strconv"
-// 	"strings"
-// 	"sync"
-// 	"testing"
+import (
+	"testing"
 
-// 	"github.com/stretchr/testify/assert"
-// 	"github.com/stretchr/testify/require"
-// )
+	"github.com/stretchr/testify/assert"
+)
+
+func TestClient_saveFileInfoPath(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	recoveryPointID := "recovery-point-id"
+	saveFile := client.saveFileInfoPath(recoveryPointID)
+	assert.Equal(t, "/agent/recovery-points/recovery-point-id/file", saveFile)
+}
 
 // func TestClient_UploadFile(t *testing.T) {
 // 	setUp()

@@ -54,3 +54,31 @@ func TestClient_GetBackupDirectory(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, rps.ID)
 }
+
+func TestClient_RequestBackupDirectory(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	id := "id"
+	action := "action"
+	storageType := "S3"
+	name := "name"
+	bdap := client.backupDirectoryActionPath(id)
+
+	mux.HandleFunc(path.Join("/api/v1", bdap), func(w http.ResponseWriter, r *http.Request) {
+		resp := &CreateManualBackupRequest{
+			Action:      action,
+			StorageType: storageType,
+			Name:        name,
+		}
+
+		assert.NoError(t, json.NewEncoder(w).Encode(resp))
+	})
+
+	err := client.RequestBackupDirectory(id, &CreateManualBackupRequest{
+		Action:      action,
+		StorageType: storageType,
+		Name:        name,
+	})
+	require.NoError(t, err)
+}

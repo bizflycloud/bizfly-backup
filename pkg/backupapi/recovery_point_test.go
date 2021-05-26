@@ -42,6 +42,17 @@ func TestClient_recoveryPointActionPath(t *testing.T) {
 	assert.Equal(t, "/agent/recovery-points/recovery-point-id/action", rpap)
 }
 
+func TestClient_saveChunkPath(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	recoveryPointID := "recovery-point-id"
+	fileID := "file-id"
+
+	scp := client.saveChunkPath(recoveryPointID, fileID)
+	assert.Equal(t, "/agent/recovery-points/recovery-point-id/file/file-id/chunks", scp)
+}
+
 func TestClient_CreateRecoveryPoint(t *testing.T) {
 	setUp()
 	defer tearDown()

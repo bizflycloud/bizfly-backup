@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -362,7 +361,7 @@ func WalkerDir(dir string) (FileInfoRequest, error) {
 		return nil
 	})
 	if err != nil {
-		log.Fatal(err)
+		return FileInfoRequest{}, err
 	}
 
 	return fileInfoRequest, err
@@ -380,7 +379,7 @@ func EnsureDir(dirName string) error {
 func CreateFile(name string) (*os.File, error) {
 	file, err := os.Create(name)
 	if err != nil {
-		log.Println(err)
+		return nil, err
 	}
 
 	return file, nil

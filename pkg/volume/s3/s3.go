@@ -3,7 +3,6 @@ package s3
 import (
 	"bytes"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"time"
 
@@ -36,6 +35,7 @@ var (
 var backoffSchedule = []time.Duration{
 	1 * time.Second,
 	3 * time.Second,
+	5 * time.Second,
 	10 * time.Second,
 	20 * time.Second,
 	30 * time.Second,
@@ -97,8 +97,8 @@ func (s3 *S3) PutObject(key string, data []byte) (string, error) {
 		if err == nil {
 			break
 		}
-		log.Printf("request error: %+v\n", err)
-		log.Printf("retrying in %v\n", backoff)
+		// log.Printf("request error: %+v\n", err)
+		// log.Printf("retrying in %v\n", backoff)
 		time.Sleep(backoff)
 	}
 
@@ -117,8 +117,8 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 		if err == nil {
 			break
 		}
-		log.Printf("request error: %+v\n", err)
-		log.Printf("retrying in %v\n", backoff)
+		// log.Printf("request error: %+v\n", err)
+		// log.Printf("retrying in %v\n", backoff)
 		time.Sleep(backoff)
 	}
 
@@ -137,13 +137,13 @@ func (s3 *S3) HeadObject(key string) (*http.Response, error) {
 		if err == nil {
 			break
 		}
-		log.Printf("request error: %+v\n", err)
-		log.Printf("retrying in %v\n", backoff)
+		// log.Printf("request error: %+v\n", err)
+		// log.Printf("retrying in %v\n", backoff)
 		time.Sleep(backoff)
 	}
 
 	if err != nil {
-		log.Println(err)
+		return nil, err
 	}
 
 	return resp, nil

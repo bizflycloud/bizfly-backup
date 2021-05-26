@@ -53,6 +53,16 @@ func TestClient_saveChunkPath(t *testing.T) {
 	assert.Equal(t, "/agent/recovery-points/recovery-point-id/file/file-id/chunks", scp)
 }
 
+func TestClient_getListFilePath(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	recoveryPointID := "recovery-point-id"
+
+	glfp := client.getListFilePath(recoveryPointID)
+	assert.Equal(t, "/agent/recovery-points/recovery-point-id/list-files", glfp)
+}
+
 func TestClient_CreateRecoveryPoint(t *testing.T) {
 	setUp()
 	defer tearDown()

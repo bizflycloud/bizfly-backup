@@ -11,8 +11,8 @@ func TestClient_saveFileInfoPath(t *testing.T) {
 	defer tearDown()
 
 	recoveryPointID := "recovery-point-id"
-	saveFile := client.saveFileInfoPath(recoveryPointID)
-	assert.Equal(t, "/agent/recovery-points/recovery-point-id/file", saveFile)
+	sfip := client.saveFileInfoPath(recoveryPointID)
+	assert.Equal(t, "/agent/recovery-points/recovery-point-id/file", sfip)
 }
 
 // func TestClient_UploadFile(t *testing.T) {

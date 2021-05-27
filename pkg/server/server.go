@@ -534,17 +534,22 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	s.reportStartUpload(progressOutput)
 
 	// Save files info
-	filesInfo, err := s.backupClient.SaveFilesInfo(rp.RecoveryPoint.ID, bd.Path)
-	if err != nil {
+	// filesInfo, err := s.backupClient.SaveFilesInfo(rp.RecoveryPoint.ID, bd.Path)
+	// if err != nil {
+	// 	s.notifyStatusFailed(rp.ID, err.Error())
+	// 	return err
+	// }
+
+	// for _, fileInfo := range *filesInfo {
+	// 	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, fileInfo, storageVolume); err != nil {
+	// 		s.notifyStatusFailed(rp.ID, err.Error())
+	// 		return err
+	// 	}
+	// }
+
+	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, storageVolume); err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
-	}
-
-	for _, fileInfo := range filesInfo {
-		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, fileInfo, storageVolume); err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
-			return err
-		}
 	}
 	s.reportUploadCompleted(progressOutput)
 

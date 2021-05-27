@@ -336,6 +336,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 		return err
 	}
 
+	var file *os.File
 	for _, f := range rp.Files {
 		infos, err := c.GetInfoFileDownload(recoveryPointID, f.ID, restoreSessionKey, createdAt)
 		if err != nil {
@@ -353,11 +354,10 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 			return err
 		}
 
-		file, err := CreateFile(fileResore)
+		file, err = CreateFile(fileResore)
 		if err != nil {
 			return err
 		}
-		defer file.Close()
 
 		for _, info := range infos.Info {
 			errAcquire := sem.Acquire(ctx, 1)
@@ -385,6 +385,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 	if err := group.Wait(); err != nil {
 		return err
 	}
+	defer file.Close()
 
 	return nil
 }

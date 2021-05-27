@@ -56,23 +56,23 @@ type File struct {
 	IsDir        bool   `json:"is_dir"`
 }
 
-// FileResponse
+// FilesResponse ...
 type FilesResponse []File
 
-// RecoveryPointResponse
+// RecoveryPointResponse ...
 type RecoveryPointResponse struct {
 	Files []File `json:"files"`
 	Total int    `json:"total"`
 }
 
-// ChunkRequest
+// ChunkRequest ...
 type ChunkRequest struct {
 	Length uint   `json:"length"`
 	Offset uint   `json:"offset"`
 	Etag   string `json:"etag"`
 }
 
-// ChunkResponse
+// ChunkResponse ...
 type ChunkResponse struct {
 	ID           string `json:"id"`
 	Offset       uint   `json:"offset"`
@@ -87,13 +87,13 @@ type ChunkResponse struct {
 	} `json:"presigned_url"`
 }
 
-// InfoDownload
+// InfoDownload ...
 type InfoDownload struct {
 	Get    string `json:"get"`
 	Offset int    `json:"offset"`
 }
 
-// FileDownloadResponse
+// FileDownloadResponse ...
 type FileDownloadResponse struct {
 	Info []InfoDownload `json:"info"`
 }
@@ -348,13 +348,13 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 
 		relativePathRealName := strings.Join(strings.Split(f.RealName, "/")[0:len(strings.Split(f.RealName, "/"))-1], "/")
 		absolutePathRealName := filepath.Join(destDir, relativePathRealName)
-		fileResore := filepath.Join(absolutePathRealName, filepath.Base(f.RealName))
+		fileRestore := filepath.Join(absolutePathRealName, filepath.Base(f.RealName))
 
 		if err := EnsureDir(absolutePathRealName); err != nil {
 			return err
 		}
 
-		file, err = CreateFile(fileResore)
+		file, err = CreateFile(fileRestore)
 		if err != nil {
 			return err
 		}

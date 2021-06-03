@@ -1,9 +1,4 @@
-access_key: EWAZ3A6CVPSGZWDUMWFH 
-api_url: https://backup-staging.bizflycloud.vn 
-machine_id: 379947b3-fe92-4470-ba9c-eefe5205491e 
-secret_key: 70bb5f49ec95ca5563b6702767797ee8efc1d570b893dc3c3e7f2c3a745058c9
-
-# access_key: EKX5JF9OOZBRNU0XYURT 
-# api_url: https://backup-staging.bizflycloud.vn 
-# machine_id: 8f9fca3c-9fec-4e7a-9872-04cde85d5fa1 
-# secret_key: 85cdb64a8ecf901f3f673244e6080a8c51967fc968883de54c1da4fdbfb659bc 
+access_key: WVWYKRDSYTPHGCYUDNQT 
+api_url: http://localhost:5000 
+machine_id: 2ed7f356-8862-43ed-abab-fd1ff9c67391 
+secret_key: 16868dfbd33e505fa480d13bc691463f4728c2db3af984728575f46feadfd155 

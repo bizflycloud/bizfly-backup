@@ -664,12 +664,20 @@ func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 		stat_t := fi.Sys().(*syscall.Stat_t)
 		if !fi.IsDir() {
 			singleFile := backupapi.FileInfo{
-				ID:           uuid.New().String(),
-				ItemName:     path,
-				Size:         strconv.FormatInt(fi.Size(), 10),
-				LastModified: TimeSpecToTime(stat_t.Mtim),
-				ItemType:     "FILE",
-				Mode:         fi.Mode().Perm().String(),
+				ItemType:    "FILE",
+				ParentID:    "",
+				RpReference: true,
+				Attribute: backupapi.Attribute{
+					ItemID:       uuid.New().String(),
+					ItemName:     path,
+					Size:         strconv.FormatInt(fi.Size(), 10),
+					ChangedTime:  TimeSpecToTime(stat_t.Ctim),
+					ModifiedTime: TimeSpecToTime(stat_t.Mtim),
+					AccessTime:   TimeSpecToTime(stat_t.Atim),
+					Mode:         fi.Mode().Perm().String(),
+					GID:          strconv.FormatUint(uint64(stat_t.Gid), 10),
+					UID:          strconv.FormatUint(uint64(stat_t.Uid), 10),
+				},
 			}
 			fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
 		}

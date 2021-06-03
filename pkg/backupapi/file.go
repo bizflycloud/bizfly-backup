@@ -26,12 +26,23 @@ const ChunkUploadLowerBound = 8 * 1000 * 1000
 
 // FileInfo ...
 type FileInfo struct {
-	ID           string `json:"id"`
+	ItemType    string    `json:"item_type"`
+	ParentID    string    `json:"parent_id"`
+	RpReference bool      `json:"rp_reference"`
+	Attribute   Attribute `json:"attribute"`
+}
+
+// Attribute ...
+type Attribute struct {
+	ItemID       string `json:"item_id"`
 	ItemName     string `json:"item_name"`
 	Size         string `json:"size"`
-	ItemType     string `json:"item_type"`
+	ChangedTime  string `json:"changed_time"`
+	ModifiedTime string `json:"modified_time"`
+	AccessTime   string `json:"access_time"`
 	Mode         string `json:"mode"`
-	LastModified string `json:"last_modified"`
+	GID          string `json:"gid"`
+	UID          string `json:"uid"`
 }
 
 // FileInfoRequest ...
@@ -177,7 +188,7 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunk *ChunkRe
 }
 
 func (c *Client) UploadFile(recoveryPointID string, actionID string, backupDir string, fileInfo FileInfo, volume volume.StorageVolume) error {
-	file, err := os.Open(fileInfo.ItemName)
+	file, err := os.Open(fileInfo.Attribute.ItemName)
 	if err != nil {
 		return err
 	}
@@ -207,7 +218,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, backupDir s
 			Etag:   key,
 		}
 
-		_, err = c.saveChunk(recoveryPointID, fileInfo.ID, &chunkReq)
+		_, err = c.saveChunk(recoveryPointID, fileInfo.Attribute.ItemID, &chunkReq)
 		if err != nil {
 			return err
 		}
@@ -216,7 +227,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, backupDir s
 			ActionID: actionID,
 			Etag:     key,
 		}
-		chunkResp, err := c.infoPresignedUrl(recoveryPointID, fileInfo.ID, &infoUrl)
+		chunkResp, err := c.infoPresignedUrl(recoveryPointID, fileInfo.Attribute.ItemID, &infoUrl)
 		if err != nil {
 			return err
 		}

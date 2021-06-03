@@ -21,7 +21,7 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-const ChunkUploadLowerBound = 15 * 1000 * 1000
+const ChunkUploadLowerBound = 8 * 1000 * 1000
 
 // FileInfo ...
 type FileInfo struct {
@@ -75,17 +75,20 @@ type ChunkRequest struct {
 
 // ChunkResponse ...
 type ChunkResponse struct {
-	ID           string `json:"id"`
-	Offset       uint   `json:"offset"`
-	Length       uint   `json:"length"`
-	Etag         string `json:"etag"`
-	Uri          string `json:"uri"`
-	DeletedAt    string `json:"deleted_at"`
-	Deleted      bool   `json:"deleted"`
-	PresignedURL struct {
-		Head string `json:"head"`
-		Put  string `json:"put"`
-	} `json:"presigned_url"`
+	ID           string       `json:"id"`
+	Offset       uint         `json:"offset"`
+	Length       uint         `json:"length"`
+	Etag         string       `json:"etag"`
+	Uri          string       `json:"uri"`
+	DeletedAt    string       `json:"deleted_at"`
+	Deleted      bool         `json:"deleted"`
+	PresignedURL PresignedURL `json:"presigned_url"`
+}
+
+// PresignedURL ...
+type PresignedURL struct {
+	Head string `json:"head"`
+	Put  string `json:"put"`
 }
 
 // InfoDownload ...
@@ -121,33 +124,6 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	u := c.ServerURL.ResolveReference(relURL)
 	return u.String(), nil
 }
-
-// func (c *Client) SaveFilesInfo(recoveryPointID string, dir string) (*FilesResponse, error) {
-// 	reqURL, err := c.urlStringFromRelPath(c.saveFileInfoPath(recoveryPointID))
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	filesInfo, err := WalkerDir(dir)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	req, err := c.NewRequest(http.MethodPost, reqURL, filesInfo.Files)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	resp, err := c.Do(req)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	defer resp.Body.Close()
-
-// 	var files FilesResponse
-// 	if err = json.NewDecoder(resp.Body).Decode(&files); err != nil {
-// 		return nil, err
-// 	}
-
-// 	return &files, nil
-// }
 
 func (c *Client) SaveFileInfo(recoveryPointID string, fi *FileInfo) (*File, error) {
 	reqURL, err := c.urlStringFromRelPath(c.saveFileInfoPath(recoveryPointID))

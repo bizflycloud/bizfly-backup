@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -665,7 +666,7 @@ func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 			singleFile := backupapi.FileInfo{
 				ID:           uuid.New().String(),
 				ItemName:     path,
-				Size:         fi.Size(),
+				Size:         strconv.FormatInt(fi.Size(), 10),
 				LastModified: TimeSpecToTime(stat_t.Mtim),
 				ItemType:     "FILE",
 				Mode:         fi.Mode().Perm().String(),

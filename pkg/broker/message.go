@@ -35,10 +35,11 @@ type Message struct {
 	Status string `json:"status"`
 
 	// For performing backup/update cron/manual.
-	BackupDirectory   string `json:"backup_directory"`
-	BackupDirectoryID string `json:"backup_directory_id"`
-	PolicyID          string `json:"policy_id"`
-	Name              string `json:"name"`
+	BackupDirectory       string `json:"backup_directory"`
+	BackupDirectoryID     string `json:"backup_directory_id"`
+	PolicyID              string `json:"policy_id"`
+	Name                  string `json:"name"`
+	LatestRecoveryPointID string `json:"latest_rp_id"`
 
 	// For performing restore.
 	SourceMachineID      string `json:"source_machine_id"`

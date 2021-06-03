@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
@@ -27,7 +28,7 @@ const ChunkUploadLowerBound = 8 * 1000 * 1000
 type FileInfo struct {
 	ID           string `json:"id"`
 	ItemName     string `json:"item_name"`
-	Size         int64  `json:"size"`
+	Size         string `json:"size"`
 	ItemType     string `json:"item_type"`
 	Mode         string `json:"mode"`
 	LastModified string `json:"last_modified"`
@@ -49,7 +50,7 @@ type File struct {
 	LastModified string `json:"last_modified"`
 	Mode         string `json:"mode"`
 	RealName     string `json:"real_name"`
-	Size         int    `json:"size"`
+	Size         string `json:"size"`
 	Status       string `json:"status"`
 	UpdatedAt    string `json:"updated_at"`
 	DeletedAt    string `json:"deleted_at"`
@@ -63,21 +64,21 @@ type FilesResponse []File
 // RecoveryPointResponse ...
 type RecoveryPointResponse struct {
 	Files []File `json:"files"`
-	Total int    `json:"total"`
+	Total string `json:"total"`
 }
 
 // ChunkRequest ...
 type ChunkRequest struct {
-	Length uint   `json:"length"`
-	Offset uint   `json:"offset"`
+	Length string `json:"length"`
+	Offset string `json:"offset"`
 	Etag   string `json:"etag"`
 }
 
 // ChunkResponse ...
 type ChunkResponse struct {
 	ID           string       `json:"id"`
-	Offset       uint         `json:"offset"`
-	Length       uint         `json:"length"`
+	Offset       string       `json:"offset"`
+	Length       string       `json:"length"`
 	Etag         string       `json:"etag"`
 	Uri          string       `json:"uri"`
 	DeletedAt    string       `json:"deleted_at"`
@@ -94,7 +95,7 @@ type PresignedURL struct {
 // InfoDownload ...
 type InfoDownload struct {
 	Get    string `json:"get"`
-	Offset int    `json:"offset"`
+	Offset string `json:"offset"`
 }
 
 // FileDownloadResponse ...
@@ -201,8 +202,8 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, backupDir s
 		hash := md5.Sum(chunk.Data)
 		key := hex.EncodeToString(hash[:])
 		chunkReq := ChunkRequest{
-			Length: chunk.Length,
-			Offset: chunk.Start,
+			Length: strconv.FormatUint(uint64(chunk.Length), 10),
+			Offset: strconv.FormatUint(uint64(chunk.Start), 10),
 			Etag:   key,
 		}
 
@@ -287,7 +288,10 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 			if errAcquire != nil {
 				continue
 			}
-			offset := info.Offset
+			offset, err := strconv.ParseInt(info.Offset, 10, 64)
+			if err != nil {
+				return err
+			}
 			key := info.Get
 
 			group.Go(func() error {
@@ -296,7 +300,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 				if err != nil {
 					return err
 				}
-				_, errWriteFile := file.WriteAt(data, int64(offset))
+				_, errWriteFile := file.WriteAt(data, offset)
 				if errWriteFile != nil {
 					return nil
 				}

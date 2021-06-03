@@ -25,6 +25,7 @@ const ChunkUploadLowerBound = 15 * 1000 * 1000
 
 // FileInfo ...
 type FileInfo struct {
+	ID           string `json:"id"`
 	ItemName     string `json:"item_name"`
 	Size         int64  `json:"size"`
 	ItemType     string `json:"item_type"`
@@ -96,6 +97,12 @@ type InfoDownload struct {
 // FileDownloadResponse ...
 type FileDownloadResponse struct {
 	Info []InfoDownload `json:"info"`
+}
+
+// InfoPresignUrl ...
+type InfoPresignUrl struct {
+	ActionID string `json:"action_id"`
+	Etag     string `json:"etag"`
 }
 
 func (c *Client) saveFileInfoPath(recoveryPointID string) string {
@@ -192,134 +199,74 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunk *ChunkRe
 	return &chunkResp, nil
 }
 
-// func (c *Client) UploadFile(recoveryPointID string, backupDir string, fi File, volume volume.StorageVolume) error {
-// 	file, err := os.Open(filepath.Join(backupDir, fi.RealName))
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	chk := chunker.New(file, 0x3dea92648f6e83)
-// 	buf := make([]byte, ChunkUploadLowerBound)
-
-// 	for {
-// 		chunk, err := chk.Next(buf)
-// 		if err == io.EOF {
-// 			break
-// 		}
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		hash := md5.Sum(chunk.Data)
-// 		key := hex.EncodeToString(hash[:])
-// 		chunkReq := ChunkRequest{
-// 			Length: chunk.Length,
-// 			Offset: chunk.Start,
-// 			Etag:   key,
-// 		}
-// 		time.Sleep(500 * time.Millisecond)
-
-// 		chunkResp, err := c.saveChunk(recoveryPointID, fi.ID, chunkReq)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		if chunkResp.PresignedURL.Head != "" {
-// 			key = chunkResp.PresignedURL.Head
-// 		}
-
-// 		resp, err := volume.HeadObject(key)
-// 		if err != nil {
-// 			return err
-// 		}
-
-// 		if etagHead, ok := resp.Header["Etag"]; ok {
-// 			integrity := strings.Contains(etagHead[0], chunkResp.Etag)
-// 			if !integrity {
-// 				key = chunkResp.PresignedURL.Put
-// 				_, err := volume.PutObject(key, chunk.Data)
-// 				if err != nil {
-// 					return err
-// 				}
-// 			}
-// 		} else {
-// 			key = chunkResp.PresignedURL.Put
-// 			_, err := volume.PutObject(key, chunk.Data)
-// 			if err != nil {
-// 				return err
-// 			}
-// 		}
-// 	}
-
-// 	return nil
-// }
-
-func (c *Client) UploadFile(recoveryPointID string, backupDir string, volume volume.StorageVolume) error {
-	filesInfo, err := WalkerDir(backupDir)
+func (c *Client) UploadFile(recoveryPointID string, actionID string, backupDir string, fileInfo FileInfo, volume volume.StorageVolume) error {
+	file, err := os.Open(fileInfo.ItemName)
 	if err != nil {
 		return err
 	}
 
-	for _, fi := range filesInfo.Files {
-		file, err := os.Open(fi.ItemName)
+	_, err = c.SaveFileInfo(recoveryPointID, &fileInfo)
+	if err != nil {
+		return err
+	}
+
+	chk := chunker.New(file, 0x3dea92648f6e83)
+	buf := make([]byte, ChunkUploadLowerBound)
+
+	for {
+		chunk, err := chk.Next(buf)
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
 			return err
 		}
 
-		fileInfo, err := c.SaveFileInfo(recoveryPointID, &fi)
+		hash := md5.Sum(chunk.Data)
+		key := hex.EncodeToString(hash[:])
+		chunkReq := ChunkRequest{
+			Length: chunk.Length,
+			Offset: chunk.Start,
+			Etag:   key,
+		}
+
+		_, err = c.saveChunk(recoveryPointID, fileInfo.ID, &chunkReq)
 		if err != nil {
 			return err
 		}
 
-		chk := chunker.New(file, 0x3dea92648f6e83)
-		buf := make([]byte, ChunkUploadLowerBound)
+		infoUrl := InfoPresignUrl{
+			ActionID: actionID,
+			Etag:     key,
+		}
+		chunkResp, err := c.infoPresignedUrl(recoveryPointID, fileInfo.ID, &infoUrl)
+		if err != nil {
+			return err
+		}
 
-		for {
-			chunk, err := chk.Next(buf)
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return err
-			}
+		if chunkResp.PresignedURL.Head != "" {
+			key = chunkResp.PresignedURL.Head
+		}
 
-			hash := md5.Sum(chunk.Data)
-			key := hex.EncodeToString(hash[:])
-			chunkReq := ChunkRequest{
-				Length: chunk.Length,
-				Offset: chunk.Start,
-				Etag:   key,
-			}
+		resp, err := volume.HeadObject(key)
+		if err != nil {
+			return err
+		}
 
-			chunkResp, err := c.saveChunk(recoveryPointID, fileInfo.ID, &chunkReq)
-			if err != nil {
-				return err
-			}
-
-			if chunkResp.PresignedURL.Head != "" {
-				key = chunkResp.PresignedURL.Head
-			}
-
-			resp, err := volume.HeadObject(key)
-			if err != nil {
-				return err
-			}
-
-			if etagHead, ok := resp.Header["Etag"]; ok {
-				integrity := strings.Contains(etagHead[0], chunkResp.Etag)
-				if !integrity {
-					key = chunkResp.PresignedURL.Put
-					_, err := volume.PutObject(key, chunk.Data)
-					if err != nil {
-						return err
-					}
-				}
-			} else {
+		if etagHead, ok := resp.Header["Etag"]; ok {
+			integrity := strings.Contains(etagHead[0], chunkResp.Etag)
+			if !integrity {
 				key = chunkResp.PresignedURL.Put
 				_, err := volume.PutObject(key, chunk.Data)
 				if err != nil {
 					return err
 				}
+			}
+		} else {
+			key = chunkResp.PresignedURL.Put
+			_, err := volume.PutObject(key, chunk.Data)
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -413,7 +360,7 @@ func (c *Client) GetListFilePath(recoveryPointID string) (*RecoveryPointResponse
 }
 
 func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string, restoreSessionKey string, createdAt string) (*FileDownloadResponse, error) {
-	reqURL, err := c.urlStringFromRelPath(c.getInfoFileDownload(recoveryPointID, itemID))
+	reqURL, err := c.urlStringFromRelPath(c.infoFile(recoveryPointID, itemID))
 	if err != nil {
 		return nil, err
 	}
@@ -437,30 +384,27 @@ func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string, rest
 	return &fileDownload, nil
 }
 
-func WalkerDir(dir string) (*FileInfoRequest, error) {
-	var fileInfoRequest FileInfoRequest
-
-	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !fi.IsDir() {
-			singleFile := FileInfo{
-				ItemName:     path,
-				Size:         fi.Size(),
-				LastModified: fi.ModTime().Format("2006-01-02 15:04:05.000000"),
-				ItemType:     "FILE",
-				Mode:         fi.Mode().Perm().String(),
-			}
-			fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
-		}
-		return nil
-	})
+func (c *Client) infoPresignedUrl(recoveryPointID string, itemID string, infoUrl *InfoPresignUrl) (*ChunkResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.infoFile(recoveryPointID, itemID))
 	if err != nil {
 		return nil, err
 	}
 
-	return &fileInfoRequest, err
+	req, err := c.NewRequest(http.MethodPost, reqURL, infoUrl)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	var chunkResp ChunkResponse
+	if err := json.NewDecoder(resp.Body).Decode(&chunkResp); err != nil {
+		return nil, err
+	}
+
+	return &chunkResp, nil
 }
 
 func EnsureDir(dirName string) error {

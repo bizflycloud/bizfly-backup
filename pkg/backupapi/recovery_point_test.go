@@ -63,14 +63,14 @@ func TestClient_getListFilePath(t *testing.T) {
 	assert.Equal(t, "/agent/recovery-points/recovery-point-id/list-files", glfp)
 }
 
-func TestClient_getInfoFileDownload(t *testing.T) {
+func TestClient_infoFile(t *testing.T) {
 	setUp()
 	defer tearDown()
 
 	recoveryPointID := "recovery-point-id"
 	itemID := "item-id"
 
-	gifd := client.getInfoFileDownload(recoveryPointID, itemID)
+	gifd := client.infoFile(recoveryPointID, itemID)
 	assert.Equal(t, "/agent/auth/recovery-point-id/file/item-id", gifd)
 }
 

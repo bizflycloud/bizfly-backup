@@ -81,7 +81,7 @@ func (c *Client) getListFilePath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/list-files", recoveryPointID)
 }
 
-func (c *Client) getInfoFileDownload(recoveryPointID string, itemID string) string {
+func (c *Client) infoFile(recoveryPointID string, itemID string) string {
 	return fmt.Sprintf("/agent/auth/%s/file/%s", recoveryPointID, itemID)
 }
 

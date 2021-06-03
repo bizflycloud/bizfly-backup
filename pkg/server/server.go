@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
+	"github.com/google/uuid"
 	"github.com/inconshreveable/go-update"
 	"github.com/jpillora/backoff"
 	"github.com/robfig/cron/v3"
@@ -533,24 +535,17 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	// Upload file to storage
 	s.reportStartUpload(progressOutput)
 
-	// Save files info
-	// filesInfo, err := s.backupClient.SaveFilesInfo(rp.RecoveryPoint.ID, bd.Path)
-	// if err != nil {
-	// 	s.notifyStatusFailed(rp.ID, err.Error())
-	// 	return err
-	// }
-
-	// for _, fileInfo := range *filesInfo {
-	// 	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, fileInfo, storageVolume); err != nil {
-	// 		s.notifyStatusFailed(rp.ID, err.Error())
-	// 		return err
-	// 	}
-	// }
-
-	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, bd.Path, storageVolume); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
+	filesInfo, err := WalkerDir(bd.Path)
+	if err != nil {
 		return err
 	}
+	for _, fileInfo := range filesInfo.Files {
+		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, bd.Path, fileInfo, storageVolume); err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			return err
+		}
+	}
+
 	s.reportUploadCompleted(progressOutput)
 
 	s.notifyMsg(map[string]string{
@@ -656,4 +651,36 @@ func NewStorageVolume(volumeType string) (volume.StorageVolume, error) {
 	default:
 		return nil, fmt.Errorf(fmt.Sprintf("volume type not supported %s", volume.VolumeType))
 	}
+}
+
+func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
+	var fileInfoRequest backupapi.FileInfoRequest
+
+	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		stat_t := fi.Sys().(*syscall.Stat_t)
+		if !fi.IsDir() {
+			singleFile := backupapi.FileInfo{
+				ID:           uuid.New().String(),
+				ItemName:     path,
+				Size:         fi.Size(),
+				LastModified: TimeSpecToTime(stat_t.Mtim),
+				ItemType:     "FILE",
+				Mode:         fi.Mode().Perm().String(),
+			}
+			fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &fileInfoRequest, err
+}
+
+func TimeSpecToTime(ts syscall.Timespec) string {
+	return time.Unix(int64(ts.Sec), int64(ts.Nsec)).Format("2006-01-02 15:04:05.000000")
 }

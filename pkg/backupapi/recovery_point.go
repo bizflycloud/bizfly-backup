@@ -48,6 +48,12 @@ type CreateRecoveryPointRequest struct {
 	PolicyID          string `json:"policy_id"`
 	Name              string `json:"name"`
 	RecoveryPointType string `json:"recovery_point_type"`
+	ChangedTime       string `json:"changed_time"`
+	ModifiedTime      string `json:"modified_time"`
+	AccessTime        string `json:"access_time"`
+	Mode              string `json:"mode"`
+	UID               string `json:"uid"`
+	GID               string `json:"gid"`
 }
 
 // CreateRestoreRequest represents a request manual backup.

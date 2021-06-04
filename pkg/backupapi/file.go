@@ -24,49 +24,51 @@ import (
 
 const ChunkUploadLowerBound = 8 * 1000 * 1000
 
-// FileInfo ...
-type FileInfo struct {
-	ItemType    string    `json:"item_type"`
-	ParentID    string    `json:"parent_id"`
-	RpReference bool      `json:"rp_reference"`
-	Attribute   Attribute `json:"attribute"`
+// ItemInfo ...
+type ItemInfo struct {
+	ItemType     string    `json:"item_type"`
+	ParentItemID string    `json:"parent_item_id"`
+	RpReference  bool      `json:"rp_reference"`
+	Attributes   Attribute `json:"attributes"`
 }
 
 // Attribute ...
 type Attribute struct {
-	ItemID       string `json:"item_id"`
-	ItemName     string `json:"item_name"`
-	Size         string `json:"size"`
-	ChangedTime  string `json:"changed_time"`
-	ModifiedTime string `json:"modified_time"`
-	AccessTime   string `json:"access_time"`
-	Mode         string `json:"mode"`
-	GID          string `json:"gid"`
-	UID          string `json:"uid"`
+	ID         string `json:"id"`
+	ItemName   string `json:"item_name"`
+	Size       string `json:"size"`
+	ChangeTime string `json:"change_time"`
+	ModifyTime string `json:"modify_time"`
+	AccessTime string `json:"access_time"`
+	ItemType   string `json:"item_type"`
+	Mode       string `json:"mode"`
+	GID        string `json:"gid"`
+	UID        string `json:"uid"`
 }
 
 // FileInfoRequest ...
 type FileInfoRequest struct {
-	Files []FileInfo `json:"files"`
+	Files []ItemInfo `json:"files"`
 }
 
 // File ...
 type File struct {
-	ContentType  string `json:"content_type"`
-	CreatedAt    string `json:"created_at"`
-	Etag         string `json:"etag"`
-	ID           string `json:"id"`
-	ItemName     string `json:"item_name"`
-	ItemType     string `json:"item_type"`
-	LastModified string `json:"last_modified"`
-	Mode         string `json:"mode"`
-	RealName     string `json:"real_name"`
-	Size         string `json:"size"`
-	Status       string `json:"status"`
-	UpdatedAt    string `json:"updated_at"`
-	DeletedAt    string `json:"deleted_at"`
-	Deleted      bool   `json:"deleted"`
-	IsDir        bool   `json:"is_dir"`
+	ContentType string `json:"content_type"`
+	CreatedAt   string `json:"created_at"`
+	Etag        string `json:"etag"`
+	ID          string `json:"id"`
+	ItemName    string `json:"item_name"`
+	ItemType    string `json:"item_type"`
+	ModifyTime  string `json:"modify_time"`
+	Mode        string `json:"mode"`
+	RealName    string `json:"real_name"`
+	Size        string `json:"size"`
+	Status      string `json:"status"`
+	UpdatedAt   string `json:"updated_at"`
+	AccessTime  string `json:"access_time"`
+	ChangeTime  string `json:"change_time"`
+	Gid         int    `json:"gid"`
+	UID         int    `json:"uid"`
 }
 
 // FilesResponse ...
@@ -120,8 +122,24 @@ type InfoPresignUrl struct {
 	Etag     string `json:"etag"`
 }
 
+// ItemInfoLatest ...
+type ItemInfoLatest struct {
+	ID           string `json:"id"`
+	ChangedTime  string `json:"changed_time"`
+	ModifiedTime string `json:"modified_time"`
+}
+
+// SaveFileResp ...
+type SaveFileResp struct {
+	Message string `json:"message"`
+}
+
 func (c *Client) saveFileInfoPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
+}
+
+func (c *Client) getItemLatestPath(recoveryPointID string, filePath string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/path?path=%s", recoveryPointID, filePath)
 }
 
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
@@ -137,13 +155,13 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	return u.String(), nil
 }
 
-func (c *Client) SaveFileInfo(recoveryPointID string, fi *FileInfo) (*File, error) {
+func (c *Client) SaveFileInfo(recoveryPointID string, itemInfo *ItemInfo) (*File, error) {
 	reqURL, err := c.urlStringFromRelPath(c.saveFileInfoPath(recoveryPointID))
 	if err != nil {
 		return nil, err
 	}
 
-	req, err := c.NewRequest(http.MethodPost, reqURL, fi)
+	req, err := c.NewRequest(http.MethodPost, reqURL, itemInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -163,8 +181,8 @@ func (c *Client) SaveFileInfo(recoveryPointID string, fi *FileInfo) (*File, erro
 	return &file, nil
 }
 
-func (c *Client) saveChunk(recoveryPointID string, fileID string, chunk *ChunkRequest) (*ChunkResponse, error) {
-	reqURL, err := c.urlStringFromRelPath(c.saveChunkPath(recoveryPointID, fileID))
+func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRequest) (*ChunkResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.saveChunkPath(recoveryPointID, itemID))
 	if err != nil {
 		return nil, err
 	}
@@ -187,74 +205,124 @@ func (c *Client) saveChunk(recoveryPointID string, fileID string, chunk *ChunkRe
 	return &chunkResp, nil
 }
 
-func (c *Client) UploadFile(recoveryPointID string, actionID string, backupDir string, fileInfo FileInfo, volume volume.StorageVolume) error {
-	file, err := os.Open(fileInfo.Attribute.ItemName)
+func (c *Client) GetItemLatest(recoveryPointID string, filePath string) (*ItemInfoLatest, error) {
+	req, err := c.NewRequest(http.MethodGet, c.getItemLatestPath(recoveryPointID, filePath), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkResponse(resp); err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var itemInfoLatest ItemInfoLatest
+	if err := json.NewDecoder(resp.Body).Decode(&itemInfoLatest); err != nil {
+		return nil, err
+	}
+	return &itemInfoLatest, nil
+}
+
+func (c *Client) UploadFile(recoveryPointID string, actionID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume) error {
+	itemInfoLatest, err := c.GetItemLatest(recoveryPointID, itemInfo.Attributes.ItemName)
 	if err != nil {
 		return err
 	}
+	changedTimeItemLatest := itemInfoLatest.ChangedTime
+	modifiedTimeItemLatest := itemInfoLatest.ModifiedTime
 
-	_, err = c.SaveFileInfo(recoveryPointID, &fileInfo)
-	if err != nil {
-		return err
-	}
+	changedTimeItemScan := itemInfo.Attributes.ChangeTime
+	modifiedTimeItemScan := itemInfo.Attributes.ModifyTime
 
-	chk := chunker.New(file, 0x3dea92648f6e83)
-	buf := make([]byte, ChunkUploadLowerBound)
-
-	for {
-		chunk, err := chk.Next(buf)
-		if err == io.EOF {
-			break
+	if strings.EqualFold(changedTimeItemLatest, changedTimeItemScan) && strings.EqualFold(modifiedTimeItemLatest, modifiedTimeItemScan) {
+		_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
+			ItemType:     "FILE",
+			ParentItemID: itemInfoLatest.ID,
+			RpReference:  true,
+			Attributes:   itemInfo.Attributes,
+		})
+		if err != nil {
+			return err
 		}
+	} else if !strings.EqualFold(changedTimeItemLatest, changedTimeItemScan) && strings.EqualFold(modifiedTimeItemLatest, modifiedTimeItemScan) {
+		itemInfo.ParentItemID = itemInfoLatest.ID
+		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+		if err != nil {
+			return err
+		}
+	} else if !strings.EqualFold(modifiedTimeItemLatest, modifiedTimeItemScan) {
+		file, err := os.Open(itemInfo.Attributes.ItemName)
 		if err != nil {
 			return err
 		}
 
-		hash := md5.Sum(chunk.Data)
-		key := hex.EncodeToString(hash[:])
-		chunkReq := ChunkRequest{
-			Length: strconv.FormatUint(uint64(chunk.Length), 10),
-			Offset: strconv.FormatUint(uint64(chunk.Start), 10),
-			Etag:   key,
-		}
-
-		_, err = c.saveChunk(recoveryPointID, fileInfo.Attribute.ItemID, &chunkReq)
+		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 		if err != nil {
 			return err
 		}
 
-		infoUrl := InfoPresignUrl{
-			ActionID: actionID,
-			Etag:     key,
-		}
-		chunkResp, err := c.infoPresignedUrl(recoveryPointID, fileInfo.Attribute.ItemID, &infoUrl)
-		if err != nil {
-			return err
-		}
+		chk := chunker.New(file, 0x3dea92648f6e83)
+		buf := make([]byte, ChunkUploadLowerBound)
 
-		if chunkResp.PresignedURL.Head != "" {
-			key = chunkResp.PresignedURL.Head
-		}
+		for {
+			chunk, err := chk.Next(buf)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
 
-		resp, err := volume.HeadObject(key)
-		if err != nil {
-			return err
-		}
+			hash := md5.Sum(chunk.Data)
+			key := hex.EncodeToString(hash[:])
+			chunkReq := ChunkRequest{
+				Length: strconv.FormatUint(uint64(chunk.Length), 10),
+				Offset: strconv.FormatUint(uint64(chunk.Start), 10),
+				Etag:   key,
+			}
 
-		if etagHead, ok := resp.Header["Etag"]; ok {
-			integrity := strings.Contains(etagHead[0], chunkResp.Etag)
-			if !integrity {
+			_, err = c.saveChunk(recoveryPointID, itemInfo.Attributes.ID, &chunkReq)
+			if err != nil {
+				return err
+			}
+
+			infoUrl := InfoPresignUrl{
+				ActionID: actionID,
+				Etag:     key,
+			}
+			chunkResp, err := c.infoPresignedUrl(recoveryPointID, itemInfo.Attributes.ID, &infoUrl)
+			if err != nil {
+				return err
+			}
+
+			if chunkResp.PresignedURL.Head != "" {
+				key = chunkResp.PresignedURL.Head
+			}
+
+			resp, err := volume.HeadObject(key)
+			if err != nil {
+				return err
+			}
+
+			if etagHead, ok := resp.Header["Etag"]; ok {
+				integrity := strings.Contains(etagHead[0], chunkResp.Etag)
+				if !integrity {
+					key = chunkResp.PresignedURL.Put
+					_, err := volume.PutObject(key, chunk.Data)
+					if err != nil {
+						return err
+					}
+				}
+			} else {
 				key = chunkResp.PresignedURL.Put
 				_, err := volume.PutObject(key, chunk.Data)
 				if err != nil {
 					return err
 				}
-			}
-		} else {
-			key = chunkResp.PresignedURL.Put
-			_, err := volume.PutObject(key, chunk.Data)
-			if err != nil {
-				return err
 			}
 		}
 	}

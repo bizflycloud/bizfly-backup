@@ -52,8 +52,8 @@ type CreateRecoveryPointRequest struct {
 	ModifiedTime      string `json:"modified_time"`
 	AccessTime        string `json:"access_time"`
 	Mode              string `json:"mode"`
-	UID               string `json:"uid"`
 	GID               string `json:"gid"`
+	UID               string `json:"uid"`
 }
 
 // CreateRestoreRequest represents a request manual backup.
@@ -68,7 +68,7 @@ type UpdateRecoveryPointRequest struct {
 }
 
 func (c *Client) recoveryPointPath(backupDirectoryID string) string {
-	return "/agent/backup-directories/" + backupDirectoryID + "/recovery-points"
+	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points", backupDirectoryID)
 }
 
 func (c *Client) recoveryPointItemPath(backupDirectoryID string, recoveryPointID string) string {
@@ -79,8 +79,8 @@ func (c *Client) recoveryPointActionPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/action", recoveryPointID)
 }
 
-func (c *Client) saveChunkPath(recoveryPointID string, fileID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/file/%s/chunks", recoveryPointID, fileID)
+func (c *Client) saveChunkPath(recoveryPointID string, itemID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/file/%s/chunks", recoveryPointID, itemID)
 }
 
 func (c *Client) getListFilePath(recoveryPointID string) string {

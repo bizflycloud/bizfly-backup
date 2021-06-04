@@ -504,11 +504,28 @@ func (s *Server) notifyStatusFailed(recoveryPointID, reason string) {
 // backup performs backup flow.
 func (s *Server) backup(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer) error {
 	ctx := context.Background()
+	// Get BackupDirectory
+	bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
+	if err != nil {
+		// s.notifyStatusFailed(rp.ID, err.Error())
+		return err
+	}
+
+	// Get info backup directory
+	info, _ := os.Stat(bd.Path)
+	stat_t := info.Sys().(*syscall.Stat_t)
+
 	// Create recovery point
 	rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
 		PolicyID:          policyID,
 		Name:              name,
 		RecoveryPointType: recoveryPointType,
+		ChangedTime:       TimeSpecToTime(stat_t.Ctim),
+		ModifiedTime:      TimeSpecToTime(stat_t.Mtim),
+		AccessTime:        TimeSpecToTime(stat_t.Atim),
+		Mode:              info.Mode().Perm().String(),
+		UID:               strconv.FormatUint(uint64(stat_t.Uid), 10),
+		GID:               strconv.FormatUint(uint64(stat_t.Gid), 10),
 	})
 	if err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
@@ -521,13 +538,6 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 
-	// Get BackupDirectory
-	bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-
 	s.notifyMsg(map[string]string{
 		"action_id": rp.ID,
 		"status":    statusUploadFile,
@@ -536,12 +546,13 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	// Upload file to storage
 	s.reportStartUpload(progressOutput)
 
-	filesInfo, err := WalkerDir(bd.Path)
+	// Scan directory
+	itemsInfo, err := WalkerDir(bd.Path)
 	if err != nil {
 		return err
 	}
-	for _, fileInfo := range filesInfo.Files {
-		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, bd.Path, fileInfo, storageVolume); err != nil {
+	for _, itemInfo := range itemsInfo.Files {
+		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, bd.Path, itemInfo, storageVolume); err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
 			return err
 		}
@@ -663,20 +674,20 @@ func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 		}
 		stat_t := fi.Sys().(*syscall.Stat_t)
 		if !fi.IsDir() {
-			singleFile := backupapi.FileInfo{
-				ItemType:    "FILE",
-				ParentID:    "",
-				RpReference: true,
-				Attribute: backupapi.Attribute{
-					ItemID:       uuid.New().String(),
-					ItemName:     path,
-					Size:         strconv.FormatInt(fi.Size(), 10),
-					ChangedTime:  TimeSpecToTime(stat_t.Ctim),
-					ModifiedTime: TimeSpecToTime(stat_t.Mtim),
-					AccessTime:   TimeSpecToTime(stat_t.Atim),
-					Mode:         fi.Mode().Perm().String(),
-					GID:          strconv.FormatUint(uint64(stat_t.Gid), 10),
-					UID:          strconv.FormatUint(uint64(stat_t.Uid), 10),
+			singleFile := backupapi.ItemInfo{
+				ItemType:     "FILE",
+				ParentItemID: "",
+				RpReference:  true,
+				Attributes: backupapi.Attribute{
+					ID:         uuid.New().String(),
+					ItemName:   path,
+					Size:       strconv.FormatInt(fi.Size(), 10),
+					ChangeTime: TimeSpecToTime(stat_t.Ctim),
+					ModifyTime: TimeSpecToTime(stat_t.Mtim),
+					AccessTime: TimeSpecToTime(stat_t.Atim),
+					Mode:       fi.Mode().Perm().String(),
+					GID:        strconv.FormatUint(uint64(stat_t.Gid), 10),
+					UID:        strconv.FormatUint(uint64(stat_t.Uid), 10),
 				},
 			}
 			fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)

@@ -475,8 +475,8 @@ func EnsureDir(dirName string) error {
 	}
 }
 
-func CreateFile(name string) (*os.File, error) {
-	file, err := os.Create(name)
+func CreateFile(path string) (*os.File, error) {
+	file, err := os.Create(path)
 	if err != nil {
 		return nil, err
 	}

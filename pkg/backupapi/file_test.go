@@ -1,6 +1,7 @@
 package backupapi
 
 import (
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,6 +24,18 @@ func TestClient_getItemLatestPath(t *testing.T) {
 	filePath := "/home/vinh/folder1/file1"
 	gilp := client.getItemLatestPath(recoveryPointID, filePath)
 	assert.Equal(t, "/agent/recovery-points/recovery-point-id/path?path=/home/vinh/folder1/file1", gilp)
+}
+
+func TestClient_CreateFile(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	path := "/home/dactoan/upload/pic.jpg"
+	file, err := os.Create(path)
+	if err != nil {
+		t.Error(err)
+	}
+	defer file.Close()
 }
 
 // func TestClient_GetItemLatest(t *testing.T) {

@@ -59,14 +59,14 @@ type File struct {
 	ID          string `json:"id"`
 	ItemName    string `json:"item_name"`
 	ItemType    string `json:"item_type"`
-	ModifyTime  string `json:"modify_time"`
 	Mode        string `json:"mode"`
 	RealName    string `json:"real_name"`
 	Size        string `json:"size"`
 	Status      string `json:"status"`
 	UpdatedAt   string `json:"updated_at"`
-	AccessTime  string `json:"access_time"`
 	ChangeTime  string `json:"change_time"`
+	ModifyTime  string `json:"modify_time"`
+	AccessTime  string `json:"access_time"`
 	Gid         int    `json:"gid"`
 	UID         int    `json:"uid"`
 }
@@ -124,9 +124,9 @@ type InfoPresignUrl struct {
 
 // ItemInfoLatest ...
 type ItemInfoLatest struct {
-	ID           string `json:"id"`
-	ChangedTime  string `json:"changed_time"`
-	ModifiedTime string `json:"modified_time"`
+	ID         string `json:"id"`
+	ChangeTime string `json:"change_time"`
+	ModifyTime string `json:"modify_time"`
 }
 
 // SaveFileResp ...
@@ -232,13 +232,13 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, backupDir s
 	if err != nil {
 		return err
 	}
-	changedTimeItemLatest := itemInfoLatest.ChangedTime
-	modifiedTimeItemLatest := itemInfoLatest.ModifiedTime
+	changeTimeItemLatest := itemInfoLatest.ChangeTime
+	modifyTimeItemLatest := itemInfoLatest.ModifyTime
 
-	changedTimeItemScan := itemInfo.Attributes.ChangeTime
-	modifiedTimeItemScan := itemInfo.Attributes.ModifyTime
+	changeTimeItemScan := itemInfo.Attributes.ChangeTime
+	modifyTimeItemScan := itemInfo.Attributes.ModifyTime
 
-	if strings.EqualFold(changedTimeItemLatest, changedTimeItemScan) && strings.EqualFold(modifiedTimeItemLatest, modifiedTimeItemScan) {
+	if strings.EqualFold(changeTimeItemLatest, changeTimeItemScan) && strings.EqualFold(modifyTimeItemLatest, modifyTimeItemScan) {
 		_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
 			ItemType:     "FILE",
 			ParentItemID: itemInfoLatest.ID,
@@ -248,13 +248,13 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, backupDir s
 		if err != nil {
 			return err
 		}
-	} else if !strings.EqualFold(changedTimeItemLatest, changedTimeItemScan) && strings.EqualFold(modifiedTimeItemLatest, modifiedTimeItemScan) {
+	} else if !strings.EqualFold(changeTimeItemLatest, changeTimeItemScan) && strings.EqualFold(modifyTimeItemLatest, modifyTimeItemScan) {
 		itemInfo.ParentItemID = itemInfoLatest.ID
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 		if err != nil {
 			return err
 		}
-	} else if !strings.EqualFold(modifiedTimeItemLatest, modifiedTimeItemScan) {
+	} else if !strings.EqualFold(modifyTimeItemLatest, modifyTimeItemScan) {
 		file, err := os.Open(itemInfo.Attributes.ItemName)
 		if err != nil {
 			return err

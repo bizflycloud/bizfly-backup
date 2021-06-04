@@ -48,8 +48,8 @@ type CreateRecoveryPointRequest struct {
 	PolicyID          string `json:"policy_id"`
 	Name              string `json:"name"`
 	RecoveryPointType string `json:"recovery_point_type"`
-	ChangedTime       string `json:"changed_time"`
-	ModifiedTime      string `json:"modified_time"`
+	ChangeTime        string `json:"change_time"`
+	ModifyTime        string `json:"modify_time"`
 	AccessTime        string `json:"access_time"`
 	Mode              string `json:"mode"`
 	GID               string `json:"gid"`

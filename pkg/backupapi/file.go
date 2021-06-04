@@ -353,7 +353,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 		absolutePathRealName := filepath.Join(destDir, relativePathRealName)
 		fileRestore := filepath.Join(absolutePathRealName, filepath.Base(f.RealName))
 
-		if err := EnsureDir(absolutePathRealName); err != nil {
+		if err := EnsureDirectory(absolutePathRealName); err != nil {
 			return err
 		}
 
@@ -466,8 +466,8 @@ func (c *Client) infoPresignedUrl(recoveryPointID string, itemID string, infoUrl
 	return &chunkResp, nil
 }
 
-func EnsureDir(dirName string) error {
-	err := os.MkdirAll(dirName, os.ModePerm)
+func EnsureDirectory(directoryName string) error {
+	err := os.MkdirAll(directoryName, os.ModePerm)
 	if err == nil || os.IsExist(err) {
 		return nil
 	} else {

@@ -26,6 +26,19 @@ func TestClient_getItemLatestPath(t *testing.T) {
 	assert.Equal(t, "/agent/recovery-points/recovery-point-id/path?path=/home/vinh/folder1/file1", gilp)
 }
 
+func TestCLient_EnsureDir(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	directoryName := "/home/dactoan/upload"
+	err := os.MkdirAll(directoryName, os.ModePerm)
+	if err == nil || os.IsExist(err) {
+		assert.NoError(t, err)
+	} else {
+		t.Error(err)
+	}
+}
+
 func TestClient_CreateFile(t *testing.T) {
 	setUp()
 	defer tearDown()

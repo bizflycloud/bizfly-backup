@@ -532,6 +532,13 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 
+	// Get latest recovery point id
+	lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
+	if err != nil {
+		s.notifyStatusFailed(rp.ID, err.Error())
+		return err
+	}
+
 	// Get storage volume
 	storageVolume, err := NewStorageVolume(rp.Volume.VolumeType)
 	if err != nil {
@@ -552,7 +559,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 	for _, itemInfo := range itemsInfo.Files {
-		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, bd.Path, itemInfo, storageVolume); err != nil {
+		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.LatestRecoveryPointID, bd.Path, itemInfo, storageVolume); err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
 			return err
 		}

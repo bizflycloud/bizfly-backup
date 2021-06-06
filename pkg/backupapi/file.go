@@ -205,8 +205,8 @@ func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRe
 	return &chunkResp, nil
 }
 
-func (c *Client) GetItemLatest(recoveryPointID string, filePath string) (*ItemInfoLatest, error) {
-	req, err := c.NewRequest(http.MethodGet, c.getItemLatestPath(recoveryPointID, filePath), nil)
+func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*ItemInfoLatest, error) {
+	req, err := c.NewRequest(http.MethodGet, c.getItemLatestPath(latestRecoveryPointID, filePath), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -227,8 +227,8 @@ func (c *Client) GetItemLatest(recoveryPointID string, filePath string) (*ItemIn
 	return &itemInfoLatest, nil
 }
 
-func (c *Client) UploadFile(recoveryPointID string, actionID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume) error {
-	itemInfoLatest, err := c.GetItemLatest(recoveryPointID, itemInfo.Attributes.ItemName)
+func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume) error {
+	itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
 	if err != nil {
 		return err
 	}

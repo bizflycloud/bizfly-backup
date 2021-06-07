@@ -68,8 +68,20 @@ type UpdateRecoveryPointRequest struct {
 }
 
 // LatestRecoveryPointID get a id latest recovery point of backup directory id.
-type LatestRecoveryPointID struct {
-	LatestRecoveryPointID string `json:"latest_rp_id"`
+type RecoveryPointResponse struct {
+	Name              string `json:"name"`
+	UID               string `json:"uid"`
+	ChangeTime        string `json:"change_time"`
+	Size              int    `json:"size"`
+	UpdatedAt         string `json:"updated_at"`
+	ModifyTime        string `json:"modify_time"`
+	Gid               string `json:"gid"`
+	Mode              string `json:"mode"`
+	RecoveryPointType string `json:"recovery_point_type"`
+	ID                string `json:"id"`
+	Status            string `json:"status"`
+	AccessTime        string `json:"access_time"`
+	CreatedAt         string `json:"created_at"`
 }
 
 func (c *Client) recoveryPointPath(backupDirectoryID string) string {
@@ -100,7 +112,7 @@ func (c *Client) latestRecoveryPointID(backupDirectoryID string) string {
 	return fmt.Sprintf("/agent/backup-directories/%s/latest-recovery-points", backupDirectoryID)
 }
 
-func (c *Client) GetLatestRecoveryPointID(backupDirectoryID string) (*LatestRecoveryPointID, error) {
+func (c *Client) GetLatestRecoveryPointID(backupDirectoryID string) (*RecoveryPointResponse, error) {
 	req, err := c.NewRequest(http.MethodGet, c.latestRecoveryPointID(backupDirectoryID), nil)
 	if err != nil {
 		return nil, err
@@ -114,7 +126,7 @@ func (c *Client) GetLatestRecoveryPointID(backupDirectoryID string) (*LatestReco
 	}
 	defer resp.Body.Close()
 
-	var lrp LatestRecoveryPointID
+	var lrp RecoveryPointResponse
 	if err := json.NewDecoder(resp.Body).Decode(&lrp); err != nil {
 		return nil, err
 	}

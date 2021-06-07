@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -26,17 +27,19 @@ const ChunkUploadLowerBound = 8 * 1000 * 1000
 
 // ItemInfo ...
 type ItemInfo struct {
-	ItemType     string    `json:"item_type"`
-	ParentItemID string    `json:"parent_item_id"`
-	RpReference  bool      `json:"rp_reference"`
-	Attributes   Attribute `json:"attributes"`
+	ItemType       string     `json:"item_type"`
+	ParentItemID   string     `json:"parent_item_id"`
+	ChunkReference bool       `json:"chunk_reference"`
+	Attributes     *Attribute `json:"attributes"`
 }
 
 // Attribute ...
 type Attribute struct {
 	ID         string `json:"id"`
 	ItemName   string `json:"item_name"`
+	RealName   string `json:"real_name"`
 	Size       string `json:"size"`
+	IsDir      bool   `json:"is_dir"`
 	ChangeTime string `json:"change_time"`
 	ModifyTime string `json:"modify_time"`
 	AccessTime string `json:"access_time"`
@@ -75,7 +78,7 @@ type File struct {
 type FilesResponse []File
 
 // RecoveryPointResponse ...
-type RecoveryPointResponse struct {
+type ItemsResponse struct {
 	Files []File `json:"files"`
 	Total string `json:"total"`
 }
@@ -138,8 +141,8 @@ func (c *Client) saveFileInfoPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
 }
 
-func (c *Client) getItemLatestPath(recoveryPointID string, filePath string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/path?path=%s", recoveryPointID, filePath)
+func (c *Client) getItemLatestPath(latestRecoveryPointID string, filePath string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/path?path=%s", latestRecoveryPointID, filePath)
 }
 
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
@@ -205,7 +208,7 @@ func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRe
 	return &chunkResp, nil
 }
 
-func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*ItemInfoLatest, error) {
+func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) ([]ItemInfoLatest, error) {
 	req, err := c.NewRequest(http.MethodGet, c.getItemLatestPath(latestRecoveryPointID, filePath), nil)
 	if err != nil {
 		return nil, err
@@ -220,46 +223,24 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 	}
 	defer resp.Body.Close()
 
-	var itemInfoLatest ItemInfoLatest
+	var itemInfoLatest []ItemInfoLatest
 	if err := json.NewDecoder(resp.Body).Decode(&itemInfoLatest); err != nil {
 		return nil, err
 	}
-	return &itemInfoLatest, nil
+	return itemInfoLatest, nil
 }
 
 func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume) error {
-	itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
-	if err != nil {
-		return err
-	}
-	changeTimeItemLatest := itemInfoLatest.ChangeTime
-	modifyTimeItemLatest := itemInfoLatest.ModifyTime
-
-	changeTimeItemScan := itemInfo.Attributes.ChangeTime
-	modifyTimeItemScan := itemInfo.Attributes.ModifyTime
-
-	if strings.EqualFold(changeTimeItemLatest, changeTimeItemScan) && strings.EqualFold(modifyTimeItemLatest, modifyTimeItemScan) {
-		_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
-			ItemType:     "FILE",
-			ParentItemID: itemInfoLatest.ID,
-			RpReference:  true,
-			Attributes:   itemInfo.Attributes,
-		})
-		if err != nil {
-			return err
-		}
-	} else if !strings.EqualFold(changeTimeItemLatest, changeTimeItemScan) && strings.EqualFold(modifyTimeItemLatest, modifyTimeItemScan) {
-		itemInfo.ParentItemID = itemInfoLatest.ID
-		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
-		if err != nil {
-			return err
-		}
-	} else if !strings.EqualFold(modifyTimeItemLatest, modifyTimeItemScan) {
+	switch latestRecoveryPointID {
+	case "":
+		log.Println("item name", itemInfo.Attributes.ItemName)
 		file, err := os.Open(itemInfo.Attributes.ItemName)
 		if err != nil {
 			return err
 		}
 
+		itemInfo.ParentItemID = "None"
+		itemInfo.ChunkReference = false
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 		if err != nil {
 			return err
@@ -325,6 +306,120 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 				}
 			}
 		}
+	default:
+		log.Println("latestRecoveryPointID", latestRecoveryPointID)
+		// Get item time of directory scan
+		changeTimeItemScan := itemInfo.Attributes.ChangeTime
+		modifyTimeItemScan := itemInfo.Attributes.ModifyTime
+
+		// Get item info of recovery point latest
+		itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
+		if err != nil {
+			return err
+		}
+
+		for _, itemInfoRp := range itemInfoLatest {
+			// Get item time of latest recovery point
+			changeTimeItemLatest := itemInfoRp.ChangeTime
+			modifyTimeItemLatest := itemInfoRp.ModifyTime
+
+			// Check change time and modify time does not change
+			if strings.EqualFold(changeTimeItemLatest, changeTimeItemScan) && strings.EqualFold(modifyTimeItemLatest, modifyTimeItemScan) {
+				if _, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
+					ItemType:       "FILE",
+					ParentItemID:   itemInfoRp.ID,
+					ChunkReference: true,
+					Attributes:     nil,
+				}); err != nil {
+					return err
+				}
+				log.Printf("Reference item %s to recovery point %s", itemInfoRp.ID, recoveryPointID)
+
+				// Check change time changes and modify time the same
+			} else if !strings.EqualFold(changeTimeItemLatest, changeTimeItemScan) && strings.EqualFold(modifyTimeItemLatest, modifyTimeItemScan) {
+				itemInfo.ParentItemID = itemInfoRp.ID
+				if _, err = c.SaveFileInfo(recoveryPointID, &itemInfo); err != nil {
+					return err
+				}
+				log.Printf("Backup done")
+
+				// Check change time changes and modify time changes
+			} else if !strings.EqualFold(modifyTimeItemLatest, modifyTimeItemScan) {
+				file, err := os.Open(itemInfo.Attributes.ItemName)
+				if err != nil {
+					return err
+				}
+
+				itemInfo.ParentItemID = itemInfoRp.ID
+				itemInfo.ChunkReference = false
+				_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+				if err != nil {
+					return err
+				}
+
+				chk := chunker.New(file, 0x3dea92648f6e83)
+				buf := make([]byte, ChunkUploadLowerBound)
+
+				for {
+					chunk, err := chk.Next(buf)
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						return err
+					}
+
+					hash := md5.Sum(chunk.Data)
+					key := hex.EncodeToString(hash[:])
+					chunkReq := ChunkRequest{
+						Length: strconv.FormatUint(uint64(chunk.Length), 10),
+						Offset: strconv.FormatUint(uint64(chunk.Start), 10),
+						Etag:   key,
+					}
+
+					_, err = c.saveChunk(recoveryPointID, itemInfo.Attributes.ID, &chunkReq)
+					if err != nil {
+						return err
+					}
+
+					infoUrl := InfoPresignUrl{
+						ActionID: actionID,
+						Etag:     key,
+					}
+					chunkResp, err := c.infoPresignedUrl(recoveryPointID, itemInfo.Attributes.ID, &infoUrl)
+					if err != nil {
+						return err
+					}
+
+					if chunkResp.PresignedURL.Head != "" {
+						key = chunkResp.PresignedURL.Head
+					}
+
+					resp, err := volume.HeadObject(key)
+					if err != nil {
+						return err
+					}
+
+					if etagHead, ok := resp.Header["Etag"]; ok {
+						integrity := strings.Contains(etagHead[0], chunkResp.Etag)
+						if !integrity {
+							key = chunkResp.PresignedURL.Put
+							_, err := volume.PutObject(key, chunk.Data)
+							if err != nil {
+								return err
+							}
+						}
+					} else {
+						key = chunkResp.PresignedURL.Put
+						_, err := volume.PutObject(key, chunk.Data)
+						if err != nil {
+							return err
+						}
+					}
+				}
+			}
+		}
+
 	}
 
 	return nil
@@ -396,7 +491,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 	return nil
 }
 
-func (c *Client) GetListFilePath(recoveryPointID string) (*RecoveryPointResponse, error) {
+func (c *Client) GetListFilePath(recoveryPointID string) (*ItemsResponse, error) {
 	reqURL, err := c.urlStringFromRelPath(c.getListFilePath(recoveryPointID))
 	if err != nil {
 		return nil, err
@@ -410,12 +505,12 @@ func (c *Client) GetListFilePath(recoveryPointID string) (*RecoveryPointResponse
 	if err != nil {
 		return nil, err
 	}
-	var rp RecoveryPointResponse
-	if err := json.NewDecoder(resp.Body).Decode(&rp); err != nil {
+	var items ItemsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
 		return nil, err
 	}
 
-	return &rp, nil
+	return &items, nil
 }
 
 func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string, restoreSessionKey string, createdAt string) (*FileDownloadResponse, error) {

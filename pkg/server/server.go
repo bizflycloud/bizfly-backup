@@ -523,16 +523,17 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		ChangeTime:        TimeSpecToTime(stat_t.Ctim),
 		ModifyTime:        TimeSpecToTime(stat_t.Mtim),
 		AccessTime:        TimeSpecToTime(stat_t.Atim),
-		Mode:              info.Mode().Perm().String(),
-		UID:               strconv.FormatUint(uint64(stat_t.Uid), 10),
-		GID:               strconv.FormatUint(uint64(stat_t.Gid), 10),
+		// Mode:              info.Mode().Perm().String(),
+		Mode: "777",
+		UID:  strconv.FormatUint(uint64(stat_t.Uid), 10),
+		GID:  strconv.FormatUint(uint64(stat_t.Gid), 10),
 	})
 	if err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 
-	// Get latest recovery point id
+	// Get latest recovery point
 	lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
 	if err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
@@ -559,7 +560,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 	for _, itemInfo := range itemsInfo.Files {
-		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.LatestRecoveryPointID, bd.Path, itemInfo, storageVolume); err != nil {
+		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, bd.Path, itemInfo, storageVolume); err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
 			return err
 		}
@@ -682,19 +683,23 @@ func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 		stat_t := fi.Sys().(*syscall.Stat_t)
 		if !fi.IsDir() {
 			singleFile := backupapi.ItemInfo{
-				ItemType:     "FILE",
-				ParentItemID: "",
-				RpReference:  true,
-				Attributes: backupapi.Attribute{
+				ItemType:       "FILE",
+				ParentItemID:   "",
+				ChunkReference: true,
+				Attributes: &backupapi.Attribute{
 					ID:         uuid.New().String(),
 					ItemName:   path,
+					RealName:   fi.Name(),
+					IsDir:      false,
 					Size:       strconv.FormatInt(fi.Size(), 10),
 					ChangeTime: TimeSpecToTime(stat_t.Ctim),
 					ModifyTime: TimeSpecToTime(stat_t.Mtim),
 					AccessTime: TimeSpecToTime(stat_t.Atim),
-					Mode:       fi.Mode().Perm().String(),
-					GID:        strconv.FormatUint(uint64(stat_t.Gid), 10),
-					UID:        strconv.FormatUint(uint64(stat_t.Uid), 10),
+					ItemType:   "FILE",
+					// Mode:       fi.Mode().Perm().String(),
+					Mode: "777",
+					GID:  strconv.FormatUint(uint64(stat_t.Gid), 10),
+					UID:  strconv.FormatUint(uint64(stat_t.Uid), 10),
 				},
 			}
 			fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)

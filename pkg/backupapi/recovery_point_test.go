@@ -74,6 +74,47 @@ func TestClient_infoFile(t *testing.T) {
 	assert.Equal(t, "/agent/auth/recovery-point-id/file/item-id", gifd)
 }
 
+func TestCLient_latestRecoveryPointID(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	backupDirectoryID := "backup-directory-id"
+
+	lrp := client.latestRecoveryPointID(backupDirectoryID)
+	assert.Equal(t, "/agent/backup-directories/backup-directory-id/latest-recovery-points", lrp)
+}
+
+func TestClient_GetLatestRecoveryPointID(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	backupDirectoryID := "backup-directory-id"
+	latestRecoveryPointPath := client.latestRecoveryPointID(backupDirectoryID)
+
+	mux.HandleFunc(path.Join("/api/v1/", latestRecoveryPointPath), func(w http.ResponseWriter, r *http.Request) {
+		resp := RecoveryPointResponse{
+			Name:              "backup-manual-05/26/2021",
+			UID:               "uid",
+			ChangeTime:        "2021-05-26T08:04:15.883881+00:00",
+			Size:              0,
+			UpdatedAt:         "2021-05-26T08:04:15.883881+00:00",
+			ModifyTime:        "2021-05-26T08:04:15.883881+00:00",
+			Gid:               "10",
+			Mode:              "777",
+			RecoveryPointType: "INITIAL_REPLICA",
+			ID:                "4650cb5f-48d2-48ab-9e2b-15acc99e1323",
+			Status:            "COMPLETED",
+			AccessTime:        "2021-05-26T08:04:15.883881+00:00",
+			CreatedAt:         "2021-05-26T08:04:15.883881+00:00",
+		}
+		assert.NoError(t, json.NewEncoder(w).Encode(resp))
+	})
+
+	lrp, err := client.GetLatestRecoveryPointID(backupDirectoryID)
+	require.NoError(t, err)
+	assert.NotEmpty(t, lrp.Name)
+}
+
 func TestClient_CreateRecoveryPoint(t *testing.T) {
 	setUp()
 	defer tearDown()

@@ -14,7 +14,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -684,44 +683,52 @@ func NewStorageVolume(volumeType string) (volume.StorageVolume, error) {
 	}
 }
 
-func WalkerDir(dir string) (backupapi.FileInfoRequest, error) {
+func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 	var fileInfoRequest backupapi.FileInfoRequest
 
 	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		stat_t := fi.Sys().(*syscall.Stat_t)
-		if !fi.IsDir() {
-			singleFile := backupapi.ItemInfo{
-				ItemType:       "FILE",
-				ParentItemID:   "",
-				ChunkReference: true,
-				Attributes: backupapi.Attribute{
-					ID:         uuid.New().String(),
-					ItemName:   path,
-					IsDir:      false,
-					Size:       strconv.FormatInt(fi.Size(), 10),
-					ChangeTime: time.Unix(stat_t.Ctim.Unix()),
-					ModifyTime: time.Unix(stat_t.Mtim.Unix()),
-					AccessTime: time.Unix(stat_t.Atim.Unix()),
-					ItemType:   "FILE",
-					Mode:       fi.Mode(),
-					GID:        stat_t.Gid,
-					UID:        stat_t.Uid,
-				},
-			}
-			fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
+		if path == dir {
+			return nil
 		}
+		singleFile := backupapi.ItemInfo{
+			ParentItemID:   "",
+			ChunkReference: false,
+			Attributes: backupapi.Attribute{
+				ID:         uuid.New().String(),
+				ItemName:   path,
+				ModifyTime: fi.ModTime(),
+				Mode:       fi.Mode(),
+				Size:       fi.Size(),
+			},
+		}
+
+		if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
+			singleFile.Attributes.AccessTime = time.Unix(stat.Atim.Unix())
+			singleFile.Attributes.ChangeTime = time.Unix(stat.Ctim.Unix())
+			singleFile.Attributes.UID = stat.Uid
+			singleFile.Attributes.GID = stat.Gid
+		}
+
+		if fi.IsDir() {
+			singleFile.ItemType = "DIRECTORY"
+			singleFile.Attributes.ItemType = "DIRECTORY"
+			singleFile.Attributes.IsDir = true
+			singleFile.ChunkReference = false
+		} else {
+			singleFile.ItemType = "FILE"
+			singleFile.Attributes.ItemType = "FILE"
+			singleFile.Attributes.IsDir = false
+			singleFile.ChunkReference = true
+		}
+		fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
 		return nil
 	})
 	if err != nil {
-		log.Println(err)
+		return nil, err
 	}
 
-	return fileInfoRequest, err
-}
-
-func TimeSpecToTime(ts syscall.Timespec) string {
-	return time.Unix(int64(ts.Sec), int64(ts.Nsec)).Format("2006-01-02 15:04:05.000000")
+	return &fileInfoRequest, err
 }

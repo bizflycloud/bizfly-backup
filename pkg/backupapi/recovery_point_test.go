@@ -94,18 +94,13 @@ func TestClient_GetLatestRecoveryPointID(t *testing.T) {
 	mux.HandleFunc(path.Join("/api/v1/", latestRecoveryPointPath), func(w http.ResponseWriter, r *http.Request) {
 		resp := RecoveryPointResponse{
 			Name:              "backup-manual-05/26/2021",
-			UID:               "uid",
-			ChangeTime:        "2021-05-26T08:04:15.883881+00:00",
+			UID:               100,
 			Size:              0,
-			UpdatedAt:         "2021-05-26T08:04:15.883881+00:00",
-			ModifyTime:        "2021-05-26T08:04:15.883881+00:00",
-			Gid:               "10",
-			Mode:              "777",
+			Gid:               10,
+			Mode:              777,
 			RecoveryPointType: "INITIAL_REPLICA",
 			ID:                "4650cb5f-48d2-48ab-9e2b-15acc99e1323",
 			Status:            "COMPLETED",
-			AccessTime:        "2021-05-26T08:04:15.883881+00:00",
-			CreatedAt:         "2021-05-26T08:04:15.883881+00:00",
 		}
 		assert.NoError(t, json.NewEncoder(w).Encode(resp))
 	})

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"time"
 
 	"io/ioutil"
 	"net/http"
@@ -45,15 +47,15 @@ type CreateRecoveryPointResponse struct {
 
 // CreateRecoveryPointRequest represents a request to create a recovery point.
 type CreateRecoveryPointRequest struct {
-	PolicyID          string `json:"policy_id"`
-	Name              string `json:"name"`
-	RecoveryPointType string `json:"recovery_point_type"`
-	ChangeTime        string `json:"change_time"`
-	ModifyTime        string `json:"modify_time"`
-	AccessTime        string `json:"access_time"`
-	Mode              string `json:"mode"`
-	GID               string `json:"gid"`
-	UID               string `json:"uid"`
+	PolicyID          string      `json:"policy_id"`
+	Name              string      `json:"name"`
+	RecoveryPointType string      `json:"recovery_point_type"`
+	ChangeTime        time.Time   `json:"change_time"`
+	ModifyTime        time.Time   `json:"modify_time"`
+	AccessTime        time.Time   `json:"access_time"`
+	Mode              os.FileMode `json:"mode"`
+	GID               uint32      `json:"gid"`
+	UID               uint32      `json:"uid"`
 }
 
 // CreateRestoreRequest represents a request manual backup.
@@ -69,19 +71,19 @@ type UpdateRecoveryPointRequest struct {
 
 // LatestRecoveryPointID get a id latest recovery point of backup directory id.
 type RecoveryPointResponse struct {
-	Name              string `json:"name"`
-	UID               string `json:"uid"`
-	ChangeTime        string `json:"change_time"`
-	Size              int    `json:"size"`
-	UpdatedAt         string `json:"updated_at"`
-	ModifyTime        string `json:"modify_time"`
-	Gid               string `json:"gid"`
-	Mode              string `json:"mode"`
-	RecoveryPointType string `json:"recovery_point_type"`
-	ID                string `json:"id"`
-	Status            string `json:"status"`
-	AccessTime        string `json:"access_time"`
-	CreatedAt         string `json:"created_at"`
+	Name              string    `json:"name"`
+	Size              int       `json:"size"`
+	UpdatedAt         string    `json:"updated_at"`
+	Mode              int       `json:"mode"`
+	RecoveryPointType string    `json:"recovery_point_type"`
+	ID                string    `json:"id"`
+	Status            string    `json:"status"`
+	AccessTime        time.Time `json:"access_time"`
+	ChangeTime        time.Time `json:"change_time"`
+	ModifyTime        time.Time `json:"modify_time"`
+	CreatedAt         time.Time `json:"created_at"`
+	Gid               uint32    `json:"gid"`
+	UID               uint32    `json:"uid"`
 }
 
 func (c *Client) recoveryPointPath(backupDirectoryID string) string {

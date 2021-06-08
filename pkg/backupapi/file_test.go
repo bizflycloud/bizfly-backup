@@ -20,9 +20,8 @@ func TestClient_getItemLatestPath(t *testing.T) {
 	defer tearDown()
 
 	latestRecoveryPointID := "latest-recovery-point-id"
-	filePath := "/home/vinh/folder1/file1"
-	gilp := client.getItemLatestPath(latestRecoveryPointID, filePath)
-	assert.Equal(t, "/agent/recovery-points/latest-recovery-point-id/path?path=/home/vinh/folder1/file1", gilp)
+	gilp := client.getItemLatestPath(latestRecoveryPointID)
+	assert.Equal(t, "/agent/recovery-points/latest-recovery-point-id/path", gilp)
 }
 
 // func TestClient_GetItemLatest(t *testing.T) {

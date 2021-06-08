@@ -149,8 +149,8 @@ func (c *Client) saveFileInfoPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
 }
 
-func (c *Client) getItemLatestPath(latestRecoveryPointID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/path?path=", latestRecoveryPointID)
+func (c *Client) getItemLatestPath(latestRecoveryPointID string, filePath string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/path?path=%s", latestRecoveryPointID, filePath)
 }
 
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
@@ -217,6 +217,7 @@ func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRe
 }
 
 func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*ItemInfoLatest, error) {
+	log.Println("latestRecoveryPointID", latestRecoveryPointID)
 	if latestRecoveryPointID == "" {
 		return &ItemInfoLatest{
 			ID:         "",
@@ -224,7 +225,7 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 			ModifyTime: time.Time{},
 		}, nil
 	}
-	reqURL, err := c.urlStringFromRelPath(c.getItemLatestPath(latestRecoveryPointID) + filePath)
+	reqURL, err := c.urlStringFromRelPath(c.getItemLatestPath(latestRecoveryPointID, filePath))
 	if err != nil {
 		return nil, err
 	}
@@ -242,11 +243,11 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 		return nil, err
 	}
 
-	// b, err := io.ReadAll(resp.Body)
-	// if err != nil {
-	// 	log.Fatalln(err)
-	// }
-	// fmt.Println("body", string(b))
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Fatalln(err)
+	}
+	fmt.Println("body", string(b))
 
 	var itemInfoLatest ItemInfoLatest
 	if err := json.NewDecoder(resp.Body).Decode(&itemInfoLatest); err != nil {
@@ -331,6 +332,9 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 	}
 	log.Printf("Backup item: %+v\n", itemInfo)
 
+	log.Println("itemInfoLatest.ModifyTime", itemInfoLatest.ModifyTime)
+	log.Println("itemInfo.Attributes.ModifyTime", itemInfo.Attributes.ModifyTime)
+
 	if itemInfoLatest.ModifyTime != itemInfo.Attributes.ModifyTime {
 		log.Println("Save file info", itemInfo.Attributes.ItemName)
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
@@ -346,7 +350,6 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 		}
 		return nil
 	}
-
 	if itemInfoLatest.ChangeTime != itemInfo.Attributes.ChangeTime {
 		// save info va reference chunk neu la file
 		log.Println("backup item with item change ctime")

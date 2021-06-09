@@ -45,6 +45,7 @@ type Attribute struct {
 	ModifyTime time.Time   `json:"modify_time"`
 	AccessTime time.Time   `json:"access_time"`
 	Mode       os.FileMode `json:"mode"`
+	AccessMode os.FileMode `json:"access_mode"`
 	GID        uint32      `json:"gid"`
 	UID        uint32      `json:"uid"`
 }
@@ -149,8 +150,8 @@ func (c *Client) saveFileInfoPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
 }
 
-func (c *Client) getItemLatestPath(latestRecoveryPointID string, filePath string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/path?path=%s", latestRecoveryPointID, filePath)
+func (c *Client) getItemLatestPath(latestRecoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/path", latestRecoveryPointID)
 }
 
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
@@ -224,7 +225,8 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 			ModifyTime: time.Time{},
 		}, nil
 	}
-	reqURL, err := c.urlStringFromRelPath(c.getItemLatestPath(latestRecoveryPointID, filePath))
+
+	reqURL, err := c.urlStringFromRelPath(c.getItemLatestPath(latestRecoveryPointID))
 	if err != nil {
 		return nil, err
 	}
@@ -233,8 +235,9 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 	if err != nil {
 		return nil, err
 	}
-
-	log.Println(req.URL.String())
+	q := req.URL.Query()
+	q.Add("path", filePath)
+	req.URL.RawQuery = q.Encode()
 
 	resp, err := c.Do(req)
 	log.Println(resp.StatusCode)
@@ -246,7 +249,7 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 	if err != nil {
 		log.Fatalln(err)
 	}
-	fmt.Println("body", string(b))
+	log.Println("body", string(b))
 
 	var itemInfoLatest ItemInfoLatest
 	if err := json.NewDecoder(resp.Body).Decode(&itemInfoLatest); err != nil {
@@ -325,7 +328,6 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 }
 
 func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume) error {
-	log.Println("itemInfo.Attributes.ItemName", itemInfo.Attributes.ItemName)
 	itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
 	if err != nil {
 		return err
@@ -337,6 +339,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 
 	if itemInfoLatest.ModifyTime != itemInfo.Attributes.ModifyTime {
 		log.Println("Save file info", itemInfo.Attributes.ItemName)
+		itemInfo.ChunkReference = false
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 		if err != nil {
 			return err

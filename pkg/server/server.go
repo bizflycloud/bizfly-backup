@@ -667,9 +667,6 @@ func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 		if err != nil {
 			return err
 		}
-		if path == dir {
-			return nil
-		}
 		singleFile := backupapi.ItemInfo{
 			ParentItemID:   "",
 			ChunkReference: false,

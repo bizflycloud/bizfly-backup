@@ -217,7 +217,6 @@ func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRe
 }
 
 func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*ItemInfoLatest, error) {
-	log.Println("latestRecoveryPointID", latestRecoveryPointID)
 	if latestRecoveryPointID == "" {
 		return &ItemInfoLatest{
 			ID:         "",

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -516,32 +515,16 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 
-	// Get info backup directory
-	info, err := os.Stat(bd.Path)
-	if err != nil {
-		s.logger.Error("stat directory error %s")
-		s.notifyStatusFailed(actionID, err.Error(), typeBackup)
-		return err
-	}
-	stat_t := info.Sys().(*syscall.Stat_t)
-
 	// Create recovery point
 	rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
 		PolicyID:          policyID,
 		Name:              name,
 		RecoveryPointType: recoveryPointType,
-		ChangeTime:        time.Unix(stat_t.Ctim.Unix()),
-		ModifyTime:        time.Unix(stat_t.Mtim.Unix()),
-		AccessTime:        time.Unix(stat_t.Atim.Unix()),
-		Mode:              info.Mode(),
-		UID:               stat_t.Uid,
-		GID:               stat_t.Gid,
 	})
 	if err != nil {
 		s.notifyStatusFailed(actionID, err.Error(), typeBackup)
 		return err
 	}
-	log.Println(rp)
 
 	// Get latest recovery point
 	lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)

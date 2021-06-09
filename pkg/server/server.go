@@ -124,7 +124,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
 	case broker.BackupManual:
-		return s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, msg.ActionId, ioutil.Discard)
+		return s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
 	case broker.RestoreManual:
 		return s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.VolumeType, ioutil.Discard)
 	case broker.ConfigUpdate:
@@ -196,7 +196,7 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 				name := "auto-" + time.Now().Format(time.RFC3339)
 				// improve when support incremental backup
 				recoveryPointType := backupapi.RecoveryPointTypeInitialReplica
-				if err := s.backup(directoryID, policyID, name, recoveryPointType, "", ioutil.Discard); err != nil {
+				if err := s.backup(directoryID, policyID, name, recoveryPointType, ioutil.Discard); err != nil {
 					zapFields := []zap.Field{
 						zap.Error(err),
 						zap.String("service", "cron"),
@@ -492,26 +492,21 @@ func (s *Server) notifyMsg(msg map[string]string) {
 	}
 }
 
-func (s *Server) notifyStatusFailed(recoveryPointID, reason, typeBackup string) {
+func (s *Server) notifyStatusFailed(recoveryPointID, reason string) {
 	s.notifyMsg(map[string]string{
-		"action_id":   recoveryPointID,
-		"status":      statusFailed,
-		"reason":      reason,
-		"type_backup": typeBackup,
+		"action_id": recoveryPointID,
+		"status":    statusFailed,
+		"reason":    reason,
 	})
 }
 
 // backup performs backup flow.
-func (s *Server) backup(backupDirectoryID string, policyID string, name string, recoveryPointType string, actionID string, progressOutput io.Writer) error {
+func (s *Server) backup(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer) error {
 	ctx := context.Background()
 	// Get BackupDirectory
 	bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
-	typeBackup := "backup_auto"
-	if actionID != "" {
-		typeBackup = "backup_manual"
-	}
+
 	if err != nil {
-		s.notifyStatusFailed(actionID, err.Error(), typeBackup)
 		return err
 	}
 
@@ -522,14 +517,13 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		RecoveryPointType: recoveryPointType,
 	})
 	if err != nil {
-		s.notifyStatusFailed(actionID, err.Error(), typeBackup)
 		return err
 	}
 
 	// Get latest recovery point
 	lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
 	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error(), typeBackup)
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 
@@ -554,7 +548,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	}
 	for _, itemInfo := range itemsInfo.Files {
 		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, bd.Path, itemInfo, storageVolume); err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error(), typeBackup)
+			s.notifyStatusFailed(rp.ID, err.Error())
 			return err
 		}
 	}
@@ -600,7 +594,7 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, volumeType string, progressOutput io.Writer) error {
 	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
 	if err != nil {
-		s.notifyStatusFailed(actionID, err.Error(), "")
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 	defer os.Remove(fi.Name())
@@ -620,14 +614,14 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	if err := s.backupClient.RestoreFile(recoveryPointID, destDir, storageVolume, restoreSessionKey, createdAt); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
-		s.notifyStatusFailed(actionID, err.Error(), "")
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 
 	s.reportDownloadCompleted(progressOutput)
 	if err := fi.Close(); err != nil {
 		s.logger.Error("failed to save to temporary file", zap.Error(err))
-		s.notifyStatusFailed(actionID, err.Error(), "")
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 

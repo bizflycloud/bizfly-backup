@@ -673,7 +673,7 @@ func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 			Attributes: backupapi.Attribute{
 				ID:         uuid.New().String(),
 				ItemName:   path,
-				ModifyTime: fi.ModTime(),
+				ModifyTime: fi.ModTime().UTC(),
 				Mode:       fi.Mode().String(),
 				AccessMode: fi.Mode(),
 				Size:       fi.Size(),
@@ -681,8 +681,8 @@ func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 		}
 
 		if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
-			singleFile.Attributes.AccessTime = time.Unix(stat.Atim.Unix())
-			singleFile.Attributes.ChangeTime = time.Unix(stat.Ctim.Unix())
+			singleFile.Attributes.AccessTime = time.Unix(stat.Atim.Unix()).UTC()
+			singleFile.Attributes.ChangeTime = time.Unix(stat.Ctim.Unix()).UTC()
 			singleFile.Attributes.UID = stat.Uid
 			singleFile.Attributes.GID = stat.Gid
 		}

@@ -242,16 +242,9 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 	req.URL.RawQuery = q.Encode()
 
 	resp, err := c.Do(req)
-	log.Println(resp.StatusCode)
 	if err != nil {
 		return nil, err
 	}
-
-	b, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatalln(err)
-	}
-	log.Println("body", string(b))
 
 	var itemInfoLatest ItemInfoLatest
 	if err := json.NewDecoder(resp.Body).Decode(&itemInfoLatest); err != nil {
@@ -336,10 +329,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 	}
 	log.Printf("Backup item: %+v\n", itemInfo)
 
-	log.Println("itemInfoLatest.ModifyTime", itemInfoLatest.ModifyTime)
-	log.Println("itemInfo.Attributes.ModifyTime", itemInfo.Attributes.ModifyTime)
-
-	if itemInfoLatest.ModifyTime != itemInfo.Attributes.ModifyTime {
+	if TimeToString(itemInfoLatest.ModifyTime) != TimeToString(itemInfo.Attributes.ModifyTime) {
 		log.Println("Save file info", itemInfo.Attributes.ItemName)
 		itemInfo.ChunkReference = false
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
@@ -355,7 +345,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 		}
 		return nil
 	}
-	if itemInfoLatest.ChangeTime != itemInfo.Attributes.ChangeTime {
+	if TimeToString(itemInfoLatest.ChangeTime) != TimeToString(itemInfo.Attributes.ChangeTime) {
 		// save info va reference chunk neu la file
 		log.Println("backup item with item change ctime")
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
@@ -532,5 +522,5 @@ func CreateFile(path string) (*os.File, error) {
 }
 
 func TimeToString(time time.Time) string {
-	return time.Format("2006-01-02 15:04:05.000000000")
+	return time.Format("2006-01-02 15:04:05.000000")
 }

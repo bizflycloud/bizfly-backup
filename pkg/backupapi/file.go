@@ -44,7 +44,7 @@ type Attribute struct {
 	ChangeTime time.Time   `json:"change_time"`
 	ModifyTime time.Time   `json:"modify_time"`
 	AccessTime time.Time   `json:"access_time"`
-	Mode       os.FileMode `json:"mode"`
+	Mode       string      `json:"mode"`
 	AccessMode os.FileMode `json:"access_mode"`
 	GID        uint32      `json:"gid"`
 	UID        uint32      `json:"uid"`
@@ -63,7 +63,8 @@ type File struct {
 	ID          string      `json:"id"`
 	ItemName    string      `json:"item_name"`
 	ItemType    string      `json:"item_type"`
-	Mode        os.FileMode `json:"mode"`
+	Mode        string      `json:"mode"`
+	AccessMode  os.FileMode `json:"access_mode"`
 	RealName    string      `json:"real_name"`
 	Size        int         `json:"size"`
 	Status      string      `json:"status"`
@@ -128,22 +129,23 @@ type InfoPresignUrl struct {
 
 // ItemInfoLatest ...
 type ItemInfoLatest struct {
-	ID          string    `json:"id"`
-	ItemType    string    `json:"item_type"`
-	Mode        int       `json:"mode"`
-	RealName    string    `json:"real_name"`
-	Size        int       `json:"size"`
-	ContentType string    `json:"content_type"`
-	IsDir       bool      `json:"is_dir"`
-	Status      string    `json:"status"`
-	ItemName    string    `json:"item_name"`
-	CreatedAt   string    `json:"created_at"`
-	UpdatedAt   string    `json:"updated_at"`
-	AccessTime  time.Time `json:"access_time"`
-	ChangeTime  time.Time `json:"change_time"`
-	ModifyTime  time.Time `json:"modify_time"`
-	Gid         int       `json:"gid"`
-	UID         int       `json:"uid"`
+	ID          string      `json:"id"`
+	ItemType    string      `json:"item_type"`
+	Mode        string      `json:"mode"`
+	AccessMode  os.FileMode `json:"access_mode"`
+	RealName    string      `json:"real_name"`
+	Size        int         `json:"size"`
+	ContentType string      `json:"content_type"`
+	IsDir       bool        `json:"is_dir"`
+	Status      string      `json:"status"`
+	ItemName    string      `json:"item_name"`
+	CreatedAt   string      `json:"created_at"`
+	UpdatedAt   string      `json:"updated_at"`
+	AccessTime  time.Time   `json:"access_time"`
+	ChangeTime  time.Time   `json:"change_time"`
+	ModifyTime  time.Time   `json:"modify_time"`
+	Gid         int         `json:"gid"`
+	UID         int         `json:"uid"`
 }
 
 func (c *Client) saveFileInfoPath(recoveryPointID string) string {

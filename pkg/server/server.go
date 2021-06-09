@@ -674,7 +674,7 @@ func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 				ID:         uuid.New().String(),
 				ItemName:   path,
 				ModifyTime: fi.ModTime(),
-				Mode:       fi.Mode(),
+				Mode:       fi.Mode().String(),
 				AccessMode: fi.Mode(),
 				Size:       fi.Size(),
 			},

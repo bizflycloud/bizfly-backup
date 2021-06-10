@@ -87,8 +87,8 @@ func (c *Client) saveChunkPath(recoveryPointID string, itemID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file/%s/chunks", recoveryPointID, itemID)
 }
 
-func (c *Client) getListFilePath(recoveryPointID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/list-files", recoveryPointID)
+func (c *Client) getListItemPath(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/items", recoveryPointID)
 }
 
 func (c *Client) infoFile(recoveryPointID string, itemID string) string {

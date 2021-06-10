@@ -1,7 +1,6 @@
 package backupapi
 
 import (
-	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -12,7 +11,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -20,8 +18,6 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 	"github.com/restic/chunker"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/sync/errgroup"
-	"golang.org/x/sync/semaphore"
 )
 
 const ChunkUploadLowerBound = 8 * 1000 * 1000
@@ -80,9 +76,36 @@ type File struct {
 type FilesResponse []File
 
 // ItemsResponse ...
-type ItemsResponse struct {
+type FileInfoResponse struct {
 	Files []File `json:"files"`
-	Total string `json:"total"`
+	Total int    `json:"total"`
+}
+
+// Item ...
+type Item struct {
+	Mode        string      `json:"mode"`
+	AccessMode  os.FileMode `json:"access_mode"`
+	AccessTime  time.Time   `json:"access_time"`
+	ChangeTime  time.Time   `json:"change_time"`
+	ModifyTime  time.Time   `json:"modify_time"`
+	ContentType string      `json:"content_type"`
+	CreatedAt   string      `json:"created_at"`
+	GID         uint32      `json:"gid"`
+	UID         uint32      `json:"uid"`
+	ID          string      `json:"id"`
+	IsDir       bool        `json:"is_dir"`
+	ItemName    string      `json:"item_name"`
+	RealName    string      `json:"real_name"`
+	ItemType    string      `json:"item_type"`
+	Size        int         `json:"size"`
+	Status      string      `json:"status"`
+	UpdatedAt   string      `json:"updated_at"`
+}
+
+// ItemsResponse ...
+type ItemsResponse struct {
+	Items []Item `json:"items"`
+	Total int    `json:"total"`
 }
 
 // ChunkRequest ...
@@ -113,7 +136,7 @@ type PresignedURL struct {
 // InfoDownload ...
 type InfoDownload struct {
 	Get    string `json:"get"`
-	Offset string `json:"offset"`
+	Offset int    `json:"offset"`
 }
 
 // FileDownloadResponse ...
@@ -381,50 +404,53 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 }
 
 func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreSessionKey string, createdAt string) error {
-	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
-	group, ctx := errgroup.WithContext(context.Background())
+	// sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
+	// group, ctx := errgroup.WithContext(context.Background())
 
-	rp, err := c.GetListFilePath(recoveryPointID)
+	rp, err := c.GetListItemPath(recoveryPointID)
 	if err != nil {
 		return err
 	}
 
 	var file *os.File
-	for _, f := range rp.Files {
-		infos, err := c.GetInfoFileDownload(recoveryPointID, f.ID, restoreSessionKey, createdAt)
-		if err != nil {
-			return err
-		}
-		if len(infos.Info) == 0 {
-			break
-		}
-
-		relativePathRealName := strings.Join(strings.Split(f.RealName, "/")[0:len(strings.Split(f.RealName, "/"))-1], "/")
-		absolutePathRealName := filepath.Join(destDir, relativePathRealName)
-		fileRestore := filepath.Join(absolutePathRealName, filepath.Base(f.RealName))
-
-		if err := EnsureDirectory(absolutePathRealName); err != nil {
-			return err
-		}
-
-		file, err = CreateFile(fileRestore)
-		if err != nil {
-			return err
-		}
-
-		for _, info := range infos.Info {
-			errAcquire := sem.Acquire(ctx, 1)
-			if errAcquire != nil {
-				continue
+	for _, item := range rp.Items {
+		if item.IsDir {
+			if err := createDir(filepath.Join(destDir, item.RealName)); err != nil {
+				return nil
 			}
-			offset, err := strconv.ParseInt(info.Offset, 10, 64)
+			log.Println(item.IsDir, filepath.Join(destDir, item.RealName), item.AccessMode, item.GID, item.UID)
+			os.Chmod(filepath.Join(destDir, item.RealName), item.AccessMode)
+			os.Chown(filepath.Join(destDir, item.RealName), int(item.UID), int(item.GID))
+		} else {
+			log.Println(item.IsDir, filepath.Join(destDir, item.RealName), item.AccessMode, item.GID, item.UID)
+			if file, err = createFile(filepath.Join(destDir, item.RealName)); err != nil {
+				return err
+			}
+			file.Chmod(item.AccessMode)
+			file.Chown(int(item.UID), int(item.GID))
+
+			infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
 			if err != nil {
 				return err
 			}
-			key := info.Get
 
-			group.Go(func() error {
-				defer sem.Release(1)
+			if len(infos.Info) == 0 {
+				break
+			}
+
+			for _, info := range infos.Info {
+				// errAcquire := sem.Acquire(ctx, 1)
+				// if errAcquire != nil {
+				// 	continue
+				// }
+				offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+				if err != nil {
+					return err
+				}
+				key := info.Get
+
+				// group.Go(func() error {
+				// 	defer sem.Release(1)
 				data, err := volume.GetObject(key)
 				if err != nil {
 					return err
@@ -433,21 +459,20 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 				if errWriteFile != nil {
 					return nil
 				}
-				return nil
-			})
+				// 	return nil
+				// })
+			}
 		}
-
 	}
-	if err := group.Wait(); err != nil {
-		return err
-	}
+	// if err := group.Wait(); err != nil {
+	// 	return err
+	// }
 	defer file.Close()
-
 	return nil
 }
 
-func (c *Client) GetListFilePath(recoveryPointID string) (*ItemsResponse, error) {
-	reqURL, err := c.urlStringFromRelPath(c.getListFilePath(recoveryPointID))
+func (c *Client) GetListItemPath(recoveryPointID string) (*ItemsResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.getListItemPath(recoveryPointID))
 	if err != nil {
 		return nil, err
 	}
@@ -468,8 +493,8 @@ func (c *Client) GetListFilePath(recoveryPointID string) (*ItemsResponse, error)
 	return &items, nil
 }
 
-func (c *Client) GetInfoFileDownload(recoveryPointID string, itemID string, restoreSessionKey string, createdAt string) (*FileDownloadResponse, error) {
-	reqURL, err := c.urlStringFromRelPath(c.infoFile(recoveryPointID, itemID))
+func (c *Client) GetInfoFileDownload(recoveryPointID string, itemFileID string, restoreSessionKey string, createdAt string) (*FileDownloadResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.infoFile(recoveryPointID, itemFileID))
 	if err != nil {
 		return nil, err
 	}
@@ -516,8 +541,8 @@ func (c *Client) infoPresignedUrl(recoveryPointID string, itemID string, infoUrl
 	return &chunkResp, nil
 }
 
-func EnsureDirectory(directoryName string) error {
-	err := os.MkdirAll(directoryName, os.ModePerm)
+func createDir(path string) error {
+	err := os.Mkdir(path, os.ModePerm)
 	if err == nil || os.IsExist(err) {
 		return nil
 	} else {
@@ -525,7 +550,7 @@ func EnsureDirectory(directoryName string) error {
 	}
 }
 
-func CreateFile(path string) (*os.File, error) {
+func createFile(path string) (*os.File, error) {
 	file, err := os.Create(path)
 	if err != nil {
 		return nil, err

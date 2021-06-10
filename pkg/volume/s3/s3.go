@@ -77,7 +77,7 @@ func getRequest(uri string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// log.Printf("GET %s -> %d", req.URL, resp.StatusCode)
+	log.Printf("GET %s -> %d", req.URL, resp.StatusCode)
 
 	if resp.StatusCode != 200 {
 		return nil, err

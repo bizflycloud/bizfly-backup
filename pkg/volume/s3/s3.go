@@ -3,9 +3,10 @@ package s3
 import (
 	"bytes"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 )
@@ -76,7 +77,7 @@ func getRequest(uri string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// log.Printf("GET %s -> %d", req.URL, resp.StatusCode)
+	log.Printf("GET %s -> %d", req.URL, resp.StatusCode)
 
 	if resp.StatusCode != 200 {
 		return nil, err
@@ -98,8 +99,7 @@ func (s3 *S3) PutObject(key string, data []byte) (string, error) {
 		if err == nil {
 			break
 		}
-		// log.Printf("request error: %+v\n", err)
-		// log.Printf("retrying in %v\n", backoff)
+		log.Printf("retrying in %v\n", backoff)
 		time.Sleep(backoff)
 	}
 
@@ -118,8 +118,7 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 		if err == nil {
 			break
 		}
-		// log.Printf("request error: %+v\n", err)
-		// log.Printf("retrying in %v\n", backoff)
+		log.Printf("retrying in %v\n", backoff)
 		time.Sleep(backoff)
 	}
 
@@ -138,8 +137,7 @@ func (s3 *S3) HeadObject(key string) (*http.Response, error) {
 		if err == nil {
 			break
 		}
-		// log.Printf("request error: %+v\n", err)
-		// log.Printf("retrying in %v\n", backoff)
+		log.Printf("retrying in %v\n", backoff)
 		time.Sleep(backoff)
 	}
 

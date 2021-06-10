@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 	"github.com/restic/chunker"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 )
@@ -332,13 +332,10 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 	fmt.Printf("\n")
 	log.Printf("Backup item: %+v\n", itemInfo)
 
-	log.Println("itemInfoLatest.ChangeTime", timeToString(itemInfoLatest.ChangeTime))
-	log.Println("itemInfo.Attributes.ChangeTime", timeToString(itemInfo.Attributes.ChangeTime))
-	log.Println("itemInfoLatest.ModifyTime", timeToString(itemInfoLatest.ModifyTime))
-	log.Println("itemInfo.Attributes.ModifyTime", timeToString(itemInfo.Attributes.ModifyTime))
-
-	if timeToString(itemInfoLatest.ChangeTime) != timeToString(itemInfo.Attributes.ChangeTime) {
-		if timeToString(itemInfoLatest.ModifyTime) != timeToString(itemInfo.Attributes.ModifyTime) {
+	// backup item with item change ctime
+	if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {
+		// backup item with item change mtime
+		if !strings.EqualFold(timeToString(itemInfoLatest.ModifyTime), timeToString(itemInfo.Attributes.ModifyTime)) {
 			log.Println("backup item with item change mtime, ctime")
 			log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
 			itemInfo.ChunkReference = false

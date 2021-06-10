@@ -36,18 +36,18 @@ type ItemInfo struct {
 
 // Attribute ...
 type Attribute struct {
-	ID         string      `json:"id"`
-	ItemName   string      `json:"item_name"`
-	Size       int64       `json:"size"`
-	ItemType   string      `json:"item_type"`
-	IsDir      bool        `json:"is_dir"`
-	ChangeTime time.Time   `json:"change_time"`
-	ModifyTime time.Time   `json:"modify_time"`
-	AccessTime time.Time   `json:"access_time"`
-	Mode       string      `json:"mode"`
-	AccessMode os.FileMode `json:"access_mode"`
-	GID        uint32      `json:"gid"`
-	UID        uint32      `json:"uid"`
+	ID         string      `json:"id,omitempty"`
+	ItemName   string      `json:"item_name,omitempty"`
+	Size       int64       `json:"size,omitempty"`
+	ItemType   string      `json:"item_type,omitempty"`
+	IsDir      bool        `json:"is_dir,omitempty"`
+	ChangeTime time.Time   `json:"change_time,omitempty"`
+	ModifyTime time.Time   `json:"modify_time,omitempty"`
+	AccessTime time.Time   `json:"access_time,omitempty"`
+	Mode       string      `json:"mode,omitempty"`
+	AccessMode os.FileMode `json:"access_mode,omitempty"`
+	GID        uint32      `json:"gid,omitempty"`
+	UID        uint32      `json:"uid,omitempty"`
 }
 
 // FileInfoRequest ...
@@ -220,7 +220,7 @@ func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRe
 }
 
 func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*ItemInfoLatest, error) {
-	if latestRecoveryPointID == "" {
+	if len(latestRecoveryPointID) == 0 {
 		return &ItemInfoLatest{
 			ID:         "",
 			ChangeTime: time.Time{},
@@ -330,6 +330,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 	log.Printf("Backup item: %+v\n", itemInfo)
 
 	if TimeToString(itemInfoLatest.ModifyTime) != TimeToString(itemInfo.Attributes.ModifyTime) {
+		log.Println("backup item with item change mtime")
 		log.Println("Save file info", itemInfo.Attributes.ItemName)
 		itemInfo.ChunkReference = false
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)

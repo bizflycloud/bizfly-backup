@@ -670,7 +670,7 @@ func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 		singleFile := backupapi.ItemInfo{
 			ParentItemID:   "",
 			ChunkReference: false,
-			Attributes: &backupapi.Attribute{
+			Attributes: backupapi.Attribute{
 				ID:         uuid.New().String(),
 				ItemName:   path,
 				ModifyTime: fi.ModTime().UTC(),

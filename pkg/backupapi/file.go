@@ -28,10 +28,10 @@ const ChunkUploadLowerBound = 8 * 1000 * 1000
 
 // ItemInfo ...
 type ItemInfo struct {
-	ItemType       string    `json:"item_type"`
-	ParentItemID   string    `json:"parent_item_id,omitempty"`
-	ChunkReference bool      `json:"chunk_reference"`
-	Attributes     Attribute `json:"attributes,omitempty"`
+	ItemType       string     `json:"item_type"`
+	ParentItemID   string     `json:"parent_item_id,omitempty"`
+	ChunkReference bool       `json:"chunk_reference"`
+	Attributes     *Attribute `json:"attributes,omitempty"`
 }
 
 // Attribute ...

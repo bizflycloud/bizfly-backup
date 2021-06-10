@@ -309,6 +309,8 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 				if err != nil {
 					return err
 				}
+			} else {
+				log.Println("exists", etagHead[0], chunkResp.Etag)
 			}
 		} else {
 			key = chunkResp.PresignedURL.Put
@@ -338,7 +340,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 	if timeToString(itemInfoLatest.ChangeTime) != timeToString(itemInfo.Attributes.ChangeTime) {
 		if timeToString(itemInfoLatest.ModifyTime) != timeToString(itemInfo.Attributes.ModifyTime) {
 			log.Println("backup item with item change mtime, ctime")
-			log.Println("Save file info", itemInfo.Attributes.ItemName)
+			log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
 			itemInfo.ChunkReference = false
 			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 			if err != nil {
@@ -355,7 +357,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 		} else {
 			// save info va reference chunk neu la file
 			log.Println("backup item with item change ctime and mtime not change")
-			log.Println("Save file info", itemInfo.Attributes.ItemName)
+			log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
 			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 			if err != nil {
 				return err
@@ -365,7 +367,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 
 	} else {
 		log.Println("backup item with item no change time")
-		log.Println("Save file info", itemInfo.Attributes.ItemName)
+		log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
 		_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
 			ItemType:       itemInfo.ItemType,
 			ParentItemID:   itemInfoLatest.ID,

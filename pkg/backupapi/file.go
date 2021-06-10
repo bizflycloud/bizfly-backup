@@ -329,9 +329,9 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 	}
 	log.Printf("Backup item: %+v\n", itemInfo)
 
-	if TimeToString(itemInfoLatest.ModifyTime) != TimeToString(itemInfo.Attributes.ModifyTime) {
-		log.Println("backup item with item change mtime")
-		log.Println("Save file info", itemInfo.Attributes.ItemName)
+	if timeToString(itemInfoLatest.ModifyTime) != timeToString(itemInfo.Attributes.ModifyTime) && timeToString(itemInfoLatest.ChangeTime) != timeToString(itemInfo.Attributes.ChangeTime) {
+		log.Println("backup item with item change mtime, ctime")
+		log.Println("Save file info", &itemInfo.Attributes.ItemName)
 		itemInfo.ChunkReference = false
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 		if err != nil {
@@ -345,25 +345,25 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			}
 		}
 		return nil
-	}
-	if TimeToString(itemInfoLatest.ChangeTime) != TimeToString(itemInfo.Attributes.ChangeTime) {
+	} else if timeToString(itemInfoLatest.ModifyTime) == timeToString(itemInfo.Attributes.ModifyTime) && timeToString(itemInfoLatest.ChangeTime) != timeToString(itemInfo.Attributes.ChangeTime) {
 		// save info va reference chunk neu la file
-		log.Println("backup item with item change ctime")
+		log.Println("backup item with item change ctime and mtime not change")
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 		if err != nil {
 			return err
 		}
 		return nil
-	}
-	log.Println("backup item with item no change time")
-	_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
-		ItemType:       itemInfo.ItemType,
-		ParentItemID:   itemInfoLatest.ID,
-		ChunkReference: itemInfo.ChunkReference,
-	})
+	} else {
+		log.Println("backup item with item no change time")
+		_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
+			ItemType:       itemInfo.ItemType,
+			ParentItemID:   itemInfoLatest.ID,
+			ChunkReference: itemInfo.ChunkReference,
+		})
 
-	if err != nil {
-		return err
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -522,6 +522,6 @@ func CreateFile(path string) (*os.File, error) {
 	return file, nil
 }
 
-func TimeToString(time time.Time) string {
+func timeToString(time time.Time) string {
 	return time.Format("2006-01-02 15:04:05.000000")
 }

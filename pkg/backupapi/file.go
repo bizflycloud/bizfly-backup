@@ -28,26 +28,26 @@ const ChunkUploadLowerBound = 8 * 1000 * 1000
 
 // ItemInfo ...
 type ItemInfo struct {
-	ItemType       string    `json:"item_type"`
-	ParentItemID   string    `json:"parent_item_id,omitempty"`
-	ChunkReference bool      `json:"chunk_reference"`
-	Attributes     Attribute `json:"attributes,omitempty"`
+	ItemType       string     `json:"item_type"`
+	ParentItemID   string     `json:"parent_item_id,omitempty"`
+	ChunkReference bool       `json:"chunk_reference"`
+	Attributes     *Attribute `json:"attributes,omitempty"`
 }
 
 // Attribute ...
 type Attribute struct {
-	ID         string      `json:"id,omitempty"`
-	ItemName   string      `json:"item_name,omitempty"`
-	Size       int64       `json:"size,omitempty"`
-	ItemType   string      `json:"item_type,omitempty"`
-	IsDir      bool        `json:"is_dir,omitempty"`
-	ChangeTime time.Time   `json:"change_time,omitempty"`
-	ModifyTime time.Time   `json:"modify_time,omitempty"`
-	AccessTime time.Time   `json:"access_time,omitempty"`
-	Mode       string      `json:"mode,omitempty"`
-	AccessMode os.FileMode `json:"access_mode,omitempty"`
-	GID        uint32      `json:"gid,omitempty"`
-	UID        uint32      `json:"uid,omitempty"`
+	ID         string      `json:"id"`
+	ItemName   string      `json:"item_name"`
+	Size       int64       `json:"size"`
+	ItemType   string      `json:"item_type"`
+	IsDir      bool        `json:"is_dir"`
+	ChangeTime time.Time   `json:"change_time"`
+	ModifyTime time.Time   `json:"modify_time"`
+	AccessTime time.Time   `json:"access_time"`
+	Mode       string      `json:"mode"`
+	AccessMode os.FileMode `json:"access_mode"`
+	GID        uint32      `json:"gid"`
+	UID        uint32      `json:"uid"`
 }
 
 // FileInfoRequest ...

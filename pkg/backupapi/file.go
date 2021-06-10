@@ -28,10 +28,10 @@ const ChunkUploadLowerBound = 8 * 1000 * 1000
 
 // ItemInfo ...
 type ItemInfo struct {
-	ItemType       string     `json:"item_type"`
-	ParentItemID   string     `json:"parent_item_id,omitempty"`
-	ChunkReference bool       `json:"chunk_reference"`
-	Attributes     *Attribute `json:"attributes,omitempty"`
+	ItemType       string    `json:"item_type"`
+	ParentItemID   string    `json:"parent_item_id,omitempty"`
+	ChunkReference bool      `json:"chunk_reference"`
+	Attributes     Attribute `json:"attributes,omitempty"`
 }
 
 // Attribute ...
@@ -327,34 +327,45 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 	if err != nil {
 		return err
 	}
+	fmt.Printf("\n")
 	log.Printf("Backup item: %+v\n", itemInfo)
 
-	if timeToString(itemInfoLatest.ModifyTime) != timeToString(itemInfo.Attributes.ModifyTime) && timeToString(itemInfoLatest.ChangeTime) != timeToString(itemInfo.Attributes.ChangeTime) {
-		log.Println("backup item with item change mtime, ctime")
-		log.Println("Save file info", &itemInfo.Attributes.ItemName)
-		itemInfo.ChunkReference = false
-		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
-		if err != nil {
-			return err
-		}
-		log.Println("Continue chunk file to backup")
-		if itemInfo.ItemType == "FILE" {
-			err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume)
+	log.Println("itemInfoLatest.ChangeTime", timeToString(itemInfoLatest.ChangeTime))
+	log.Println("itemInfo.Attributes.ChangeTime", timeToString(itemInfo.Attributes.ChangeTime))
+	log.Println("itemInfoLatest.ModifyTime", timeToString(itemInfoLatest.ModifyTime))
+	log.Println("itemInfo.Attributes.ModifyTime", timeToString(itemInfo.Attributes.ModifyTime))
+
+	if timeToString(itemInfoLatest.ChangeTime) != timeToString(itemInfo.Attributes.ChangeTime) {
+		if timeToString(itemInfoLatest.ModifyTime) != timeToString(itemInfo.Attributes.ModifyTime) {
+			log.Println("backup item with item change mtime, ctime")
+			log.Println("Save file info", itemInfo.Attributes.ItemName)
+			itemInfo.ChunkReference = false
+			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 			if err != nil {
-				return nil
+				return err
 			}
+			if itemInfo.ItemType == "FILE" {
+				log.Println("Continue chunk file to backup")
+				err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume)
+				if err != nil {
+					return nil
+				}
+			}
+			return nil
+		} else {
+			// save info va reference chunk neu la file
+			log.Println("backup item with item change ctime and mtime not change")
+			log.Println("Save file info", itemInfo.Attributes.ItemName)
+			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+			if err != nil {
+				return err
+			}
+			return nil
 		}
-		return nil
-	} else if timeToString(itemInfoLatest.ModifyTime) == timeToString(itemInfo.Attributes.ModifyTime) && timeToString(itemInfoLatest.ChangeTime) != timeToString(itemInfo.Attributes.ChangeTime) {
-		// save info va reference chunk neu la file
-		log.Println("backup item with item change ctime and mtime not change")
-		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
-		if err != nil {
-			return err
-		}
-		return nil
+
 	} else {
 		log.Println("backup item with item no change time")
+		log.Println("Save file info", itemInfo.Attributes.ItemName)
 		_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
 			ItemType:       itemInfo.ItemType,
 			ParentItemID:   itemInfoLatest.ID,

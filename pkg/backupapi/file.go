@@ -355,6 +355,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			// save info va reference chunk neu la file
 			log.Println("backup item with item change ctime and mtime not change")
 			log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
+			itemInfo.ParentItemID = itemInfoLatest.ID
 			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 			if err != nil {
 				return err

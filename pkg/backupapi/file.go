@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
@@ -415,24 +416,21 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 
 	var file *os.File
 	for _, item := range rp.Items {
-		switch item.ItemType {
-		case "DIRECTORY":
-			path := filepath.Join(destDir, item.RealName)
-			if _, err := os.Stat(path); os.IsNotExist(err) {
+		path := filepath.Join(destDir, item.RealName)
+
+		// item not exist
+		if fi, err := os.Stat(path); os.IsNotExist(err) {
+			switch item.ItemType {
+			case "DIRECTORY":
 				err := createDir(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
 				if err != nil {
 					return nil
 				}
-			}
 
-		case "FILE":
-			path := filepath.Join(destDir, item.RealName)
-			if _, err := os.Stat(path); os.IsNotExist(err) {
-				if file, err = createFile(path); err != nil {
+			case "FILE":
+				if file, err = createFile(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime); err != nil {
 					return err
 				}
-				file.Chmod(item.AccessMode)
-				file.Chown(int(item.UID), int(item.GID))
 				infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
 				if err != nil {
 					return err
@@ -458,9 +456,119 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 						return nil
 					}
 				}
-
 			}
+		} else {
+			_, ctimeLocal, mtimeLocal := itemLocal(fi)
+
+			log.Println("ctimeLocal", timeToString(ctimeLocal), fi.Name())
+			log.Println("ctimeStorage", timeToString(item.ChangeTime), fi.Name())
+
+			log.Println("mtimeLocal", timeToString(mtimeLocal), fi.Name())
+			log.Println("mtimeStorage", timeToString(item.ModifyTime), fi.Name())
+
+			if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
+				if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModifyTime)) {
+					log.Println("restore item with item change mtime, ctime")
+					infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
+					if err != nil {
+						return err
+					}
+
+					if len(infos.Info) == 0 {
+						break
+					}
+
+					for _, info := range infos.Info {
+						offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+						if err != nil {
+							return err
+						}
+						key := info.Get
+
+						data, err := volume.GetObject(key)
+						if err != nil {
+							return err
+						}
+						_, errWriteFile := file.WriteAt(data, offset)
+						if errWriteFile != nil {
+							return nil
+						}
+					}
+				} else {
+					log.Println("restore item with item change ctime and mtime not change")
+					err = os.Chmod(path, item.AccessMode)
+					if err != nil {
+						return err
+					}
+
+					err = os.Chown(path, int(item.UID), int(item.GID))
+					if err != nil {
+						return err
+					}
+
+					err = os.Chtimes(path, item.AccessTime, item.ModifyTime)
+					if err != nil {
+						return err
+					}
+				}
+			} else {
+				log.Println("item not change time")
+				return nil
+			}
+
 		}
+		// switch item.ItemType {
+
+		// case "DIRECTORY":
+		// 	path := filepath.Join(destDir, item.RealName)
+		// 	if fi, err := os.Stat(path); os.IsNotExist(err) {
+		// 		err := createDir(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
+		// 		if err != nil {
+		// 			return nil
+		// 		}
+		// 	} else {
+		// 		// atimeLocal, ctimeLocal, mtimeLocal := itemLocal(fi)
+		// 		if timeToString(mtimeLocal) != timeToString(item.ModifyTime) {
+
+		// 		}
+		// 	}
+
+		// case "FILE":
+		// 	path := filepath.Join(destDir, item.RealName)
+		// 	if _, err := os.Stat(path); os.IsNotExist(err) {
+		// 		if file, err = createFile(path); err != nil {
+		// 			return err
+		// 		}
+		// 		file.Chmod(item.AccessMode)
+		// 		file.Chown(int(item.UID), int(item.GID))
+		// 		infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
+		// 		if err != nil {
+		// 			return err
+		// 		}
+
+		// 		if len(infos.Info) == 0 {
+		// 			break
+		// 		}
+
+		// 		for _, info := range infos.Info {
+		// 			offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+		// 			if err != nil {
+		// 				return err
+		// 			}
+		// 			key := info.Get
+
+		// 			data, err := volume.GetObject(key)
+		// 			if err != nil {
+		// 				return err
+		// 			}
+		// 			_, errWriteFile := file.WriteAt(data, offset)
+		// 			if errWriteFile != nil {
+		// 				return nil
+		// 			}
+		// 		}
+
+		// 	}
+		// }
 	}
 	defer file.Close()
 	return nil
@@ -560,9 +668,24 @@ func createDir(path string, mode fs.FileMode, uid int, gid int, atime time.Time,
 	return nil
 }
 
-func createFile(path string) (*os.File, error) {
+func createFile(path string, mode fs.FileMode, uid int, gid int, atime time.Time, mtime time.Time) (*os.File, error) {
 	var file *os.File
 	file, err := os.Create(path)
+	if err != nil {
+		return nil, err
+	}
+
+	err = os.Chmod(path, mode)
+	if err != nil {
+		return nil, err
+	}
+
+	err = os.Chown(path, uid, gid)
+	if err != nil {
+		return nil, err
+	}
+
+	err = os.Chtimes(path, atime, mtime)
 	if err != nil {
 		return nil, err
 	}
@@ -572,4 +695,14 @@ func createFile(path string) (*os.File, error) {
 
 func timeToString(time time.Time) string {
 	return time.Format("2006-01-02 15:04:05.000000")
+}
+
+func itemLocal(fi fs.FileInfo) (time.Time, time.Time, time.Time) {
+	var atimeLocal, ctimeLocal, mtimeLocal time.Time
+	if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
+		atimeLocal = time.Unix(stat.Atim.Unix()).UTC()
+		ctimeLocal = time.Unix(stat.Ctim.Unix()).UTC()
+		mtimeLocal = time.Unix(stat.Mtim.Unix()).UTC()
+	}
+	return atimeLocal, ctimeLocal, mtimeLocal
 }

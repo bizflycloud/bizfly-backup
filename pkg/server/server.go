@@ -26,6 +26,8 @@ import (
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 	"golang.org/x/mod/semver"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
@@ -546,11 +548,27 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	if err != nil {
 		return err
 	}
+
+	sem := semaphore.NewWeighted(int64(10 * runtime.NumCPU()))
+	group, context := errgroup.WithContext(context.Background())
+
 	for _, itemInfo := range itemsInfo.Files {
-		if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, bd.Path, itemInfo, storageVolume); err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
-			return err
+		errAcquire := sem.Acquire(context, 1)
+		if errAcquire != nil {
+			continue
 		}
+		item := itemInfo
+		group.Go(func() error {
+			defer sem.Release(1)
+			if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, bd.Path, item, storageVolume); err != nil {
+				s.notifyStatusFailed(rp.ID, err.Error())
+				return err
+			}
+			return nil
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return err
 	}
 
 	s.reportUploadCompleted(progressOutput)
@@ -611,9 +629,6 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	}
 
 	s.reportStartDownload(progressOutput)
-
-	s.logger.Info(restoreSessionKey)
-	s.logger.Info(createdAt)
 
 	if err := s.backupClient.RestoreFile(recoveryPointID, destDir, storageVolume, restoreSessionKey, createdAt); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))

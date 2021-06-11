@@ -63,7 +63,7 @@ func putRequest(uri string, data []byte) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// log.Printf("PUT %s -> %d", req.URL, resp.StatusCode)
+	log.Printf("PUT %s -> %d", req.URL, resp.StatusCode)
 
 	defer resp.Body.Close()
 

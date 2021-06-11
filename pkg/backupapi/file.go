@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -414,59 +415,53 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 
 	var file *os.File
 	for _, item := range rp.Items {
-		if item.IsDir {
-			if err := createDir(filepath.Join(destDir, item.RealName)); err != nil {
-				return nil
-			}
-			log.Println(item.IsDir, filepath.Join(destDir, item.RealName), item.AccessMode, item.GID, item.UID)
-			os.Chmod(filepath.Join(destDir, item.RealName), item.AccessMode)
-			os.Chown(filepath.Join(destDir, item.RealName), int(item.UID), int(item.GID))
-		} else {
-			log.Println(item.IsDir, filepath.Join(destDir, item.RealName), item.AccessMode, item.GID, item.UID)
-			if file, err = createFile(filepath.Join(destDir, item.RealName)); err != nil {
-				return err
-			}
-			file.Chmod(item.AccessMode)
-			file.Chown(int(item.UID), int(item.GID))
-
-			infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
-			if err != nil {
-				return err
-			}
-
-			if len(infos.Info) == 0 {
-				break
-			}
-
-			for _, info := range infos.Info {
-				// errAcquire := sem.Acquire(ctx, 1)
-				// if errAcquire != nil {
-				// 	continue
-				// }
-				offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+		switch item.ItemType {
+		case "DIRECTORY":
+			path := filepath.Join(destDir, item.RealName)
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				err := createDir(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
 				if err != nil {
-					return err
-				}
-				key := info.Get
-
-				// group.Go(func() error {
-				// 	defer sem.Release(1)
-				data, err := volume.GetObject(key)
-				if err != nil {
-					return err
-				}
-				_, errWriteFile := file.WriteAt(data, offset)
-				if errWriteFile != nil {
 					return nil
 				}
-				// 	return nil
-				// })
+			}
+
+		case "FILE":
+			path := filepath.Join(destDir, item.RealName)
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				if file, err = createFile(path); err != nil {
+					return err
+				}
+				file.Chmod(item.AccessMode)
+				file.Chown(int(item.UID), int(item.GID))
+				infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
+				if err != nil {
+					return err
+				}
+
+				if len(infos.Info) == 0 {
+					break
+				}
+
+				for _, info := range infos.Info {
+					offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+					if err != nil {
+						return err
+					}
+					key := info.Get
+
+					data, err := volume.GetObject(key)
+					if err != nil {
+						return err
+					}
+					_, errWriteFile := file.WriteAt(data, offset)
+					if errWriteFile != nil {
+						return nil
+					}
+				}
+
 			}
 		}
 	}
-	// if err := group.Wait(); err != nil {
-	// 	return err
-	// }
 	defer file.Close()
 	return nil
 }
@@ -541,20 +536,37 @@ func (c *Client) infoPresignedUrl(recoveryPointID string, itemID string, infoUrl
 	return &chunkResp, nil
 }
 
-func createDir(path string) error {
-	err := os.Mkdir(path, os.ModePerm)
-	if err == nil || os.IsExist(err) {
-		return nil
-	} else {
+func createDir(path string, mode fs.FileMode, uid int, gid int, atime time.Time, mtime time.Time) error {
+	err := os.MkdirAll(path, os.ModePerm)
+	if err != nil {
 		return err
 	}
+
+	err = os.Chmod(path, mode)
+	if err != nil {
+		return err
+	}
+
+	err = os.Chown(path, uid, gid)
+	if err != nil {
+		return err
+	}
+
+	err = os.Chtimes(path, atime, mtime)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func createFile(path string) (*os.File, error) {
+	var file *os.File
 	file, err := os.Create(path)
 	if err != nil {
 		return nil, err
 	}
+
 	return file, nil
 }
 

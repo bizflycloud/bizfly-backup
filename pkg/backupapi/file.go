@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -406,175 +407,118 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 }
 
 func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreSessionKey string, createdAt string) error {
-	// sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
-	// group, ctx := errgroup.WithContext(context.Background())
-
-	rp, err := c.GetListItemPath(recoveryPointID)
+	totalPage, err := c.totalPageItemResponse(recoveryPointID)
 	if err != nil {
 		return err
 	}
-
 	var file *os.File
-	for _, item := range rp.Items {
-		path := filepath.Join(destDir, item.RealName)
+	if *totalPage > 0 {
+		for page := 1; page <= *totalPage; page++ {
+			reqURL := fmt.Sprintf("http://localhost:5000/agent/recovery-points/%s/items?items_per_page=5&page=%d", recoveryPointID, page)
 
-		// item not exist
-		if fi, err := os.Stat(path); os.IsNotExist(err) {
-			switch item.ItemType {
-			case "DIRECTORY":
-				err := createDir(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
-				if err != nil {
-					return nil
-				}
-
-			case "FILE":
-				if file, err = createFile(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime); err != nil {
-					return err
-				}
-				infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
-				if err != nil {
-					return err
-				}
-
-				if len(infos.Info) == 0 {
-					break
-				}
-
-				for _, info := range infos.Info {
-					offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
-					if err != nil {
-						return err
-					}
-					key := info.Get
-
-					data, err := volume.GetObject(key)
-					if err != nil {
-						return err
-					}
-					_, errWriteFile := file.WriteAt(data, offset)
-					if errWriteFile != nil {
-						return nil
-					}
-				}
+			rp, err := c.GetListItemPath(reqURL)
+			if err != nil {
+				return err
 			}
-		} else {
-			_, ctimeLocal, mtimeLocal := itemLocal(fi)
 
-			log.Println("ctimeLocal", timeToString(ctimeLocal), fi.Name())
-			log.Println("ctimeStorage", timeToString(item.ChangeTime), fi.Name())
+			// for _, item := range rp.Items {
+			// 	path := filepath.Join(destDir, item.RealName)
+			// 	if _, err := os.Stat(path); os.IsNotExist(err) {
+			// 		switch item.ItemType {
+			// 		case "DIRECTORY":
+			// 			err := createDir(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
+			// 			if err != nil {
+			// 				return nil
+			// 			}
 
-			log.Println("mtimeLocal", timeToString(mtimeLocal), fi.Name())
-			log.Println("mtimeStorage", timeToString(item.ModifyTime), fi.Name())
+			// 		case "FILE":
+			// 			if file, err = createFile(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime); err != nil {
+			// 				return err
+			// 			}
+			// 			infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
+			// 			if err != nil {
+			// 				return err
+			// 			}
 
-			if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
-				if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModifyTime)) {
-					log.Println("restore item with item change mtime, ctime")
-					infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
-					if err != nil {
-						return err
-					}
+			// 			if len(infos.Info) == 0 {
+			// 				break
+			// 			}
 
-					if len(infos.Info) == 0 {
-						break
-					}
+			// 			for _, info := range infos.Info {
+			// 				offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+			// 				if err != nil {
+			// 					return err
+			// 				}
+			// 				key := info.Get
 
-					for _, info := range infos.Info {
-						offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+			// 				data, err := volume.GetObject(key)
+			// 				if err != nil {
+			// 					return err
+			// 				}
+			// 				_, errWriteFile := file.WriteAt(data, offset)
+			// 				if errWriteFile != nil {
+			// 					return nil
+			// 				}
+			// 			}
+			// 		}
+			// 	} else {
+
+			// 	}
+
+			for _, item := range rp.Items {
+				path := filepath.Join(destDir, item.RealName)
+				switch item.ItemType {
+				case "DIRECTORY":
+					if _, err := os.Stat(path); os.IsNotExist(err) {
+						err := createDir(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
 						if err != nil {
-							return err
-						}
-						key := info.Get
-
-						data, err := volume.GetObject(key)
-						if err != nil {
-							return err
-						}
-						_, errWriteFile := file.WriteAt(data, offset)
-						if errWriteFile != nil {
 							return nil
 						}
-					}
-				} else {
-					log.Println("restore item with item change ctime and mtime not change")
-					err = os.Chmod(path, item.AccessMode)
-					if err != nil {
-						return err
-					}
+					} else {
 
-					err = os.Chown(path, int(item.UID), int(item.GID))
-					if err != nil {
-						return err
 					}
+				case "FILE":
+					if _, err := os.Stat(path); os.IsNotExist(err) {
+						if file, err = createFile(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime); err != nil {
+							return err
+						}
+						infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
+						if err != nil {
+							return err
+						}
 
-					err = os.Chtimes(path, item.AccessTime, item.ModifyTime)
-					if err != nil {
-						return err
+						if len(infos.Info) == 0 {
+							break
+						}
+
+						for _, info := range infos.Info {
+							offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+							if err != nil {
+								return err
+							}
+							key := info.Get
+
+							data, err := volume.GetObject(key)
+							if err != nil {
+								return err
+							}
+							_, errWriteFile := file.WriteAt(data, offset)
+							if errWriteFile != nil {
+								return nil
+							}
+						}
+					} else {
+
 					}
 				}
-			} else {
-				log.Println("item not change time")
-				return nil
 			}
-
 		}
-		// switch item.ItemType {
-
-		// case "DIRECTORY":
-		// 	path := filepath.Join(destDir, item.RealName)
-		// 	if fi, err := os.Stat(path); os.IsNotExist(err) {
-		// 		err := createDir(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
-		// 		if err != nil {
-		// 			return nil
-		// 		}
-		// 	} else {
-		// 		// atimeLocal, ctimeLocal, mtimeLocal := itemLocal(fi)
-		// 		if timeToString(mtimeLocal) != timeToString(item.ModifyTime) {
-
-		// 		}
-		// 	}
-
-		// case "FILE":
-		// 	path := filepath.Join(destDir, item.RealName)
-		// 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		// 		if file, err = createFile(path); err != nil {
-		// 			return err
-		// 		}
-		// 		file.Chmod(item.AccessMode)
-		// 		file.Chown(int(item.UID), int(item.GID))
-		// 		infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
-		// 		if err != nil {
-		// 			return err
-		// 		}
-
-		// 		if len(infos.Info) == 0 {
-		// 			break
-		// 		}
-
-		// 		for _, info := range infos.Info {
-		// 			offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
-		// 			if err != nil {
-		// 				return err
-		// 			}
-		// 			key := info.Get
-
-		// 			data, err := volume.GetObject(key)
-		// 			if err != nil {
-		// 				return err
-		// 			}
-		// 			_, errWriteFile := file.WriteAt(data, offset)
-		// 			if errWriteFile != nil {
-		// 				return nil
-		// 			}
-		// 		}
-
-		// 	}
-		// }
 	}
 	defer file.Close()
 	return nil
 }
 
-func (c *Client) GetListItemPath(recoveryPointID string) (*ItemsResponse, error) {
+func (c *Client) totalPageItemResponse(recoveryPointID string) (*int, error) {
 	reqURL, err := c.urlStringFromRelPath(c.getListItemPath(recoveryPointID))
 	if err != nil {
 		return nil, err
@@ -584,6 +528,35 @@ func (c *Client) GetListItemPath(recoveryPointID string) (*ItemsResponse, error)
 	if err != nil {
 		return nil, err
 	}
+
+	itemsPerPage := "5"
+	q := req.URL.Query()
+	q.Add("items_per_page", itemsPerPage)
+	q.Add("page", "1")
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	var items ItemsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		return nil, err
+	}
+
+	totalItem := items.Total
+
+	totalPage := int(math.Ceil(float64(totalItem) / float64(5)))
+
+	return &totalPage, nil
+}
+
+func (c *Client) GetListItemPath(reqURL string) (*ItemsResponse, error) {
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
 	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err

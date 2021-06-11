@@ -549,7 +549,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return err
 	}
 
-	sem := semaphore.NewWeighted(int64(10 * runtime.NumCPU()))
+	sem := semaphore.NewWeighted(int64(50 * runtime.NumCPU()))
 	group, context := errgroup.WithContext(context.Background())
 
 	for _, itemInfo := range itemsInfo.Files {

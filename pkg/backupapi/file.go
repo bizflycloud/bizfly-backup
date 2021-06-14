@@ -443,7 +443,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 }
 
 func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreSessionKey string, createdAt string) error {
-	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
+	sem := semaphore.NewWeighted(int64(5 * runtime.NumCPU()))
 	group, ctx := errgroup.WithContext(context.Background())
 
 	totalPage, _, err := c.GetListItemPath(recoveryPointID, 1)

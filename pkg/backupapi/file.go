@@ -537,7 +537,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 								if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModifyTime)) {
 									log.Printf("file %s change mtime, ctime", path)
 
-									if file, err = os.Open(path); err != nil {
+									if file, err = os.OpenFile(path, os.O_WRONLY, fi.Mode()); err != nil {
 										return err
 									}
 

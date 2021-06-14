@@ -551,8 +551,9 @@ func (c *Client) GetListItemPath(recoveryPointID string, page int) (*int, *Items
 		return nil, nil, err
 	}
 
+	itemsPerPage := 50
 	q := req.URL.Query()
-	q.Add("items_per_page", "5")
+	q.Add("items_per_page", strconv.Itoa(itemsPerPage))
 	q.Add("page", strconv.Itoa(page))
 	req.URL.RawQuery = q.Encode()
 
@@ -566,7 +567,7 @@ func (c *Client) GetListItemPath(recoveryPointID string, page int) (*int, *Items
 	}
 
 	totalItem := items.Total
-	totalPage := int(math.Ceil(float64(totalItem) / float64(5)))
+	totalPage := int(math.Ceil(float64(totalItem) / float64(itemsPerPage)))
 
 	return &totalPage, &items, nil
 }

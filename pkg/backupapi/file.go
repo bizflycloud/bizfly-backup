@@ -373,7 +373,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 				log.Println("Continue chunk file to backup")
 				err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume)
 				if err != nil {
-					return nil
+					return err
 				}
 			}
 			return nil

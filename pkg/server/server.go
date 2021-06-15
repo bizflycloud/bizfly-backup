@@ -573,7 +573,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 			// 	s.notifyStatusFailed(rp.ID, err.Error())
 			// 	return err
 			// }
-			if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, bd.Path, item, storageVolume, done, statistic); err != nil {
+			if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, item, storageVolume, done, statistic); err != nil {
 				s.notifyStatusFailed(rp.ID, err.Error())
 				return err
 			}

@@ -365,7 +365,7 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 }
 
 // func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) error {
-func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume, done <-chan struct{}, stat chan<- uint64) error {
+func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume, done <-chan struct{}, stat chan<- uint64) error {
 
 	// p.Start()
 
@@ -401,10 +401,10 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 				if err != nil {
 					return err
 				}
-				fmt.Printf("Size put to storage =============== %d\n", storageSize)
+				log.Printf("Size put to storage =============== %d\n", storageSize)
 				select {
 				case stat <- storageSize:
-					fmt.Println("Send to stat")
+					log.Println("Send to stat")
 				case <-done:
 					return nil
 				}
@@ -429,7 +429,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			// p.Report(s)
 			select {
 			case stat <- 0:
-				fmt.Println("Send to stat backup item with item change ctime and mtime not change")
+				log.Println("Send to stat backup item with item change ctime and mtime not change")
 			case <-done:
 				return nil
 			}
@@ -450,7 +450,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 		}
 		select {
 		case stat <- 0:
-			fmt.Println("Send to stat backup item with item no change time")
+			log.Println("Send to stat backup item with item no change time")
 		case <-done:
 			return nil
 		}
@@ -562,7 +562,11 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 								if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModifyTime)) {
 									log.Printf("file %s change mtime, ctime", path)
 
-									if file, err = os.OpenFile(path, os.O_RDWR, fi.Mode()); err != nil {
+									if err = os.Remove(path); err != nil {
+										return err
+									}
+
+									if file, err = createFile(path, item.AccessMode, int(item.UID), int(item.GID)); err != nil {
 										return err
 									}
 
@@ -590,14 +594,6 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 										if errWriteFile != nil {
 											return err
 										}
-									}
-									err = os.Chmod(file.Name(), item.AccessMode)
-									if err != nil {
-										return err
-									}
-									err = os.Chown(file.Name(), int(item.UID), int(item.GID))
-									if err != nil {
-										return err
 									}
 									err = os.Chtimes(file.Name(), item.AccessTime, item.ModifyTime)
 									if err != nil {

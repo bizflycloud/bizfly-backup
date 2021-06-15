@@ -540,7 +540,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 								if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModifyTime)) {
 									log.Printf("file %s change mtime, ctime", path)
 
-									if file, err = os.OpenFile(path, os.O_WRONLY, fi.Mode()); err != nil {
+									if file, err = os.OpenFile(path, os.O_RDWR, fi.Mode()); err != nil {
 										return err
 									}
 
@@ -568,6 +568,14 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 										if errWriteFile != nil {
 											return err
 										}
+									}
+									err = os.Chmod(file.Name(), item.AccessMode)
+									if err != nil {
+										return err
+									}
+									err = os.Chown(file.Name(), int(item.UID), int(item.GID))
+									if err != nil {
+										return err
 									}
 									err = os.Chtimes(file.Name(), item.AccessTime, item.ModifyTime)
 									if err != nil {

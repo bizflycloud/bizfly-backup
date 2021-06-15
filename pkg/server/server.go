@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 	"io"
 	"io/ioutil"
 	"net"
@@ -542,15 +541,17 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	})
 
 	// Upload file to storage
-	s.reportStartUpload(progressOutput)
-	progressScan := s.newProgressScanDir()
+	// s.reportStartUpload(progressOutput)
+	// progressScan := s.newProgressScanDir()
 	// Scan directory
-	itemTodo, itemsInfo, err := WalkerDir(bd.Path, progressScan)
+	// itemTodo, itemsInfo, err := WalkerDir(bd.Path, progressScan)
+	// itemsInfo, err := WalkerDir(bd.Path, progressScan)
+	itemsInfo, err := WalkerDir(bd.Path)
 	if err != nil {
 		return err
 	}
-	progressUpload := s.newUploadProgress(itemTodo)
-	defer progressUpload.Done()
+	// progressUpload := s.newUploadProgress(itemTodo)
+	// defer progressUpload.Done()
 	sem := semaphore.NewWeighted(int64(20))
 	group, context := errgroup.WithContext(context.Background())
 
@@ -562,7 +563,11 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		item := itemInfo
 		group.Go(func() error {
 			defer sem.Release(1)
-			if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, bd.Path, item, storageVolume, progressUpload); err != nil {
+			// if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, bd.Path, item, storageVolume, progressUpload); err != nil {
+			// 	s.notifyStatusFailed(rp.ID, err.Error())
+			// 	return err
+			// }
+			if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, bd.Path, item, storageVolume); err != nil {
 				s.notifyStatusFailed(rp.ID, err.Error())
 				return err
 			}
@@ -680,18 +685,19 @@ func NewStorageVolume(volumeType string) (volume.StorageVolume, error) {
 	}
 }
 
-func WalkerDir(dir string, p *progress.Progress) (progress.Stat, *backupapi.FileInfoRequest, error) {
-	p.Start()
-	defer p.Done()
+// func WalkerDir(dir string, p *progress.Progress) (progress.Stat, *backupapi.FileInfoRequest, error) {
+func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
+	// p.Start()
+	// defer p.Done()
 
 	var fileInfoRequest backupapi.FileInfoRequest
-	var st progress.Stat
+	// var st progress.Stat
 	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 
-		s := progress.Stat{}
+		// s := progress.Stat{}
 
 		singleFile := backupapi.ItemInfo{
 			ParentItemID:   "",
@@ -718,123 +724,125 @@ func WalkerDir(dir string, p *progress.Progress) (progress.Stat, *backupapi.File
 			singleFile.Attributes.ItemType = "DIRECTORY"
 			singleFile.Attributes.IsDir = true
 			singleFile.ChunkReference = false
-			s.Dirs++
+			// s.Dirs++
 		} else {
 			singleFile.ItemType = "FILE"
 			singleFile.Attributes.ItemType = "FILE"
 			singleFile.Attributes.IsDir = false
 			singleFile.ChunkReference = true
-			s.Files++
-			s.Bytes += uint64(fi.Size())
+			// s.Files++
+			// s.Bytes += uint64(fi.Size())
 		}
 		fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
-		p.Report(s)
-		st.Add(s)
+		// p.Report(s)
+		// st.Add(s)
 		return nil
 	})
 	if err != nil {
-		return progress.Stat{}, nil, err
+		// return progress.Stat{}, nil, err
+		return nil, err
 	}
 
-	return st, &fileInfoRequest, err
+	// return st, &fileInfoRequest, err
+	return &fileInfoRequest, err
 }
 
-func (s *Server) newProgressScanDir() *progress.Progress {
-	p := progress.NewProgress(time.Second)
-	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
-		s.notifyMsg(map[string]string{
-			"STATISTIC=====================": stat.String(),
-		})
-	}
-	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
-		s.notifyMsg(map[string]string{
-			"SCANNED=======================": stat.String(),
-		})
-	}
-	return p
-}
+// func (s *Server) newProgressScanDir() *progress.Progress {
+// 	p := progress.NewProgress(time.Second)
+// 	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
+// 		s.notifyMsg(map[string]string{
+// 			"STATISTIC=====================": stat.String(),
+// 		})
+// 	}
+// 	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
+// 		s.notifyMsg(map[string]string{
+// 			"SCANNED=======================": stat.String(),
+// 		})
+// 	}
+// 	return p
+// }
 
-func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
-	p := progress.NewProgress(time.Second * 2)
+// func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
+// 	p := progress.NewProgress(time.Second * 2)
 
-	var bps, eta uint64
-	itemsTodo := todo.Files
+// 	var bps, eta uint64
+// 	itemsTodo := todo.Files
 
-	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
-		sec := uint64(d / time.Second)
+// 	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
+// 		sec := uint64(d / time.Second)
 
-		if todo.Bytes > 0 && sec > 0 && ticker {
-			bps = stat.Bytes / sec
-			if stat.Bytes >= todo.Bytes {
-				eta = 0
-			} else if bps > 0 {
-				eta = (todo.Bytes - stat.Bytes) / bps
-			}
-		}
+// 		if todo.Bytes > 0 && sec > 0 && ticker {
+// 			bps = stat.Bytes / sec
+// 			if stat.Bytes >= todo.Bytes {
+// 				eta = 0
+// 			} else if bps > 0 {
+// 				eta = (todo.Bytes - stat.Bytes) / bps
+// 			}
+// 		}
 
-		if ticker {
-			itemsDone := stat.Files
+// 		if ticker {
+// 			itemsDone := stat.Files
 
-			status1 := fmt.Sprintf("[Duration %s] %s [speed:%s/s] [%s/%s (Total)] [%s put storage] [%d/%d items] %d erros ",
-				formatDuration(d), formatPercent(stat.Bytes, todo.Bytes), formatBytes(bps), formatBytes(stat.Bytes), formatBytes(todo.Bytes), formatBytes(stat.Storage), itemsDone, itemsTodo, stat.Errors)
-			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
+// 			status1 := fmt.Sprintf("[Duration %s] %s [speed:%s/s] [%s/%s (Total)] [%s put storage] [%d/%d items] %d erros ",
+// 				formatDuration(d), formatPercent(stat.Bytes, todo.Bytes), formatBytes(bps), formatBytes(stat.Bytes), formatBytes(todo.Bytes), formatBytes(stat.Storage), itemsDone, itemsTodo, stat.Errors)
+// 			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
 
-			message := fmt.Sprintf("%s %s", status1, status2)
-			s.notifyMsg(map[string]string{
-				"Uploading": message,
-			})
-		}
-	}
+// 			message := fmt.Sprintf("%s %s", status1, status2)
+// 			s.notifyMsg(map[string]string{
+// 				"Uploading": message,
+// 			})
+// 		}
+// 	}
 
-	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
-		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
-		s.notifyMsg(map[string]string{
-			"COMPLETE UPLOAD": message,
-		})
-	}
-	return p
-}
+// 	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
+// 		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
+// 		s.notifyMsg(map[string]string{
+// 			"COMPLETE UPLOAD": message,
+// 		})
+// 	}
+// 	return p
+// }
 
-func formatBytes(c uint64) string {
-	b := float64(c)
+// func formatBytes(c uint64) string {
+// 	b := float64(c)
 
-	switch {
-	case c > 1<<40:
-		return fmt.Sprintf("%.3f TiB", b/(1<<40))
-	case c > 1<<30:
-		return fmt.Sprintf("%.3f GiB", b/(1<<30))
-	case c > 1<<20:
-		return fmt.Sprintf("%.3f MiB", b/(1<<20))
-	case c > 1<<10:
-		return fmt.Sprintf("%.3f KiB", b/(1<<10))
-	default:
-		return fmt.Sprintf("%dB", c)
-	}
-}
+// 	switch {
+// 	case c > 1<<40:
+// 		return fmt.Sprintf("%.3f TiB", b/(1<<40))
+// 	case c > 1<<30:
+// 		return fmt.Sprintf("%.3f GiB", b/(1<<30))
+// 	case c > 1<<20:
+// 		return fmt.Sprintf("%.3f MiB", b/(1<<20))
+// 	case c > 1<<10:
+// 		return fmt.Sprintf("%.3f KiB", b/(1<<10))
+// 	default:
+// 		return fmt.Sprintf("%dB", c)
+// 	}
+// }
 
-func formatPercent(numerator uint64, denominator uint64) string {
-	if denominator == 0 {
-		return ""
-	}
-	percent := 100.0 * float64(numerator) / float64(denominator)
-	if percent > 100 {
-		percent = 100
-	}
-	return fmt.Sprintf("%3.2f%%", percent)
-}
+// func formatPercent(numerator uint64, denominator uint64) string {
+// 	if denominator == 0 {
+// 		return ""
+// 	}
+// 	percent := 100.0 * float64(numerator) / float64(denominator)
+// 	if percent > 100 {
+// 		percent = 100
+// 	}
+// 	return fmt.Sprintf("%3.2f%%", percent)
+// }
 
-func formatSeconds(sec uint64) string {
-	hours := sec / 3600
-	sec -= hours * 3600
-	min := sec / 60
-	sec -= min * 60
-	if hours > 0 {
-		return fmt.Sprintf("%d:%02d:%02d", hours, min, sec)
-	}
-	return fmt.Sprintf("%d:%02d", min, sec)
-}
+// func formatSeconds(sec uint64) string {
+// 	hours := sec / 3600
+// 	sec -= hours * 3600
+// 	min := sec / 60
+// 	sec -= min * 60
+// 	if hours > 0 {
+// 		return fmt.Sprintf("%d:%02d:%02d", hours, min, sec)
+// 	}
+// 	return fmt.Sprintf("%d:%02d", min, sec)
+// }
 
-func formatDuration(d time.Duration) string {
-	sec := uint64(d / time.Second)
-	return formatSeconds(sec)
-}
+// func formatDuration(d time.Duration) string {
+// 	sec := uint64(d / time.Second)
+// 	return formatSeconds(sec)
+// }

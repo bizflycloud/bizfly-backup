@@ -20,7 +20,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 
@@ -285,8 +284,9 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 	return &itemInfoLatest, nil
 }
 
-func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) error {
-	p.Start()
+// func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) error {
+func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) error {
+	// p.Start()
 
 	file, err := os.Open(itemInfo.Attributes.ItemName)
 	if err != nil {
@@ -294,7 +294,7 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 	}
 	chk := chunker.New(file, 0x3dea92648f6e83)
 	buf := make([]byte, ChunkUploadLowerBound)
-	s := progress.Stat{}
+	// s := progress.Stat{}
 	for {
 		chunk, err := chk.Next(buf)
 		if err == io.EOF {
@@ -316,7 +316,7 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 		if err != nil {
 			return err
 		}
-		s.Bytes = uint64(chunk.Length)
+		// s.Bytes = uint64(chunk.Length)
 		infoUrl := InfoPresignUrl{
 			ActionID: actionID,
 			Etag:     key,
@@ -343,7 +343,7 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 				if err != nil {
 					return err
 				}
-				s.Storage = uint64(chunk.Length)
+				// s.Storage = uint64(chunk.Length)
 			} else {
 				log.Println("exists", etagHead[0], chunkResp.Etag)
 			}
@@ -353,16 +353,18 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 			if err != nil {
 				return err
 			}
-			s.Storage = uint64(chunk.Length)
+			// s.Storage = uint64(chunk.Length)
 		}
-		p.Report(s)
+		// p.Report(s)
 	}
 
 	return nil
 }
 
-func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) error {
-	p.Start()
+// func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) error {
+func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume) error {
+
+	// p.Start()
 
 	itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
 	if err != nil {
@@ -370,7 +372,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 	}
 	fmt.Printf("\n")
 	log.Printf("Backup item: %+v\n", itemInfo)
-	s := progress.Stat{}
+	// s := progress.Stat{}
 	// backup item with item change ctime
 	if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {
 		// backup item with item change mtime
@@ -382,16 +384,17 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			if err != nil {
 				return err
 			}
-			switch itemInfo.ItemType {
-			case "FILE":
-				s.Files = 1
-			case "DIRECTORY":
-				s.Dirs = 1
-			}
-			p.Report(s)
+			// switch itemInfo.ItemType {
+			// case "FILE":
+			// 	s.Files = 1
+			// case "DIRECTORY":
+			// 	s.Dirs = 1
+			// }
+			// p.Report(s)
 			if itemInfo.ItemType == "FILE" {
 				log.Println("Continue chunk file to backup")
-				err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume, p)
+				// err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume, p)
+				err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume)
 				if err != nil {
 					return err
 				}
@@ -406,14 +409,14 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			if err != nil {
 				return err
 			}
-			switch itemInfo.ItemType {
-			case "FILE":
-				s.Bytes = uint64(itemInfo.Attributes.Size)
-				s.Files = 1
-			case "DIRECTORY":
-				s.Dirs = 1
-			}
-			p.Report(s)
+			// switch itemInfo.ItemType {
+			// case "FILE":
+			// 	s.Bytes = uint64(itemInfo.Attributes.Size)
+			// 	s.Files = 1
+			// case "DIRECTORY":
+			// 	s.Dirs = 1
+			// }
+			// p.Report(s)
 			return nil
 		}
 
@@ -429,14 +432,14 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 		if err != nil {
 			return err
 		}
-		switch itemInfo.ItemType {
-		case "FILE":
-			s.Bytes = uint64(itemInfo.Attributes.Size)
-			s.Files = 1
-		case "DIRECTORY":
-			s.Dirs = 1
-		}
-		p.Report(s)
+		// switch itemInfo.ItemType {
+		// case "FILE":
+		// 	s.Bytes = uint64(itemInfo.Attributes.Size)
+		// 	s.Files = 1
+		// case "DIRECTORY":
+		// 	s.Dirs = 1
+		// }
+		// p.Report(s)
 	}
 
 	return nil

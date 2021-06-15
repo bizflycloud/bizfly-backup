@@ -733,6 +733,13 @@ func createDir(path string, mode fs.FileMode, uid int, gid int, atime time.Time,
 }
 
 func createFile(path string, mode fs.FileMode, uid int, gid int) (*os.File, error) {
+	dirName := filepath.Dir(path)
+	if _, err := os.Stat(dirName); os.IsNotExist(err) {
+		if err := os.MkdirAll(dirName, 0700); err != nil {
+			return nil, err
+		}
+
+	}
 	var file *os.File
 	file, err := os.Create(path)
 	if err != nil {

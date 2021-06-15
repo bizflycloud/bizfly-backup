@@ -285,23 +285,24 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 }
 
 // func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) error {
-func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) error {
+func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) (uint64, error) {
 	// p.Start()
 
 	file, err := os.Open(itemInfo.Attributes.ItemName)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	chk := chunker.New(file, 0x3dea92648f6e83)
 	buf := make([]byte, ChunkUploadLowerBound)
 	// s := progress.Stat{}
+	var stat uint64
 	for {
 		chunk, err := chk.Next(buf)
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			return err
+			return stat, err
 		}
 
 		hash := md5.Sum(chunk.Data)
@@ -314,7 +315,7 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 
 		_, err = c.saveChunk(recoveryPointID, itemInfo.Attributes.ID, &chunkReq)
 		if err != nil {
-			return err
+			return stat, err
 		}
 		// s.Bytes = uint64(chunk.Length)
 		infoUrl := InfoPresignUrl{
@@ -323,7 +324,7 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 		}
 		chunkResp, err := c.infoPresignedUrl(recoveryPointID, itemInfo.Attributes.ID, &infoUrl)
 		if err != nil {
-			return err
+			return stat, err
 		}
 
 		if chunkResp.PresignedURL.Head != "" {
@@ -332,7 +333,7 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 
 		resp, err := volume.HeadObject(key)
 		if err != nil {
-			return err
+			return stat, err
 		}
 
 		if etagHead, ok := resp.Header["Etag"]; ok {
@@ -341,8 +342,9 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 				key = chunkResp.PresignedURL.Put
 				_, err := volume.PutObject(key, chunk.Data)
 				if err != nil {
-					return err
+					return stat, err
 				}
+				stat += uint64(chunk.Length)
 				// s.Storage = uint64(chunk.Length)
 			} else {
 				log.Println("exists", etagHead[0], chunkResp.Etag)
@@ -351,18 +353,19 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 			key = chunkResp.PresignedURL.Put
 			_, err := volume.PutObject(key, chunk.Data)
 			if err != nil {
-				return err
+				return stat, err
 			}
 			// s.Storage = uint64(chunk.Length)
+			stat += uint64(chunk.Length)
 		}
 		// p.Report(s)
 	}
 
-	return nil
+	return stat, nil
 }
 
 // func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) error {
-func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume) error {
+func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume, done <-chan struct{}, stat chan<- uint64) error {
 
 	// p.Start()
 
@@ -394,9 +397,16 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			if itemInfo.ItemType == "FILE" {
 				log.Println("Continue chunk file to backup")
 				// err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume, p)
-				err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume)
+				storageSize, err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume)
 				if err != nil {
 					return err
+				}
+				fmt.Printf("Size put to storage =============== %d\n", storageSize)
+				select {
+				case stat <- storageSize:
+					fmt.Println("Send to stat")
+				case <-done:
+					return nil
 				}
 			}
 			return nil
@@ -417,6 +427,12 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			// 	s.Dirs = 1
 			// }
 			// p.Report(s)
+			select {
+			case stat <- 0:
+				fmt.Println("Send to stat backup item with item change ctime and mtime not change")
+			case <-done:
+				return nil
+			}
 			return nil
 		}
 
@@ -431,6 +447,12 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 
 		if err != nil {
 			return err
+		}
+		select {
+		case stat <- 0:
+			fmt.Println("Send to stat backup item with item no change time")
+		case <-done:
+			return nil
 		}
 		// switch itemInfo.ItemType {
 		// case "FILE":

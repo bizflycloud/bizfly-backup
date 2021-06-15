@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -546,12 +547,17 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	// Scan directory
 	// itemTodo, itemsInfo, err := WalkerDir(bd.Path, progressScan)
 	// itemsInfo, err := WalkerDir(bd.Path, progressScan)
-	itemsInfo, err := WalkerDir(bd.Path)
+	total, itemsInfo, err := WalkerDir(bd.Path)
 	if err != nil {
 		return err
 	}
 	// progressUpload := s.newUploadProgress(itemTodo)
 	// defer progressUpload.Done()
+	statistic := make(chan uint64)
+	done := make(chan struct{})
+	defer close(done)
+	var storageSize uint64
+
 	sem := semaphore.NewWeighted(int64(20))
 	group, context := errgroup.WithContext(context.Background())
 
@@ -567,22 +573,30 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 			// 	s.notifyStatusFailed(rp.ID, err.Error())
 			// 	return err
 			// }
-			if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, bd.Path, item, storageVolume); err != nil {
+			if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, bd.Path, item, storageVolume, done, statistic); err != nil {
 				s.notifyStatusFailed(rp.ID, err.Error())
 				return err
 			}
 			return nil
 		})
 	}
-	if err := group.Wait(); err != nil {
-		return err
-	}
+	go func() {
+		if err := group.Wait(); err != nil {
+			return
+		}
+		defer close(statistic)
+	}()
 
+	for stat := range statistic {
+		storageSize += stat
+	}
 	s.reportUploadCompleted(progressOutput)
 
 	s.notifyMsg(map[string]string{
-		"action_id": rp.ID,
-		"status":    statusComplete,
+		"action_id":    rp.ID,
+		"status":       statusComplete,
+		"storage_size": strconv.FormatUint(storageSize, 10),
+		"total":        strconv.FormatUint(total, 10),
 	})
 
 	return nil
@@ -686,11 +700,12 @@ func NewStorageVolume(volumeType string) (volume.StorageVolume, error) {
 }
 
 // func WalkerDir(dir string, p *progress.Progress) (progress.Stat, *backupapi.FileInfoRequest, error) {
-func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
+func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 	// p.Start()
 	// defer p.Done()
 
 	var fileInfoRequest backupapi.FileInfoRequest
+	var total uint64
 	// var st progress.Stat
 	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
@@ -730,6 +745,7 @@ func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 			singleFile.Attributes.ItemType = "FILE"
 			singleFile.Attributes.IsDir = false
 			singleFile.ChunkReference = true
+			total += uint64(fi.Size())
 			// s.Files++
 			// s.Bytes += uint64(fi.Size())
 		}
@@ -740,11 +756,11 @@ func WalkerDir(dir string) (*backupapi.FileInfoRequest, error) {
 	})
 	if err != nil {
 		// return progress.Stat{}, nil, err
-		return nil, err
+		return 0, nil, err
 	}
 
 	// return st, &fileInfoRequest, err
-	return &fileInfoRequest, err
+	return total, &fileInfoRequest, err
 }
 
 // func (s *Server) newProgressScanDir() *progress.Progress {

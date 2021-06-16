@@ -749,6 +749,13 @@ func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 			// s.Files++
 			// s.Bytes += uint64(fi.Size())
 		}
+
+		// check symlink
+		if fi.Mode()&os.ModeSymlink != 0 {
+			singleFile.ItemType = "SYMLINK"
+			singleFile.Attributes.ItemType = "SYMLINK"
+		}
+
 		fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
 		// p.Report(s)
 		// st.Add(s)

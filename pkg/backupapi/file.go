@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 
@@ -385,6 +386,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			itemInfo.ChunkReference = false
 			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 			if err != nil {
+				c.logger.Error("failed to save file info", zap.Error(err))
 				return err
 			}
 			// switch itemInfo.ItemType {
@@ -399,6 +401,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 				// err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume, p)
 				storageSize, err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume)
 				if err != nil {
+					c.logger.Error("failed to chunk file to backup", zap.Error(err))
 					return err
 				}
 				log.Printf("Size put to storage =============== %d\n", storageSize)
@@ -419,6 +422,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			itemInfo.ParentItemID = itemInfoLatest.ID
 			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 			if err != nil {
+				c.logger.Error("failed to save file info", zap.Error(err))
 				return err
 			}
 			// switch itemInfo.ItemType {
@@ -450,6 +454,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 		})
 
 		if err != nil {
+			c.logger.Error("failed to save file info", zap.Error(err))
 			return err
 		}
 		select {
@@ -479,6 +484,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 
 	totalPage, _, err := c.GetListItemPath(recoveryPointID, 1)
 	if err != nil {
+		c.logger.Error("failed to get list item", zap.Error(err))
 		return err
 	}
 	var file *os.File
@@ -495,6 +501,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 				defer sem.Release(1)
 				_, rp, err := c.GetListItemPath(recoveryPointID, p)
 				if err != nil {
+					c.logger.Error("failed to get list item", zap.Error(err))
 					return err
 				}
 
@@ -507,16 +514,19 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 							log.Println("dir not exist. create", path)
 							err := createDir(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
 							if err != nil {
+								c.logger.Error("failed to create dir", zap.Error(err))
 								return err
 							}
 
 						case "FILE":
 							log.Println("file not exist. create", path)
 							if file, err = createFile(path, item.AccessMode, int(item.UID), int(item.GID)); err != nil {
+								c.logger.Error("failed to create file", zap.Error(err))
 								return err
 							}
 							infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
 							if err != nil {
+								c.logger.Error("failed to get info file download", zap.Error(err))
 								return err
 							}
 
@@ -533,15 +543,18 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 
 								data, err := volume.GetObject(key)
 								if err != nil {
+									c.logger.Error("failed to get object", zap.Error(err))
 									return err
 								}
 								_, errWriteFile := file.WriteAt(data, offset)
 								if errWriteFile != nil {
+									c.logger.Error("failed to write at file", zap.Error(err))
 									return err
 								}
 							}
 							err = os.Chtimes(file.Name(), item.AccessTime, item.ModifyTime)
 							if err != nil {
+								c.logger.Error("failed to set atime, mtime file", zap.Error(err))
 								return err
 							}
 						}
@@ -554,10 +567,12 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 								log.Printf("dir %s change ctime. update mode, uid, gid", item.RealName)
 								err = os.Chmod(path, item.AccessMode)
 								if err != nil {
+									c.logger.Error("failed to set access mode dir", zap.Error(err))
 									return err
 								}
 								err = os.Chown(path, int(item.UID), int(item.GID))
 								if err != nil {
+									c.logger.Error("failed to set uid, gid dir", zap.Error(err))
 									return err
 								}
 							}
@@ -569,15 +584,18 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 									log.Printf("file %s change mtime, ctime", path)
 
 									if err = os.Remove(path); err != nil {
+										c.logger.Error("failed to remove file", zap.Error(err))
 										return err
 									}
 
 									if file, err = createFile(path, item.AccessMode, int(item.UID), int(item.GID)); err != nil {
+										c.logger.Error("failed to create file", zap.Error(err))
 										return err
 									}
 
 									infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
 									if err != nil {
+										c.logger.Error("failed to get info file download", zap.Error(err))
 										return err
 									}
 
@@ -594,25 +612,30 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 
 										data, err := volume.GetObject(key)
 										if err != nil {
+											c.logger.Error("failed to get object", zap.Error(err))
 											return err
 										}
 										_, errWriteFile := file.WriteAt(data, offset)
 										if errWriteFile != nil {
+											c.logger.Error("failed to write at file", zap.Error(err))
 											return err
 										}
 									}
 									err = os.Chtimes(file.Name(), item.AccessTime, item.ModifyTime)
 									if err != nil {
+										c.logger.Error("failed to set atime, mtime file", zap.Error(err))
 										return err
 									}
 								} else {
 									log.Printf("file %s change ctime. update mode, uid, gid", path)
 									err = os.Chmod(path, item.AccessMode)
 									if err != nil {
+										c.logger.Error("failed to set access mode file", zap.Error(err))
 										return err
 									}
 									err = os.Chown(path, int(item.UID), int(item.GID))
 									if err != nil {
+										c.logger.Error("failed to set uid, gid file", zap.Error(err))
 										return err
 									}
 								}

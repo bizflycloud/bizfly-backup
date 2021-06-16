@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -28,6 +30,7 @@ type Client struct {
 	secretKey string
 
 	userAgent string
+	logger    *zap.Logger
 }
 
 // NewClient creates a Client with given options.

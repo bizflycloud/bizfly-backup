@@ -407,6 +407,8 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 					log.Println("Send to stat")
 				case <-done:
 					return nil
+				default:
+					return nil
 				}
 			}
 			return nil
@@ -432,6 +434,8 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 				log.Println("Send to stat backup item with item change ctime and mtime not change")
 			case <-done:
 				return nil
+			default:
+				return nil
 			}
 			return nil
 		}
@@ -452,6 +456,8 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 		case stat <- 0:
 			log.Println("Send to stat backup item with item no change time")
 		case <-done:
+			return nil
+		default:
 			return nil
 		}
 		// switch itemInfo.ItemType {

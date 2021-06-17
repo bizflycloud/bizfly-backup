@@ -491,12 +491,11 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 						switch item.ItemType {
 						case "SYMLINK":
 							log.Println("symlink not exist. create", path)
-							err := createSymlink(item.SymlinkPath, path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
+							err := createSymlink(item.SymlinkPath, path, item.AccessMode, int(item.UID), int(item.GID))
 							if err != nil {
 								log.Error(err)
 								return err
 							}
-
 						case "DIRECTORY":
 							log.Println("dir not exist. create", path)
 							err := createDir(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
@@ -504,7 +503,6 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 								log.Error(err)
 								return err
 							}
-
 						case "FILE":
 							log.Println("file not exist. create", path)
 							if file, err = createFile(path, item.AccessMode, int(item.UID), int(item.GID)); err != nil {
@@ -740,7 +738,7 @@ func (c *Client) infoPresignedUrl(recoveryPointID string, itemID string, infoUrl
 	return &chunkResp, nil
 }
 
-func createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, gid int, atime time.Time, mtime time.Time) error {
+func createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, gid int) error {
 	dirName := filepath.Dir(path)
 	if _, err := os.Stat(dirName); os.IsNotExist(err) {
 		if err := os.MkdirAll(dirName, os.ModePerm); err != nil {
@@ -759,11 +757,6 @@ func createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, g
 	}
 
 	err = os.Chown(path, uid, gid)
-	if err != nil {
-		return err
-	}
-
-	err = os.Chtimes(path, atime, mtime)
 	if err != nil {
 		return err
 	}

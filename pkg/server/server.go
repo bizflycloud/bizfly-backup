@@ -718,12 +718,13 @@ func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 			ParentItemID:   "",
 			ChunkReference: false,
 			Attributes: &backupapi.Attribute{
-				ID:         uuid.New().String(),
-				ItemName:   path,
-				ModifyTime: fi.ModTime().UTC(),
-				Mode:       fi.Mode().String(),
-				AccessMode: fi.Mode(),
-				Size:       fi.Size(),
+				ID:          uuid.New().String(),
+				ItemName:    path,
+				ModifyTime:  fi.ModTime().UTC(),
+				Mode:        fi.Mode().String(),
+				AccessMode:  fi.Mode(),
+				Size:        fi.Size(),
+				SymlinkPath: "",
 			},
 		}
 
@@ -754,6 +755,7 @@ func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 		if fi.Mode()&os.ModeSymlink != 0 {
 			singleFile.ItemType = "SYMLINK"
 			singleFile.Attributes.ItemType = "SYMLINK"
+			singleFile.ChunkReference = false
 		}
 
 		fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)

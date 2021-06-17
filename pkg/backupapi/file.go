@@ -40,18 +40,19 @@ type ItemInfo struct {
 
 // Attribute ...
 type Attribute struct {
-	ID         string      `json:"id"`
-	ItemName   string      `json:"item_name"`
-	Size       int64       `json:"size"`
-	ItemType   string      `json:"item_type"`
-	IsDir      bool        `json:"is_dir"`
-	ChangeTime time.Time   `json:"change_time"`
-	ModifyTime time.Time   `json:"modify_time"`
-	AccessTime time.Time   `json:"access_time"`
-	Mode       string      `json:"mode"`
-	AccessMode os.FileMode `json:"access_mode"`
-	GID        uint32      `json:"gid"`
-	UID        uint32      `json:"uid"`
+	ID          string      `json:"id"`
+	ItemName    string      `json:"item_name"`
+	SymlinkPath string      `json:"symlink_path,omitempty"`
+	Size        int64       `json:"size"`
+	ItemType    string      `json:"item_type"`
+	IsDir       bool        `json:"is_dir"`
+	ChangeTime  time.Time   `json:"change_time"`
+	ModifyTime  time.Time   `json:"modify_time"`
+	AccessTime  time.Time   `json:"access_time"`
+	Mode        string      `json:"mode"`
+	AccessMode  os.FileMode `json:"access_mode"`
+	GID         uint32      `json:"gid"`
+	UID         uint32      `json:"uid"`
 }
 
 // FileInfoRequest ...
@@ -70,6 +71,7 @@ type File struct {
 	Mode        string      `json:"mode"`
 	AccessMode  os.FileMode `json:"access_mode"`
 	RealName    string      `json:"real_name"`
+	SymlinkPath string      `json:"symlink_path"`
 	Size        int         `json:"size"`
 	Status      string      `json:"status"`
 	UpdatedAt   string      `json:"updated_at"`
@@ -376,8 +378,14 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 
 	if itemInfo.ItemType == "SYMLINK" {
 		log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
-		itemInfo.ChunkReference = false
+		link, err := os.Readlink(itemInfo.Attributes.ItemName)
+		if err != nil {
+			log.Error(err)
+		}
+
+		// log.Println("link", link)
 		itemInfo.ParentItemID = itemInfoLatest.ID
+		itemInfo.Attributes.SymlinkPath = link
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 		if err != nil {
 			log.Error(err)

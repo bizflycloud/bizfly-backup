@@ -365,13 +365,13 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 }
 
 // func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) error {
-func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume, done <-chan struct{}, stat chan<- uint64) error {
+func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume) (uint64, error) {
 
 	// p.Start()
 
 	itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	fmt.Printf("\n")
 	log.Printf("Backup item: %+v\n", itemInfo)
@@ -386,7 +386,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 			if err != nil {
 				log.Error(err)
-				return err
+				return 0, err
 			}
 			// switch itemInfo.ItemType {
 			// case "FILE":
@@ -401,19 +401,11 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 				storageSize, err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume)
 				if err != nil {
 					log.Error(err)
-					return err
+					return 0, err
 				}
-				log.Printf("Size put to storage =============== %d\n", storageSize)
-				select {
-				case stat <- storageSize:
-					log.Println("Send to stat")
-				case <-done:
-					return nil
-				default:
-					return nil
-				}
+				return storageSize, nil
 			}
-			return nil
+			return 0, nil
 		} else {
 			// save info va reference chunk neu la file
 			log.Println("backup item with item change ctime and mtime not change")
@@ -422,7 +414,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 			if err != nil {
 				log.Error(err)
-				return err
+				return 0, err
 			}
 			// switch itemInfo.ItemType {
 			// case "FILE":
@@ -432,15 +424,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			// 	s.Dirs = 1
 			// }
 			// p.Report(s)
-			select {
-			case stat <- 0:
-				log.Println("Send to stat backup item with item change ctime and mtime not change")
-			case <-done:
-				return nil
-			default:
-				return nil
-			}
-			return nil
+			return 0, nil
 		}
 
 	} else {
@@ -454,15 +438,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 
 		if err != nil {
 			log.Error(err)
-			return err
-		}
-		select {
-		case stat <- 0:
-			log.Println("Send to stat backup item with item no change time")
-		case <-done:
-			return nil
-		default:
-			return nil
+			return 0, err
 		}
 		// switch itemInfo.ItemType {
 		// case "FILE":
@@ -474,7 +450,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 		// p.Report(s)
 	}
 
-	return nil
+	return 0, nil
 }
 
 func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreSessionKey string, createdAt string) error {

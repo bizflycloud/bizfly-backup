@@ -553,10 +553,9 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	}
 	// progressUpload := s.newUploadProgress(itemTodo)
 	// defer progressUpload.Done()
-	statistic := make(chan uint64)
-	done := make(chan struct{})
-	defer close(done)
+
 	var storageSize uint64
+	var mu sync.Mutex
 
 	sem := semaphore.NewWeighted(int64(20))
 	group, context := errgroup.WithContext(context.Background())
@@ -573,23 +572,22 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 			// 	s.notifyStatusFailed(rp.ID, err.Error())
 			// 	return err
 			// }
-			if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, item, storageVolume, done, statistic); err != nil {
+			saveSize, err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, item, storageVolume)
+			if err != nil {
 				s.notifyStatusFailed(rp.ID, err.Error())
 				return err
 			}
+			mu.Lock()
+			storageSize += saveSize
+			mu.Unlock()
 			return nil
 		})
 	}
-	go func() {
-		if err := group.Wait(); err != nil {
-			return
-		}
-		defer close(statistic)
-	}()
 
-	for stat := range statistic {
-		storageSize += stat
+	if err := group.Wait(); err != nil {
+		return err
 	}
+
 	s.reportUploadCompleted(progressOutput)
 
 	s.notifyMsg(map[string]string{

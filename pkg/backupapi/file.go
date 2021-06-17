@@ -381,7 +381,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 		if err != nil {
 			log.Error(err)
-			return err
+			return 0, err
 		}
 	}
 

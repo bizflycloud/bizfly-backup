@@ -376,16 +376,6 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 		return 0, err
 	}
 
-	if itemInfo.ItemType == "SYMLINK" {
-		log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
-		itemInfo.ParentItemID = itemInfoLatest.ID
-		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
-		if err != nil {
-			log.Error(err)
-			return 0, err
-		}
-	}
-
 	fmt.Printf("\n")
 	log.Printf("Backup item: %+v\n", itemInfo)
 	// s := progress.Stat{}
@@ -409,7 +399,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 			// }
 			// p.Report(s)
 			if itemInfo.ItemType == "FILE" {
-				log.Println("Continue chunk file to backup")
+				log.Println("Continue chunk file to backup", itemInfo.Attributes.ItemName)
 				// err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume, p)
 				storageSize, err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume)
 				if err != nil {

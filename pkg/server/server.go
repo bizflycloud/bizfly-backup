@@ -740,20 +740,8 @@ func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 			singleFile.Attributes.ItemType = "DIRECTORY"
 			singleFile.Attributes.IsDir = true
 			singleFile.ChunkReference = false
-			// s.Dirs++
-		} else {
-			singleFile.ItemType = "FILE"
-			singleFile.Attributes.ItemType = "FILE"
-			singleFile.Attributes.IsDir = false
-			singleFile.ChunkReference = true
-			total += uint64(fi.Size())
-			// s.Files++
-			// s.Bytes += uint64(fi.Size())
-		}
-
-		// check symlink
-		if fi.Mode()&os.ModeSymlink != 0 {
-			link, err := os.Readlink(fi.Name())
+		} else if fi.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
 			if err != nil {
 				return err
 			}
@@ -761,11 +749,15 @@ func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 			singleFile.Attributes.ItemType = "SYMLINK"
 			singleFile.Attributes.SymlinkPath = link
 			singleFile.ChunkReference = false
+		} else {
+			singleFile.ItemType = "FILE"
+			singleFile.Attributes.ItemType = "FILE"
+			singleFile.Attributes.IsDir = false
+			singleFile.ChunkReference = true
+			total += uint64(fi.Size())
 		}
 
 		fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
-		// p.Report(s)
-		// st.Add(s)
 		return nil
 	})
 	if err != nil {

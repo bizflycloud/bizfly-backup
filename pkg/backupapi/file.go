@@ -378,14 +378,7 @@ func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecov
 
 	if itemInfo.ItemType == "SYMLINK" {
 		log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
-		link, err := os.Readlink(itemInfo.Attributes.ItemName)
-		if err != nil {
-			log.Error(err)
-		}
-
-		// log.Println("link", link)
 		itemInfo.ParentItemID = itemInfoLatest.ID
-		itemInfo.Attributes.SymlinkPath = link
 		_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 		if err != nil {
 			log.Error(err)

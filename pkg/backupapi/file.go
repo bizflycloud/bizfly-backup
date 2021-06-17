@@ -106,6 +106,7 @@ type Item struct {
 	IsDir       bool        `json:"is_dir"`
 	ItemName    string      `json:"item_name"`
 	RealName    string      `json:"real_name"`
+	SymlinkPath string      `json:"symlink_path"`
 	ItemType    string      `json:"item_type"`
 	Size        int         `json:"size"`
 	Status      string      `json:"status"`
@@ -488,6 +489,14 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 					log.Println("restore item", path)
 					if fi, err := os.Stat(path); os.IsNotExist(err) {
 						switch item.ItemType {
+						case "SYMLINK":
+							log.Println("symlink not exist. create", path)
+							err := createSymlink(item.SymlinkPath, path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
+							if err != nil {
+								log.Error(err)
+								return err
+							}
+
 						case "DIRECTORY":
 							log.Println("dir not exist. create", path)
 							err := createDir(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
@@ -538,6 +547,22 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 						}
 					} else {
 						switch item.ItemType {
+						case "SYMLINK":
+							log.Println("symlink exist", path)
+							_, ctimeLocal, _ := itemLocal(fi)
+							if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
+								log.Printf("symlink %s change ctime. update mode, uid, gid", item.RealName)
+								err = os.Chmod(path, item.AccessMode)
+								if err != nil {
+									log.Error(err)
+									return err
+								}
+								err = os.Chown(path, int(item.UID), int(item.GID))
+								if err != nil {
+									log.Error(err)
+									return err
+								}
+							}
 						case "DIRECTORY":
 							log.Println("dir exist", path)
 							_, ctimeLocal, _ := itemLocal(fi)
@@ -713,6 +738,37 @@ func (c *Client) infoPresignedUrl(recoveryPointID string, itemID string, infoUrl
 	}
 
 	return &chunkResp, nil
+}
+
+func createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, gid int, atime time.Time, mtime time.Time) error {
+	dirName := filepath.Dir(path)
+	if _, err := os.Stat(dirName); os.IsNotExist(err) {
+		if err := os.MkdirAll(dirName, os.ModePerm); err != nil {
+			return err
+		}
+	}
+
+	err := os.Symlink(symlinkPath, path)
+	if err != nil {
+		return err
+	}
+
+	err = os.Chmod(path, mode)
+	if err != nil {
+		return err
+	}
+
+	err = os.Chown(path, uid, gid)
+	if err != nil {
+		return err
+	}
+
+	err = os.Chtimes(path, atime, mtime)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func createDir(path string, mode fs.FileMode, uid int, gid int, atime time.Time, mtime time.Time) error {

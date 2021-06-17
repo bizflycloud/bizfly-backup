@@ -41,17 +41,6 @@ var backoffSchedule = []time.Duration{
 	10 * time.Second,
 	20 * time.Second,
 	30 * time.Second,
-	40 * time.Second,
-	60 * time.Second,
-	80 * time.Second,
-	100 * time.Second,
-	120 * time.Second,
-	3 * time.Minute,
-	5 * time.Minute,
-	10 * time.Minute,
-	15 * time.Minute,
-	20 * time.Minute,
-	30 * time.Minute,
 }
 
 func putRequest(uri string, data []byte) (string, error) {

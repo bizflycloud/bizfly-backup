@@ -549,6 +549,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	// itemsInfo, err := WalkerDir(bd.Path, progressScan)
 	total, itemsInfo, err := WalkerDir(bd.Path)
 	if err != nil {
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 	// progressUpload := s.newUploadProgress(itemTodo)
@@ -574,7 +575,6 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 			// }
 			saveSize, err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, item, storageVolume)
 			if err != nil {
-				s.notifyStatusFailed(rp.ID, err.Error())
 				return err
 			}
 			mu.Lock()
@@ -585,6 +585,8 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	}
 
 	if err := group.Wait(); err != nil {
+		s.logger.Error("Has a goroutine error" + err.Error())
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 

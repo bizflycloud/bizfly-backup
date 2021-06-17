@@ -748,17 +748,17 @@ func createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, g
 
 	err := os.Symlink(symlinkPath, path)
 	if err != nil {
-		return err
+		log.Println(err)
 	}
 
 	err = os.Chmod(path, mode)
 	if err != nil {
-		return err
+		log.Println(err)
 	}
 
 	err = os.Chown(path, uid, gid)
 	if err != nil {
-		return err
+		log.Println(err)
 	}
 
 	return nil

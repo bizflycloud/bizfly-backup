@@ -751,8 +751,13 @@ func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 
 		// check symlink
 		if fi.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(fi.Name())
+			if err != nil {
+				return err
+			}
 			singleFile.ItemType = "SYMLINK"
 			singleFile.Attributes.ItemType = "SYMLINK"
+			singleFile.Attributes.SymlinkPath = link
 			singleFile.ChunkReference = false
 		}
 

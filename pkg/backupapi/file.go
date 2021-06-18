@@ -653,6 +653,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 	defer file.Close()
 
 	if err := group.Wait(); err != nil {
+		log.Error("Has a goroutine error" + err.Error())
 		return err
 	}
 	return nil

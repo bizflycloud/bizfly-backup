@@ -467,8 +467,8 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 		return err
 	}
 	var file *os.File
-	if *totalPage > 0 {
-		for page := 1; page <= *totalPage; page++ {
+	if totalPage > 0 {
+		for page := 1; page <= totalPage; page++ {
 
 			err := sem.Acquire(ctx, 1)
 			if err != nil {
@@ -658,15 +658,15 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 	return nil
 }
 
-func (c *Client) GetListItemPath(recoveryPointID string, page int) (*int, *ItemsResponse, error) {
+func (c *Client) GetListItemPath(recoveryPointID string, page int) (int, *ItemsResponse, error) {
 	reqURL, err := c.urlStringFromRelPath(c.getListItemPath(recoveryPointID))
 	if err != nil {
-		return nil, nil, err
+		return 0, nil, err
 	}
 
 	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, nil, err
+		return 0, nil, err
 	}
 
 	itemsPerPage := 50
@@ -677,17 +677,17 @@ func (c *Client) GetListItemPath(recoveryPointID string, page int) (*int, *Items
 
 	resp, err := c.Do(req)
 	if err != nil {
-		return nil, nil, err
+		return 0, nil, err
 	}
 	var items ItemsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
-		return nil, nil, err
+		return 0, nil, err
 	}
 
 	totalItem := items.Total
 	totalPage := int(math.Ceil(float64(totalItem) / float64(itemsPerPage)))
 
-	return &totalPage, &items, nil
+	return totalPage, &items, nil
 }
 
 func (c *Client) GetInfoFileDownload(recoveryPointID string, itemFileID string, restoreSessionKey string, createdAt string) (*FileDownloadResponse, error) {

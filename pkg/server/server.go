@@ -559,7 +559,8 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	var mu sync.Mutex
 
 	sem := semaphore.NewWeighted(int64(20))
-	group, context := errgroup.WithContext(context.Background())
+	ctx, cancel := context.WithCancel(ctx)
+	group, context := errgroup.WithContext(ctx)
 
 	for _, itemInfo := range itemsInfo.Files {
 		errAcquire := sem.Acquire(context, 1)
@@ -573,8 +574,9 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 			// 	s.notifyStatusFailed(rp.ID, err.Error())
 			// 	return err
 			// }
-			saveSize, err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, item, storageVolume)
+			saveSize, err := s.backupClient.UploadFile(context, rp.RecoveryPoint.ID, rp.ID, lrp.ID, item, storageVolume)
 			if err != nil {
+				cancel()
 				return err
 			}
 			mu.Lock()

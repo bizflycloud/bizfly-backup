@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -17,6 +18,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -36,6 +38,13 @@ type ItemInfo struct {
 	ParentItemID   string     `json:"parent_item_id,omitempty"`
 	ChunkReference bool       `json:"chunk_reference"`
 	Attributes     *Attribute `json:"attributes,omitempty"`
+}
+
+type ChunkInfo struct {
+	Start  uint
+	Length uint
+	Cut    uint64
+	Data   []byte
 }
 
 // Attribute ...
@@ -287,26 +296,13 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 	return &itemInfoLatest, nil
 }
 
-// func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) error {
-func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) (uint64, error) {
-	// p.Start()
-
-	file, err := os.Open(itemInfo.Attributes.ItemName)
-	if err != nil {
-		return 0, err
-	}
-	chk := chunker.New(file, 0x3dea92648f6e83)
-	buf := make([]byte, ChunkUploadLowerBound)
-	// s := progress.Stat{}
-	var stat uint64
-	for {
-		chunk, err := chk.Next(buf)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return stat, err
-		}
+func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) (uint64, error) {
+	select {
+	case <-ctx.Done():
+		log.Debug("context backupChunk done")
+		return 0, errors.New("backupChunk done")
+	default:
+		var stat uint64
 
 		hash := md5.Sum(chunk.Data)
 		key := hex.EncodeToString(hash[:])
@@ -316,7 +312,7 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 			Etag:   key,
 		}
 
-		_, err = c.saveChunk(recoveryPointID, itemInfo.Attributes.ID, &chunkReq)
+		_, err := c.saveChunk(recoveryPointID, itemInfo.Attributes.ID, &chunkReq)
 		if err != nil {
 			return stat, err
 		}
@@ -361,100 +357,153 @@ func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, ac
 			// s.Storage = uint64(chunk.Length)
 			stat += uint64(chunk.Length)
 		}
-		// p.Report(s)
+		return stat, nil
 	}
 
-	return stat, nil
+}
+
+// func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) error {
+func (c *Client) ChunkFileToBackup(ctx context.Context, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) (uint64, error) {
+	// p.Start()
+	sem := semaphore.NewWeighted(int64(3))
+	cxtUploadFile, cancel := context.WithCancel(context.Background())
+	group, context := errgroup.WithContext(cxtUploadFile)
+	select {
+	case <-ctx.Done():
+		log.Info("context done ChunkFileToBackup")
+		cancel()
+		return 0, nil
+	default:
+		file, err := os.Open(itemInfo.Attributes.ItemName)
+		if err != nil {
+			return 0, err
+		}
+		chk := chunker.New(file, 0x3dea92648f6e83)
+		buf := make([]byte, ChunkUploadLowerBound)
+		// s := progress.Stat{}
+		var stat uint64
+		var mu sync.Mutex
+		for {
+			chunk, err := chk.Next(buf)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return stat, err
+			}
+
+			// p.Report(s)
+			errAcquire := sem.Acquire(context, 1)
+			if errAcquire != nil {
+				continue
+			}
+			temp := make([]byte, chunk.Length)
+			length := copy(temp, chunk.Data)
+			if uint(length) != chunk.Length {
+				log.Println("ERROR copy error")
+				return 0, errors.New("copy chunk data error")
+			}
+			chunkToBackup := ChunkInfo{
+				Start:  chunk.Start,
+				Length: chunk.Length,
+				Cut:    chunk.Cut,
+				Data:   temp,
+			}
+			group.Go(func() error {
+				defer sem.Release(1)
+				saveSize, err := c.backupChunk(context, chunkToBackup, itemInfo, recoveryPointID, actionID, volume)
+				if err != nil {
+					cancel()
+					return err
+				}
+				mu.Lock()
+				stat += saveSize
+				mu.Unlock()
+				return nil
+			})
+			//saveSize, err := c.backupChunk(ctx, chunk, itemInfo, recoveryPointID, actionID, volume)
+			//if err != nil {
+			//	return 0, err
+			//}
+			//stat += saveSize
+		}
+		if err := group.Wait(); err != nil {
+			return 0, err
+		}
+
+		return stat, nil
+	}
+
 }
 
 // func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) error {
-func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume) (uint64, error) {
+func (c *Client) UploadFile(ctx context.Context, recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume) (uint64, error) {
 
-	// p.Start()
+	select {
+	case <-ctx.Done():
+		log.Debug("Context backup done")
+		return 0, errors.New("context backup done")
+	default:
+		itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
+		if err != nil {
+			return 0, err
+		}
 
-	itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
-	if err != nil {
-		return 0, err
-	}
-
-	fmt.Printf("\n")
-	log.Printf("Backup item: %+v\n", itemInfo)
-	// s := progress.Stat{}
-	// backup item with item change ctime
-	if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {
-		// backup item with item change mtime
-		if !strings.EqualFold(timeToString(itemInfoLatest.ModifyTime), timeToString(itemInfo.Attributes.ModifyTime)) {
-			log.Println("backup item with item change mtime, ctime")
-			log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
-			itemInfo.ChunkReference = false
-			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
-			if err != nil {
-				log.Error(err)
-				return 0, err
-			}
-			// switch itemInfo.ItemType {
-			// case "FILE":
-			// 	s.Files = 1
-			// case "DIRECTORY":
-			// 	s.Dirs = 1
-			// }
-			// p.Report(s)
-			if itemInfo.ItemType == "FILE" {
-				log.Println("Continue chunk file to backup", itemInfo.Attributes.ItemName)
-				// err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume, p)
-				storageSize, err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume)
+		log.Printf("Backup item: %+v\n", itemInfo)
+		// s := progress.Stat{}
+		// backup item with item change ctime
+		if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {
+			// backup item with item change mtime
+			if !strings.EqualFold(timeToString(itemInfoLatest.ModifyTime), timeToString(itemInfo.Attributes.ModifyTime)) {
+				log.Println("backup item with item change mtime, ctime")
+				log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
+				itemInfo.ChunkReference = false
+				_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 				if err != nil {
 					log.Error(err)
 					return 0, err
 				}
-				return storageSize, nil
+				if itemInfo.ItemType == "FILE" {
+					log.Println("Continue chunk file to backup", itemInfo.Attributes.ItemName)
+					// err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume, p)
+					storageSize, err := c.ChunkFileToBackup(ctx, itemInfo, recoveryPointID, actionID, volume)
+					if err != nil {
+						log.Error(err)
+						return 0, err
+					}
+					return storageSize, nil
+				}
+				return 0, nil
+			} else {
+				// save info va reference chunk neu la file
+				log.Println("backup item with item change ctime and mtime not change")
+				log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
+				itemInfo.ParentItemID = itemInfoLatest.ID
+				_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+				if err != nil {
+					log.Error(err)
+					return 0, err
+				}
+				return 0, nil
 			}
-			return 0, nil
+
 		} else {
-			// save info va reference chunk neu la file
-			log.Println("backup item with item change ctime and mtime not change")
+			log.Println("backup item with item no change time")
 			log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
-			itemInfo.ParentItemID = itemInfoLatest.ID
-			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+			_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
+				ItemType:       itemInfo.ItemType,
+				ParentItemID:   itemInfoLatest.ID,
+				ChunkReference: itemInfo.ChunkReference,
+			})
+
 			if err != nil {
 				log.Error(err)
 				return 0, err
 			}
-			// switch itemInfo.ItemType {
-			// case "FILE":
-			// 	s.Bytes = uint64(itemInfo.Attributes.Size)
-			// 	s.Files = 1
-			// case "DIRECTORY":
-			// 	s.Dirs = 1
-			// }
-			// p.Report(s)
-			return 0, nil
 		}
 
-	} else {
-		log.Println("backup item with item no change time")
-		log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
-		_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
-			ItemType:       itemInfo.ItemType,
-			ParentItemID:   itemInfoLatest.ID,
-			ChunkReference: itemInfo.ChunkReference,
-		})
-
-		if err != nil {
-			log.Error(err)
-			return 0, err
-		}
-		// switch itemInfo.ItemType {
-		// case "FILE":
-		// 	s.Bytes = uint64(itemInfo.Attributes.Size)
-		// 	s.Files = 1
-		// case "DIRECTORY":
-		// 	s.Dirs = 1
-		// }
-		// p.Report(s)
+		return 0, nil
 	}
-
-	return 0, nil
 }
 
 func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreSessionKey string, createdAt string) error {

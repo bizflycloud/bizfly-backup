@@ -1,11 +1,9 @@
 package volume
 
-import "net/http"
-
 // StorageVolume ...
 type StorageVolume interface {
 	// HeadObject a boolean value whether object name existing in storage.
-	HeadObject(key string) (*http.Response, error)
+	HeadObject(key string) (bool, string, error)
 
 	// PutObject stores the data to the storage backend.
 	PutObject(key string, data []byte) (string, error)

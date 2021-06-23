@@ -48,7 +48,7 @@ type Message struct {
 	RecoveryPointID      string `json:"recovery_point_id"`
 	RestoreSessionKey    string `json:"restore_session_key"`
 	ActionId             string `json:"action_id"`
-	VolumeType           string `json:"volume_type"`
+	VolumeId             string `json:"volume_id"`
 
 	// For config update
 	BackupDirectories []backupapi.BackupDirectoryConfig `json:"backup_directories"`

@@ -129,7 +129,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	case broker.BackupManual:
 		return s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
 	case broker.RestoreManual:
-		return s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.VolumeType, ioutil.Discard)
+		return s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.VolumeId, ioutil.Discard)
 	case broker.ConfigUpdate:
 		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
 	case broker.ConfigRefresh:
@@ -531,7 +531,8 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	}
 
 	// Get storage volume
-	storageVolume, err := NewStorageVolume(rp.Volume.VolumeType)
+	fmt.Printf("Volume info %+v\n", rp.Volume)
+	storageVolume, err := NewStorageVolume(*rp.Volume, rp.ID)
 	if err != nil {
 		return err
 	}
@@ -632,24 +633,20 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))
 }
 
-func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, volumeType string, progressOutput io.Writer) error {
-	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
+func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, volumeId string, progressOutput io.Writer) error {
+	// Get storage volume
+	fmt.Printf("volume id: %s, action id: %s\n", volumeId, actionID)
+	vol, err := s.backupClient.GetCredentialVolume(volumeId, actionID)
 	if err != nil {
-		s.notifyStatusFailed(actionID, err.Error())
+		s.logger.Debug("Get credential volume error", zap.Error(err))
 		return err
 	}
-	defer os.Remove(fi.Name())
+	storageVolume, err := NewStorageVolume(*vol, actionID)
 
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
 		"status":    statusDownloading,
 	})
-
-	// Get storage volume
-	storageVolume, err := NewStorageVolume(strings.Split(volumeType, ".")[1])
-	if err != nil {
-		return err
-	}
 
 	s.reportStartDownload(progressOutput)
 
@@ -660,23 +657,12 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	}
 
 	s.reportDownloadCompleted(progressOutput)
-	if err := fi.Close(); err != nil {
-		s.logger.Error("failed to save to temporary file", zap.Error(err))
-		s.notifyStatusFailed(actionID, err.Error())
-		return err
-	}
-
-	s.notifyMsg(map[string]string{
-		"action_id": actionID,
-		"status":    statusRestoring,
-	})
 	s.reportStartRestore(progressOutput)
 	s.reportRestoreCompleted(progressOutput)
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
 		"status":    statusComplete,
 	})
-
 	return nil
 }
 
@@ -691,13 +677,12 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 	return nil
 }
 
-func NewStorageVolume(volumeType string) (volume.StorageVolume, error) {
-	var volume backupapi.Volume
-	switch volumeType {
+func NewStorageVolume(vol backupapi.Volume, actionID string) (volume.StorageVolume, error) {
+	switch vol.VolumeType {
 	case "S3":
-		return s3.NewS3Default(volume.Name, volume.StorageBucket, volume.SecretRef), nil
+		return s3.NewS3Default(vol, actionID), nil
 	default:
-		return nil, fmt.Errorf(fmt.Sprintf("volume type not supported %s", volume.VolumeType))
+		return nil, fmt.Errorf(fmt.Sprintf("volume type not supported %s", vol.VolumeType))
 	}
 }
 

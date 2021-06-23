@@ -147,6 +147,11 @@ type ChunkResponse struct {
 	PresignedURL PresignedURL `json:"presigned_url"`
 }
 
+type ChunksResponse struct {
+	Chunks []ChunkResponse `json:"chunks"`
+	Total  uint64          `json:"total"`
+}
+
 // PresignedURL ...
 type PresignedURL struct {
 	Head string `json:"head"`
@@ -197,6 +202,32 @@ func (c *Client) saveFileInfoPath(recoveryPointID string) string {
 
 func (c *Client) getItemLatestPath(latestRecoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/path", latestRecoveryPointID)
+}
+
+func (c *Client) getChunksInItem(recoveryPointID string, itemID string, restoreSessionKey string, createdAt string) (*ChunksResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.saveChunkPath(recoveryPointID, itemID))
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("X-Session-Created-At", createdAt)
+	req.Header.Add("X-Restore-Session-Key", restoreSessionKey)
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var chunkResp ChunksResponse
+	if err := json.NewDecoder(resp.Body).Decode(&chunkResp); err != nil {
+		return nil, err
+	}
+
+	return &chunkResp, nil
 }
 
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
@@ -317,28 +348,27 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 			return stat, err
 		}
 		// s.Bytes = uint64(chunk.Length)
-		infoUrl := InfoPresignUrl{
-			ActionID: actionID,
-			Etag:     key,
-		}
-		chunkResp, err := c.infoPresignedUrl(recoveryPointID, itemInfo.Attributes.ID, &infoUrl)
-		if err != nil {
-			return stat, err
-		}
+		//infoUrl := InfoPresignUrl{
+		//	ActionID: actionID,
+		//	Etag:     key,
+		//}
+		//chunkResp, err := c.infoPresignedUrl(recoveryPointID, itemInfo.Attributes.ID, &infoUrl)
+		//if err != nil {
+		//	return stat, err
+		//}
+		//
+		//if chunkResp.PresignedURL.Head != "" {
+		//	key = chunkResp.PresignedURL.Head
+		//}
+		//
+		isExist, etag, _ := volume.HeadObject(key)
+		//if err != nil {
+		//	return stat, err
+		//}
 
-		if chunkResp.PresignedURL.Head != "" {
-			key = chunkResp.PresignedURL.Head
-		}
-
-		resp, err := volume.HeadObject(key)
-		if err != nil {
-			return stat, err
-		}
-
-		if etagHead, ok := resp.Header["Etag"]; ok {
-			integrity := strings.Contains(etagHead[0], chunkResp.Etag)
+		if isExist {
+			integrity := strings.Contains(etag, key)
 			if !integrity {
-				key = chunkResp.PresignedURL.Put
 				_, err := volume.PutObject(key, chunk.Data)
 				if err != nil {
 					return stat, err
@@ -346,17 +376,38 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 				stat += uint64(chunk.Length)
 				// s.Storage = uint64(chunk.Length)
 			} else {
-				log.Println("exists", etagHead[0], chunkResp.Etag)
+				log.Println("exists", etag, key)
 			}
 		} else {
-			key = chunkResp.PresignedURL.Put
-			_, err := volume.PutObject(key, chunk.Data)
+			_, err = volume.PutObject(key, chunk.Data)
 			if err != nil {
 				return stat, err
 			}
-			// s.Storage = uint64(chunk.Length)
 			stat += uint64(chunk.Length)
 		}
+		//if etagHead, ok := resp.Header["Etag"]; ok {
+		//	integrity := strings.Contains(etagHead[0], chunkResp.Etag)
+		//	if !integrity {
+		//		key = chunkResp.PresignedURL.Put
+		//		_, err := volume.PutObject(key, chunk.Data)
+		//		if err != nil {
+		//			return stat, err
+		//		}
+		//		stat += uint64(chunk.Length)
+		//		// s.Storage = uint64(chunk.Length)
+		//	} else {
+		//		log.Println("exists", etagHead[0], chunkResp.Etag)
+		//	}
+		//} else {
+		//	key = chunkResp.PresignedURL.Put
+		//	_, err := volume.PutObject(key, chunk.Data)
+		//	if err != nil {
+		//		return stat, err
+		//	}
+		//	// s.Storage = uint64(chunk.Length)
+		//	stat += uint64(chunk.Length)
+		//}
+
 		return stat, nil
 	}
 
@@ -460,7 +511,7 @@ func (c *Client) UploadFile(ctx context.Context, recoveryPointID string, actionI
 				itemInfo.ChunkReference = false
 				_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 				if err != nil {
-					log.Error(err)
+					log.Error("c.SaveFileInfo:514", err)
 					return 0, err
 				}
 				if itemInfo.ItemType == "FILE" {
@@ -468,7 +519,7 @@ func (c *Client) UploadFile(ctx context.Context, recoveryPointID string, actionI
 					// err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume, p)
 					storageSize, err := c.ChunkFileToBackup(ctx, itemInfo, recoveryPointID, actionID, volume)
 					if err != nil {
-						log.Error(err)
+						log.Error("c.ChunkFileToBackup:522", err)
 						return 0, err
 					}
 					return storageSize, nil
@@ -558,22 +609,22 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 								log.Error(err)
 								return err
 							}
-							infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
+							infos, err := c.getChunksInItem(recoveryPointID, item.ID, restoreSessionKey, createdAt)
 							if err != nil {
 								log.Error(err)
 								return err
 							}
 
-							if len(infos.Info) == 0 {
+							if len(infos.Chunks) == 0 {
 								break
 							}
 
-							for _, info := range infos.Info {
+							for _, info := range infos.Chunks {
 								offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
 								if err != nil {
 									return err
 								}
-								key := info.Get
+								key := info.Etag
 
 								data, err := volume.GetObject(key)
 								if err != nil {
@@ -643,22 +694,22 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 										return err
 									}
 
-									infos, err := c.GetInfoFileDownload(recoveryPointID, item.ID, restoreSessionKey, createdAt)
+									infos, err := c.getChunksInItem(recoveryPointID, item.ID, restoreSessionKey, createdAt)
 									if err != nil {
 										log.Error(err)
 										return err
 									}
 
-									if len(infos.Info) == 0 {
+									if len(infos.Chunks) == 0 {
 										break
 									}
 
-									for _, info := range infos.Info {
+									for _, info := range infos.Chunks {
 										offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
 										if err != nil {
 											return err
 										}
-										key := info.Get
+										key := info.Etag
 
 										data, err := volume.GetObject(key)
 										if err != nil {

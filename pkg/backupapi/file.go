@@ -347,66 +347,27 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 		if err != nil {
 			return stat, err
 		}
-		// s.Bytes = uint64(chunk.Length)
-		//infoUrl := InfoPresignUrl{
-		//	ActionID: actionID,
-		//	Etag:     key,
-		//}
-		//chunkResp, err := c.infoPresignedUrl(recoveryPointID, itemInfo.Attributes.ID, &infoUrl)
-		//if err != nil {
-		//	return stat, err
-		//}
-		//
-		//if chunkResp.PresignedURL.Head != "" {
-		//	key = chunkResp.PresignedURL.Head
-		//}
-		//
-		isExist, etag, _ := volume.HeadObject(key)
-		//if err != nil {
-		//	return stat, err
-		//}
+
+		isExist, etag, _ := c.HeadObject(volume, key)
 
 		if isExist {
 			integrity := strings.Contains(etag, key)
 			if !integrity {
-				_, err := volume.PutObject(key, chunk.Data)
+				err := c.PutObject(volume, key, chunk.Data)
 				if err != nil {
 					return stat, err
 				}
 				stat += uint64(chunk.Length)
-				// s.Storage = uint64(chunk.Length)
 			} else {
 				log.Println("exists", etag, key)
 			}
 		} else {
-			_, err = volume.PutObject(key, chunk.Data)
+			err = c.PutObject(volume, key, chunk.Data)
 			if err != nil {
 				return stat, err
 			}
 			stat += uint64(chunk.Length)
 		}
-		//if etagHead, ok := resp.Header["Etag"]; ok {
-		//	integrity := strings.Contains(etagHead[0], chunkResp.Etag)
-		//	if !integrity {
-		//		key = chunkResp.PresignedURL.Put
-		//		_, err := volume.PutObject(key, chunk.Data)
-		//		if err != nil {
-		//			return stat, err
-		//		}
-		//		stat += uint64(chunk.Length)
-		//		// s.Storage = uint64(chunk.Length)
-		//	} else {
-		//		log.Println("exists", etagHead[0], chunkResp.Etag)
-		//	}
-		//} else {
-		//	key = chunkResp.PresignedURL.Put
-		//	_, err := volume.PutObject(key, chunk.Data)
-		//	if err != nil {
-		//		return stat, err
-		//	}
-		//	// s.Storage = uint64(chunk.Length)
-		//	stat += uint64(chunk.Length)
-		//}
 
 		return stat, nil
 	}
@@ -472,11 +433,6 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, itemInfo ItemInfo, recov
 				mu.Unlock()
 				return nil
 			})
-			//saveSize, err := c.backupChunk(ctx, chunk, itemInfo, recoveryPointID, actionID, volume)
-			//if err != nil {
-			//	return 0, err
-			//}
-			//stat += saveSize
 		}
 		if err := group.Wait(); err != nil {
 			return 0, err
@@ -626,7 +582,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 								}
 								key := info.Etag
 
-								data, err := volume.GetObject(key)
+								data, err := c.GetObject(volume, key)
 								if err != nil {
 									log.Error(err)
 									return err
@@ -711,7 +667,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 										}
 										key := info.Etag
 
-										data, err := volume.GetObject(key)
+										data, err := c.GetObject(volume, key)
 										if err != nil {
 											log.Error(err)
 											return err

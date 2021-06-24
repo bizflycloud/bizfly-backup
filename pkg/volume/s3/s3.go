@@ -29,7 +29,6 @@ type S3 struct {
 	VolumeType    string
 	Location      string
 	Region        string
-	AccessKey     string
 	S3Session     *storage.S3
 }
 
@@ -48,15 +47,6 @@ func (s3 *S3) ID() (string, string) {
 var _ volume.StorageVolume = (*S3)(nil)
 
 func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
-	//RGW_ACCESS_KEY: K36GV67K428NZDNOM1J1
-	//RGW_ENDPOINT: https://ss-hn-1.vccloud.vn/
-	//RGW_REGION: hn
-	//RGW_SECRET_KEY: mgJZBPStXmU5MQuDw4XAVjBkyl4ZZ2sGYlINeYQY
-
-	// time: 9:39 => 9:55
-	accessKey := "IrwAjOcIlBP6FSaKXJ0"
-	secretKey := "VH17I27WTY5I4HV6Z5DCE709DSXCC3W6PZNKDI6"
-	token := "oVlYcd5PxYKa51uFjhH14hEOAcC0snAEciDC5cL9LIi0yvIwucCik5/8i0QgAy06QTB2KjzKJdcDR7hJ22Dexy8uTyApR5Wb+/yF1qaGwpl+vYx5f1lJyw6XUiPM8TFUvffhjpkYQPXUHBZ8XCs8UJk4SqLWJRvWpVg/awl45WM2IcOLWKcwolH7gS5LKomKWxEwFB6a6sZ9eWIbDro+k75XyGlDcB+oAJxi+ZgTra4k1PQNDP1eExB1roOtikOYiMguwywXFZu9G5qfiUcZh6zEilwWWPsZQcnhLeaDJAkbCR8Y5X8oBKAMMFG5N4w/YLo9qlONa6fyF+zWWvUt1b9lym6ib9/wdzFWdetGF0r6qVSS9ac+jyryEunJ/V3WBHu5mpw1ct6jAtjzvTuwE958ziOj+7uQ2jLecBJX6BKHsKp7g10qM+CO0GDoae29bwl1/6FVprshRL9fJNGcGr9Dxpx9zExrZSKZcrOjPR4="
 
 	s3 := &S3{
 		Id:            vol.ID,
@@ -68,11 +58,10 @@ func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
 		VolumeType:    vol.VolumeType,
 		Location:      vol.Credential.AwsLocation,
 		Region:        vol.Credential.Region,
-		AccessKey:     accessKey,
 	}
 
-	//cred := credentials.NewStaticCredentials(vol.Credential.AwsAccessKeyId, vol.Credential.AwsSecretAccessKey, vol.Credential.Token)
-	cred := credentials.NewStaticCredentials(accessKey, secretKey, token)
+	cred := credentials.NewStaticCredentials(vol.Credential.AwsAccessKeyId, vol.Credential.AwsSecretAccessKey, vol.Credential.Token)
+	//cred := credentials.NewStaticCredentials(accessKey, secretKey, token)
 	_, err := cred.Get()
 	if err != nil {
 		fmt.Println("Bad credentials", err)
@@ -103,7 +92,6 @@ var backoffSchedule = []time.Duration{
 
 func (s3 *S3) PutObject(key string, data []byte) error {
 	var err error
-	log.Println("Put object", key, s3.AccessKey)
 	var once bool
 	for _, backoff := range backoffSchedule {
 		_, err = s3.S3Session.PutObject(&storage.PutObjectInput{
@@ -135,7 +123,6 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 }
 
 func (s3 *S3) GetObject(key string) ([]byte, error) {
-	log.Println("Downloading chunk", key, s3.AccessKey)
 	var err error
 	var once bool
 	var obj *storage.GetObjectOutput
@@ -211,7 +198,6 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 }
 
 func (s3 *S3) RefreshCredential(credential volume.Credential) error {
-	s3.AccessKey = credential.AwsAccessKeyId
 	cred := credentials.NewStaticCredentials(credential.AwsAccessKeyId, credential.AwsSecretAccessKey, credential.Token)
 	_, err := cred.Get()
 	if err != nil {

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/panjf2000/ants/v2"
 	"io"
 	"io/fs"
 	"math"
@@ -22,6 +21,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/panjf2000/ants/v2"
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
@@ -205,7 +206,13 @@ func (c *Client) getItemLatestPath(latestRecoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/path", latestRecoveryPointID)
 }
 
-func (c *Client) getChunksInItem(recoveryPointID string, itemID string, restoreSessionKey string, createdAt string) (*ChunksResponse, error) {
+func (c *Client) getChunksInItem(recoveryPointID string, actionID string, itemID string) (*ChunksResponse, error) {
+	// Get restore session key
+	restoreRsp, err := c.GetRestoreSessionKeyWithRetry(recoveryPointID, actionID)
+	if err != nil {
+		return nil, err
+	}
+
 	reqURL, err := c.urlStringFromRelPath(c.saveChunkPath(recoveryPointID, itemID))
 	if err != nil {
 		return nil, err
@@ -215,8 +222,8 @@ func (c *Client) getChunksInItem(recoveryPointID string, itemID string, restoreS
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Add("X-Session-Created-At", createdAt)
-	req.Header.Add("X-Restore-Session-Key", restoreSessionKey)
+	req.Header.Add("X-Session-Created-At", restoreRsp.CreatedAt)
+	req.Header.Add("X-Restore-Session-Key", restoreRsp.RestoreSessionKey)
 
 	resp, err := c.Do(req)
 	if err != nil {
@@ -527,7 +534,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 	}
 }
 
-func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreSessionKey string, createdAt string) error {
+func (c *Client) RestoreFile(recoveryPointID string, actionID string, destDir string, volume volume.StorageVolume) error {
 	sem := semaphore.NewWeighted(int64(5 * runtime.NumCPU()))
 	group, ctx := errgroup.WithContext(context.Background())
 
@@ -579,7 +586,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 								log.Error(err)
 								return err
 							}
-							infos, err := c.getChunksInItem(recoveryPointID, item.ID, restoreSessionKey, createdAt)
+							infos, err := c.getChunksInItem(recoveryPointID, actionID, item.ID)
 							if err != nil {
 								log.Error(err)
 								return err
@@ -664,7 +671,7 @@ func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volu
 										return err
 									}
 
-									infos, err := c.getChunksInItem(recoveryPointID, item.ID, restoreSessionKey, createdAt)
+									infos, err := c.getChunksInItem(recoveryPointID, actionID, item.ID)
 									if err != nil {
 										log.Error(err)
 										return err

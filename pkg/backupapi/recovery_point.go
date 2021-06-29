@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"io/ioutil"
 	"net/http"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -21,6 +24,12 @@ const (
 
 // ErrUpdateRecoveryPoint indicates that there is error from server when updating recovery point.
 var ErrUpdateRecoveryPoint = errors.New("failed to update recovery point")
+
+var schedule = []time.Duration{
+	1 * time.Second,
+	3 * time.Second,
+	5 * time.Second,
+}
 
 // RecoveryPoint ...
 type RecoveryPoint struct {
@@ -71,6 +80,16 @@ type RecoveryPointResponse struct {
 	UpdatedAt         string `json:"updated_at"`
 }
 
+type RestoreResponse struct {
+	ActionID          string `json:"action_id"`
+	CreatedAt         string `json:"created_at"`
+	RestoreSessionKey string `json:"restore_session_key"`
+}
+
+func (c *Client) getRestoreSessionKey(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/restore-key", recoveryPointID)
+}
+
 func (c *Client) recoveryPointPath(backupDirectoryID string) string {
 	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points", backupDirectoryID)
 }
@@ -97,6 +116,47 @@ func (c *Client) infoFile(recoveryPointID string, itemID string) string {
 
 func (c *Client) latestRecoveryPointID(backupDirectoryID string) string {
 	return fmt.Sprintf("/agent/backup-directories/%s/latest-recovery-points", backupDirectoryID)
+}
+
+func (c *Client) GetRestoreSessionKeyWithRetry(recoveryPointID string, actionID string) (*RestoreResponse, error) {
+	var restoreRsp *RestoreResponse
+	var err error
+	for _, backoff := range schedule {
+		restoreRsp, err = c.GetRestoreSessionKey(recoveryPointID, actionID)
+		if err == nil {
+			break
+		}
+		log.Printf("Retrying get restore session key in %v\n", backoff)
+		time.Sleep(backoff)
+	}
+
+	return restoreRsp, nil
+}
+
+func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string) (*RestoreResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.getRestoreSessionKey(recoveryPointID))
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Add("action_id", actionID)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var restoreRsp RestoreResponse
+	if err := json.NewDecoder(resp.Body).Decode(&restoreRsp); err != nil {
+		return nil, err
+	}
+	return &restoreRsp, nil
 }
 
 func (c *Client) GetLatestRecoveryPointID(backupDirectoryID string) (*RecoveryPointResponse, error) {

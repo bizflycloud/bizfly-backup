@@ -3,11 +3,12 @@ package backupapi
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 	log "github.com/sirupsen/logrus"
-	"net/http"
-	"time"
 )
 
 var backoffSchedule = []time.Duration{
@@ -34,15 +35,22 @@ type Volume struct {
 	Credential    volume.Credential `json:"credential"`
 }
 
-func (c *Client) credentialVolumePath(volumeID string, actionID string) string {
-	return fmt.Sprintf("/agent/volumes/%s/credential?action_id=%s", volumeID, actionID)
+func (c *Client) credentialVolumePath(volumeID string) string {
+	return fmt.Sprintf("/agent/volumes/%s/credential", volumeID)
 }
 
-func (c *Client) GetCredentialVolume(volumeID string, actionID string) (*Volume, error) {
-	req, err := c.NewRequest(http.MethodGet, c.credentialVolumePath(volumeID, actionID), nil)
+func (c *Client) GetCredentialVolume(volumeID string, actionID string, createdAt string, restoreSessionKey string) (*Volume, error) {
+	req, err := c.NewRequest(http.MethodGet, c.credentialVolumePath(volumeID), nil)
 	if err != nil {
 		return nil, err
 	}
+
+	q := req.URL.Query()
+	q.Add("action_id", actionID)
+	req.URL.RawQuery = q.Encode()
+
+	req.Header.Add("X-Session-Created-At", createdAt)
+	req.Header.Add("X-Restore-Session-Key", restoreSessionKey)
 
 	resp, err := c.Do(req)
 	if err != nil {

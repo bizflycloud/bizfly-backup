@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/panjf2000/ants/v2"
 	"io"
 	"io/fs"
 	"math"
@@ -349,7 +350,7 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 		}
 
 		isExist, etag, _ := c.HeadObject(volume, key)
-
+		log.Println("Backup chunk", etag, key)
 		if isExist {
 			integrity := strings.Contains(etag, key)
 			if !integrity {
@@ -368,51 +369,46 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 			}
 			stat += uint64(chunk.Length)
 		}
-
+		log.Printf("Finished backup chunk: %s\n", key)
 		return stat, nil
 	}
 
 }
 
 // func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) error {
-func (c *Client) ChunkFileToBackup(ctx context.Context, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) (uint64, error) {
+func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) (uint64, error) {
 	// p.Start()
-	sem := semaphore.NewWeighted(int64(3))
-	cxtUploadFile, cancel := context.WithCancel(context.Background())
-	group, context := errgroup.WithContext(cxtUploadFile)
+	ctx, cancel := context.WithCancel(ctx)
 	select {
 	case <-ctx.Done():
 		log.Info("context done ChunkFileToBackup")
 		cancel()
 		return 0, nil
 	default:
+		var errBackupChunk error
 		file, err := os.Open(itemInfo.Attributes.ItemName)
 		if err != nil {
 			return 0, err
 		}
 		chk := chunker.New(file, 0x3dea92648f6e83)
 		buf := make([]byte, ChunkUploadLowerBound)
-		// s := progress.Stat{}
 		var stat uint64
-		var mu sync.Mutex
+
+		var wg sync.WaitGroup
 		for {
 			chunk, err := chk.Next(buf)
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
-				return stat, err
+				break
 			}
 
 			// p.Report(s)
-			errAcquire := sem.Acquire(context, 1)
-			if errAcquire != nil {
-				continue
-			}
+
 			temp := make([]byte, chunk.Length)
 			length := copy(temp, chunk.Data)
 			if uint(length) != chunk.Length {
-				log.Println("ERROR copy error")
 				return 0, errors.New("copy chunk data error")
 			}
 			chunkToBackup := ChunkInfo{
@@ -421,21 +417,13 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, itemInfo ItemInfo, recov
 				Cut:    chunk.Cut,
 				Data:   temp,
 			}
-			group.Go(func() error {
-				defer sem.Release(1)
-				saveSize, err := c.backupChunk(context, chunkToBackup, itemInfo, recoveryPointID, actionID, volume)
-				if err != nil {
-					cancel()
-					return err
-				}
-				mu.Lock()
-				stat += saveSize
-				mu.Unlock()
-				return nil
-			})
+			wg.Add(1)
+			pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, chunkToBackup, itemInfo, recoveryPointID, actionID, volume))
 		}
-		if err := group.Wait(); err != nil {
-			return 0, err
+		wg.Wait()
+
+		if errBackupChunk != nil {
+			return 0, errBackupChunk
 		}
 
 		return stat, nil
@@ -443,8 +431,34 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, itemInfo ItemInfo, recov
 
 }
 
+type chunkJob func()
+
+func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *error, size *uint64,
+	chunk ChunkInfo, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) chunkJob {
+	return func() {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			ctx, cancel := context.WithCancel(ctx)
+			defer func() {
+				log.Printf("Done task: %d\n", chunk.Start)
+				wg.Done()
+			}()
+
+			saveSize, err := c.backupChunk(ctx, chunk, itemInfo, recoveryPointID, actionID, volume)
+			if err != nil {
+				*chErr = err
+				cancel()
+				return
+			}
+			*size += saveSize
+		}
+	}
+}
+
 // func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) error {
-func (c *Client) UploadFile(ctx context.Context, recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume) (uint64, error) {
+func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume) (uint64, error) {
 
 	select {
 	case <-ctx.Done():
@@ -473,7 +487,7 @@ func (c *Client) UploadFile(ctx context.Context, recoveryPointID string, actionI
 				if itemInfo.ItemType == "FILE" {
 					log.Println("Continue chunk file to backup", itemInfo.Attributes.ItemName)
 					// err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume, p)
-					storageSize, err := c.ChunkFileToBackup(ctx, itemInfo, recoveryPointID, actionID, volume)
+					storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, recoveryPointID, actionID, volume)
 					if err != nil {
 						log.Error("c.ChunkFileToBackup:522", err)
 						return 0, err

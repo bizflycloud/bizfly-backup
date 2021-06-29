@@ -24,11 +24,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/inconshreveable/go-update"
 	"github.com/jpillora/backoff"
+	"github.com/panjf2000/ants/v2"
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 	"golang.org/x/mod/semver"
-	"golang.org/x/sync/errgroup"
-	"golang.org/x/sync/semaphore"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
@@ -44,6 +43,10 @@ const (
 	statusDownloading = "DOWNLOADING"
 	statusRestoring   = "RESTORING"
 	statusFailed      = "FAILED"
+)
+
+const (
+	PERCENT_PROCESS = 0.2
 )
 
 // Server defines parameters for running BizFly Backup HTTP server.
@@ -63,6 +66,10 @@ type Server struct {
 
 	// signal chan use for testing.
 	testSignalCh chan os.Signal
+
+	// Goroutines pool
+	pool      *ants.Pool
+	chunkPool *ants.Pool
 
 	logger *zap.Logger
 }
@@ -94,6 +101,19 @@ func New(opts ...Option) (*Server, error) {
 	s.useUnixSock = strings.HasPrefix(s.Addr, "unix://")
 	s.Addr = strings.TrimPrefix(s.Addr, "unix://")
 
+	var err error
+	numGoroutine := int(float64(runtime.NumCPU()) * PERCENT_PROCESS)
+	if numGoroutine == 0 {
+		numGoroutine = 1
+	}
+	s.pool, err = ants.NewPool(numGoroutine)
+	if err != nil {
+		return nil, err
+	}
+	s.chunkPool, err = ants.NewPool(numGoroutine)
+	if err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -505,104 +525,9 @@ func (s *Server) notifyStatusFailed(recoveryPointID, reason string) {
 
 // backup performs backup flow.
 func (s *Server) backup(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer) error {
-	ctx := context.Background()
-	// Get BackupDirectory
-	bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
-
-	if err != nil {
-		return err
-	}
-
-	// Create recovery point
-	rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
-		PolicyID:          policyID,
-		Name:              name,
-		RecoveryPointType: recoveryPointType,
-	})
-	if err != nil {
-		return err
-	}
-
-	// Get latest recovery point
-	lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-
-	// Get storage volume
-	fmt.Printf("Volume info %+v\n", rp.Volume)
-	storageVolume, err := NewStorageVolume(*rp.Volume, rp.ID)
-	if err != nil {
-		return err
-	}
-
-	s.notifyMsg(map[string]string{
-		"action_id": rp.ID,
-		"status":    statusUploadFile,
-	})
-
-	// Upload file to storage
-	// s.reportStartUpload(progressOutput)
-	// progressScan := s.newProgressScanDir()
-	// Scan directory
-	// itemTodo, itemsInfo, err := WalkerDir(bd.Path, progressScan)
-	// itemsInfo, err := WalkerDir(bd.Path, progressScan)
-	total, itemsInfo, err := WalkerDir(bd.Path)
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	// progressUpload := s.newUploadProgress(itemTodo)
-	// defer progressUpload.Done()
-
-	var storageSize uint64
-	var mu sync.Mutex
-
-	sem := semaphore.NewWeighted(int64(20))
-	ctx, cancel := context.WithCancel(ctx)
-	group, context := errgroup.WithContext(ctx)
-
-	for _, itemInfo := range itemsInfo.Files {
-		errAcquire := sem.Acquire(context, 1)
-		if errAcquire != nil {
-			continue
-		}
-		item := itemInfo
-		group.Go(func() error {
-			defer sem.Release(1)
-			// if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, rp.ID, lrp.ID, bd.Path, item, storageVolume, progressUpload); err != nil {
-			// 	s.notifyStatusFailed(rp.ID, err.Error())
-			// 	return err
-			// }
-			saveSize, err := s.backupClient.UploadFile(context, rp.RecoveryPoint.ID, rp.ID, lrp.ID, item, storageVolume)
-			if err != nil {
-				cancel()
-				return err
-			}
-			mu.Lock()
-			storageSize += saveSize
-			mu.Unlock()
-			return nil
-		})
-	}
-
-	if err := group.Wait(); err != nil {
-		s.logger.Error("Has a goroutine error" + err.Error())
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-
-	s.reportUploadCompleted(progressOutput)
-
-	s.notifyMsg(map[string]string{
-		"action_id":    rp.ID,
-		"status":       statusComplete,
-		"storage_size": strconv.FormatUint(storageSize, 10),
-		"total":        strconv.FormatUint(total, 10),
-	})
-
-	return nil
+	chErr := make(chan error, 1)
+	s.pool.Submit(s.backupWorker(backupDirectoryID, policyID, name, recoveryPointType, progressOutput, chErr))
+	return <-chErr
 }
 
 // requestBackup performs a request backup flow.
@@ -754,6 +679,118 @@ func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 
 	// return st, &fileInfoRequest, err
 	return total, &fileInfoRequest, err
+}
+
+type backupJob func()
+
+func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, actionID string, latestRecoveryPointID string,
+	itemInfo backupapi.ItemInfo, volume volume.StorageVolume, wg *sync.WaitGroup, size chan<- uint64, errCh *error) backupJob {
+	return func() {
+		ctx, cancel := context.WithCancel(ctx)
+		defer wg.Done()
+		fmt.Printf("Upload file worker: recoverypoint: %s, action id %s itemname %s\n", recoveryPointID, actionID, itemInfo.Attributes.ItemName)
+		storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, recoveryPointID, actionID, latestRecoveryPointID, itemInfo, volume)
+		if err != nil {
+			*errCh = err
+			cancel()
+			return
+		}
+		fmt.Printf("storage size: %d, item %s\n", storageSize, itemInfo.Attributes.ItemName)
+		size <- storageSize
+	}
+}
+
+func (s *Server) backupWorker(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer, errCh chan<- error) backupJob {
+	return func() {
+		fmt.Printf("Backup directory ID: %s, policy: %s, name: %s, recovery point type: %s\n", backupDirectoryID, policyID, name, recoveryPointType)
+
+		ctx := context.Background()
+		// Get BackupDirectory
+		bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
+		if err != nil {
+			s.logger.Error("GetBackupDirectory error", zap.Error(err))
+			errCh <- err
+			return
+		}
+
+		// Create recovery point
+		rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
+			PolicyID:          policyID,
+			Name:              name,
+			RecoveryPointType: recoveryPointType,
+		})
+		if err != nil {
+			s.logger.Error("CreateRecoveryPoint error", zap.Error(err))
+			errCh <- err
+			return
+		}
+
+		// Get latest recovery point
+		lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			s.logger.Error("GetLatestRecoveryPointID error", zap.Error(err))
+			errCh <- err
+			return
+		}
+
+		// Get storage volume
+		storageVolume, err := NewStorageVolume(*rp.Volume, rp.ID)
+		if err != nil {
+			s.logger.Error("NewStorageVolume error", zap.Error(err))
+			errCh <- err
+			return
+		}
+
+		s.notifyMsg(map[string]string{
+			"action_id": rp.ID,
+			"status":    statusUploadFile,
+		})
+
+		//_, itemsInfo, err := WalkerDir(bd.Path)
+		total, itemsInfo, err := WalkerDir(bd.Path)
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			s.logger.Error("WalkerDir error", zap.Error(err))
+			errCh <- err
+			return
+		}
+
+		storageSize := make(chan uint64)
+		var errFileWorker error
+		var stat uint64
+
+		var wg sync.WaitGroup
+		for _, itemInfo := range itemsInfo.Files {
+			wg.Add(1)
+			s.pool.Submit(s.uploadFileWorker(ctx, rp.RecoveryPoint.ID, rp.ID, lrp.ID, itemInfo, storageVolume, &wg, storageSize, &errFileWorker))
+		}
+		go func() {
+			for size := range storageSize {
+				stat += size
+			}
+		}()
+		wg.Wait()
+
+		if errFileWorker != nil {
+			s.notifyStatusFailed(rp.ID, errFileWorker.Error())
+			s.logger.Error("Error uploadFileWorker error", zap.Error(err))
+			errCh <- errFileWorker
+			return
+		}
+
+		s.reportUploadCompleted(progressOutput)
+
+		s.notifyMsg(map[string]string{
+			"action_id":    rp.ID,
+			"status":       statusComplete,
+			"storage_size": strconv.FormatUint(stat, 10),
+			"total":        strconv.FormatUint(total, 10),
+		})
+
+		errCh <- nil
+		return
+	}
 }
 
 // func (s *Server) newProgressScanDir() *progress.Progress {

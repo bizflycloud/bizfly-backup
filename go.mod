@@ -22,6 +22,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/olekukonko/tablewriter v0.0.5 // indirect
 	github.com/ory/dockertest/v3 v3.6.0
+	github.com/panjf2000/ants/v2 v2.4.6
 	github.com/restic/chunker v0.4.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/sirupsen/logrus v1.8.1

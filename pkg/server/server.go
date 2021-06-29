@@ -561,7 +561,7 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, volumeId string, progressOutput io.Writer) error {
 	// Get storage volume
 	fmt.Printf("volume id: %s, action id: %s\n", volumeId, actionID)
-	vol, err := s.backupClient.GetCredentialVolume(volumeId, actionID)
+	vol, err := s.backupClient.GetCredentialVolume(volumeId, actionID, createdAt, restoreSessionKey)
 	if err != nil {
 		s.logger.Debug("Get credential volume error", zap.Error(err))
 		return err

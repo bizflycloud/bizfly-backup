@@ -103,8 +103,8 @@ func New(opts ...Option) (*Server, error) {
 
 	var err error
 	numGoroutine := int(float64(runtime.NumCPU()) * PERCENT_PROCESS)
-	if numGoroutine == 0 {
-		numGoroutine = 1
+	if numGoroutine <= 1 {
+		numGoroutine = 2
 	}
 	s.pool, err = ants.NewPool(numGoroutine)
 	if err != nil {
@@ -684,7 +684,7 @@ func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 type backupJob func()
 
 func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, actionID string, latestRecoveryPointID string,
-	itemInfo backupapi.ItemInfo, volume volume.StorageVolume, wg *sync.WaitGroup, size chan<- uint64, errCh *error) backupJob {
+	itemInfo backupapi.ItemInfo, volume volume.StorageVolume, wg *sync.WaitGroup, size *uint64, errCh *error) backupJob {
 	return func() {
 		ctx, cancel := context.WithCancel(ctx)
 		defer wg.Done()
@@ -696,7 +696,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, a
 			return
 		}
 		fmt.Printf("storage size: %d, item %s\n", storageSize, itemInfo.Attributes.ItemName)
-		size <- storageSize
+		*size += storageSize
 	}
 }
 
@@ -756,20 +756,15 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		storageSize := make(chan uint64)
+		var storageSize uint64
 		var errFileWorker error
 		var stat uint64
 
 		var wg sync.WaitGroup
 		for _, itemInfo := range itemsInfo.Files {
 			wg.Add(1)
-			s.pool.Submit(s.uploadFileWorker(ctx, rp.RecoveryPoint.ID, rp.ID, lrp.ID, itemInfo, storageVolume, &wg, storageSize, &errFileWorker))
+			s.pool.Submit(s.uploadFileWorker(ctx, rp.RecoveryPoint.ID, rp.ID, lrp.ID, itemInfo, storageVolume, &wg, &storageSize, &errFileWorker))
 		}
-		go func() {
-			for size := range storageSize {
-				stat += size
-			}
-		}()
 		wg.Wait()
 
 		if errFileWorker != nil {

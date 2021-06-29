@@ -356,12 +356,12 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 			return stat, err
 		}
 
-		isExist, etag, _ := c.HeadObject(volume, key)
+		isExist, etag, _ := c.HeadObject(volume, key, "", "")
 		log.Println("Backup chunk", etag, key)
 		if isExist {
 			integrity := strings.Contains(etag, key)
 			if !integrity {
-				err := c.PutObject(volume, key, chunk.Data)
+				err := c.PutObject(volume, key, chunk.Data, "", "")
 				if err != nil {
 					return stat, err
 				}
@@ -370,7 +370,7 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 				log.Println("exists", etag, key)
 			}
 		} else {
-			err = c.PutObject(volume, key, chunk.Data)
+			err = c.PutObject(volume, key, chunk.Data, "", "")
 			if err != nil {
 				return stat, err
 			}
@@ -534,7 +534,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 	}
 }
 
-func (c *Client) RestoreFile(recoveryPointID string, actionID string, destDir string, volume volume.StorageVolume) error {
+func (c *Client) RestoreFile(recoveryPointID string, actionID string, destDir string, volume volume.StorageVolume, createdAt string, restoreSessionKey string) error {
 	sem := semaphore.NewWeighted(int64(5 * runtime.NumCPU()))
 	group, ctx := errgroup.WithContext(context.Background())
 
@@ -603,7 +603,7 @@ func (c *Client) RestoreFile(recoveryPointID string, actionID string, destDir st
 								}
 								key := info.Etag
 
-								data, err := c.GetObject(volume, key)
+								data, err := c.GetObject(volume, key, createdAt, restoreSessionKey)
 								if err != nil {
 									log.Error(err)
 									return err
@@ -688,7 +688,7 @@ func (c *Client) RestoreFile(recoveryPointID string, actionID string, destDir st
 										}
 										key := info.Etag
 
-										data, err := c.GetObject(volume, key)
+										data, err := c.GetObject(volume, key, createdAt, restoreSessionKey)
 										if err != nil {
 											log.Error(err)
 											return err

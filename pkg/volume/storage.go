@@ -15,7 +15,9 @@ type StorageVolume interface {
 	RefreshCredential(credential Credential) error
 
 	// ID return id of volume
-	ID() (string, string)
+	ID() string
+
+	S3ActionID() string
 
 	// Type
 	Type() Type

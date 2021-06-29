@@ -68,7 +68,7 @@ func (c *Client) GetCredentialVolume(volumeID string, actionID string, createdAt
 	return &vol, nil
 }
 
-func (c *Client) HeadObject(volume volume.StorageVolume, key string) (bool, string, error) {
+func (c *Client) HeadObject(volume volume.StorageVolume, key string, createdAt string, restoreSessionKey string) (bool, string, error) {
 	var isExist bool
 	var etag string
 	var err error
@@ -80,7 +80,7 @@ func (c *Client) HeadObject(volume volume.StorageVolume, key string) (bool, stri
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == "Forbidden" && volume.Type().StorageType == "DEFAULT" {
 				log.Info("GetCredential in head object")
-				vol, err := c.GetCredentialVolume(volume.ID())
+				vol, err := c.GetCredentialVolume(volume.ID(), volume.S3ActionID(), "", "")
 				if err != nil {
 					log.Error("Error get credential")
 					break
@@ -101,7 +101,7 @@ func (c *Client) HeadObject(volume volume.StorageVolume, key string) (bool, stri
 	return isExist, etag, err
 }
 
-func (c *Client) PutObject(volume volume.StorageVolume, key string, data []byte) error {
+func (c *Client) PutObject(volume volume.StorageVolume, key string, data []byte, createdAt string, restoreSessionKey string) error {
 	var err error
 	for _, backoff := range backoffSchedule {
 		err = volume.PutObject(key, data)
@@ -111,7 +111,7 @@ func (c *Client) PutObject(volume volume.StorageVolume, key string, data []byte)
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == "Forbidden" && volume.Type().StorageType == "DEFAULT" {
 				log.Info("GetCredential for refreshing session s3")
-				vol, err := c.GetCredentialVolume(volume.ID())
+				vol, err := c.GetCredentialVolume(volume.ID(), volume.S3ActionID(), "", "")
 				if err != nil {
 					log.Error("Error get credential")
 					break
@@ -128,7 +128,7 @@ func (c *Client) PutObject(volume volume.StorageVolume, key string, data []byte)
 	return err
 }
 
-func (c *Client) GetObject(volume volume.StorageVolume, key string) ([]byte, error) {
+func (c *Client) GetObject(volume volume.StorageVolume, key string, createdAt string, restoreSessionKey string) ([]byte, error) {
 	var err error
 	for _, backoff := range backoffSchedule {
 		data, err := volume.GetObject(key)
@@ -137,7 +137,7 @@ func (c *Client) GetObject(volume volume.StorageVolume, key string) ([]byte, err
 		}
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() != "" && volume.Type().StorageType == "DEFAULT" {
-				vol, err := c.GetCredentialVolume(volume.ID())
+				vol, err := c.GetCredentialVolume(volume.ID(), volume.S3ActionID(), createdAt, restoreSessionKey)
 				if err != nil {
 					break
 				}

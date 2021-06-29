@@ -3,11 +3,12 @@ package s3
 import (
 	"bytes"
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"io/ioutil"
 	"math/rand"
 	"time"
+
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 
 	log "github.com/sirupsen/logrus"
 
@@ -40,8 +41,12 @@ func (s3 *S3) Type() volume.Type {
 	return tpe
 }
 
-func (s3 *S3) ID() (string, string) {
-	return s3.Id, s3.ActionID
+func (s3 *S3) ID() string {
+	return s3.Id
+}
+
+func (s3 *S3) S3ActionID() string {
+	return s3.ActionID
 }
 
 var _ volume.StorageVolume = (*S3)(nil)

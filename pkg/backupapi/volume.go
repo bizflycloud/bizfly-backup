@@ -34,21 +34,63 @@ type Volume struct {
 	Credential    volume.Credential `json:"credential"`
 }
 
+type AuthRestore struct {
+	RecoveryPointID   string
+	ActionID          string
+	CreatedAt         string
+	RestoreSessionKey string
+}
+
 func (c *Client) credentialVolumePath(volumeID string, actionID string) string {
 	return fmt.Sprintf("/agent/volumes/%s/credential?action_id=%s", volumeID, actionID)
 }
 
-func (c *Client) GetCredentialVolume(volumeID string, actionID string) (*Volume, error) {
-	req, err := c.NewRequest(http.MethodGet, c.credentialVolumePath(volumeID, actionID), nil)
-	if err != nil {
-		return nil, err
+func (c *Client) GetCredentialVolume(volumeID string, actionID string, restoreKey *AuthRestore) (*Volume, error) {
+
+	var resp *http.Response
+	var err error
+	if restoreKey != nil {
+		for _, backoff := range backoffSchedule {
+			req, err := c.NewRequest(http.MethodGet, c.credentialVolumePath(volumeID, actionID), nil)
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Add("X-Session-Created-At", restoreKey.CreatedAt)
+			req.Header.Add("X-Restore-Session-Key", restoreKey.RestoreSessionKey)
+			resp, err = c.Do(req)
+			if err != nil {
+				time.Sleep(backoff)
+				continue
+			}
+			if resp.StatusCode == 401 {
+				log.Printf("GetCredential access denied: %d", resp.StatusCode)
+				newSessionKey, err := c.GetRestoreSessionKey(restoreKey.RecoveryPointID, restoreKey.ActionID, restoreKey.CreatedAt)
+				if err != nil {
+					fmt.Printf("Get restore session key error: %s\n", err)
+					return nil, err
+				}
+				fmt.Printf("new session key: %+v\n", newSessionKey)
+				restoreKey.CreatedAt = newSessionKey.CreatedAt
+				restoreKey.RestoreSessionKey = newSessionKey.RestoreSessionKey
+				continue
+			} else if resp.StatusCode == 200 {
+				break
+			}
+			time.Sleep(backoff)
+			continue
+		}
+	} else {
+		req, err := c.NewRequest(http.MethodGet, c.credentialVolumePath(volumeID, actionID), nil)
+		if err != nil {
+			return nil, err
+		}
+		resp, err = c.Do(req)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	resp, err := c.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if err := checkResponse(resp); err != nil {
+	if err = checkResponse(resp); err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -72,7 +114,8 @@ func (c *Client) HeadObject(volume volume.StorageVolume, key string) (bool, stri
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == "Forbidden" && volume.Type().StorageType == "DEFAULT" {
 				log.Info("GetCredential in head object")
-				vol, err := c.GetCredentialVolume(volume.ID())
+				volID, actID := volume.ID()
+				vol, err := c.GetCredentialVolume(volID, actID, nil)
 				if err != nil {
 					log.Error("Error get credential")
 					break
@@ -103,7 +146,8 @@ func (c *Client) PutObject(volume volume.StorageVolume, key string, data []byte)
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == "Forbidden" && volume.Type().StorageType == "DEFAULT" {
 				log.Info("GetCredential for refreshing session s3")
-				vol, err := c.GetCredentialVolume(volume.ID())
+				volID, actID := volume.ID()
+				vol, err := c.GetCredentialVolume(volID, actID, nil)
 				if err != nil {
 					log.Error("Error get credential")
 					break
@@ -120,7 +164,7 @@ func (c *Client) PutObject(volume volume.StorageVolume, key string, data []byte)
 	return err
 }
 
-func (c *Client) GetObject(volume volume.StorageVolume, key string) ([]byte, error) {
+func (c *Client) GetObject(volume volume.StorageVolume, key string, restoreKey *AuthRestore) ([]byte, error) {
 	var err error
 	for _, backoff := range backoffSchedule {
 		data, err := volume.GetObject(key)
@@ -129,7 +173,8 @@ func (c *Client) GetObject(volume volume.StorageVolume, key string) ([]byte, err
 		}
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() != "" && volume.Type().StorageType == "DEFAULT" {
-				vol, err := c.GetCredentialVolume(volume.ID())
+				volID, actID := volume.ID()
+				vol, err := c.GetCredentialVolume(volID, actID, restoreKey)
 				if err != nil {
 					break
 				}

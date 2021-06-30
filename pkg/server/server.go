@@ -561,8 +561,15 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 
 func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, volumeId string, progressOutput io.Writer) error {
 	// Get storage volume
-	fmt.Printf("volume id: %s, action id: %s\n", volumeId, actionID)
-	vol, err := s.backupClient.GetCredentialVolume(volumeId, actionID)
+
+	restoreKey := &backupapi.AuthRestore{
+		RecoveryPointID:   recoveryPointID,
+		ActionID:          actionID,
+		CreatedAt:         createdAt,
+		RestoreSessionKey: restoreSessionKey,
+	}
+
+	vol, err := s.backupClient.GetCredentialVolume(volumeId, actionID, restoreKey)
 	if err != nil {
 		s.logger.Debug("Get credential volume error", zap.Error(err))
 		return err
@@ -576,7 +583,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	s.reportStartDownload(progressOutput)
 
-	if err := s.backupClient.RestoreFile(recoveryPointID, destDir, storageVolume, restoreSessionKey, createdAt); err != nil {
+	if err := s.backupClient.RestoreFile(recoveryPointID, destDir, storageVolume, restoreKey); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
@@ -759,7 +766,6 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		var storageSize uint64
 		var errFileWorker error
-		var stat uint64
 
 		var wg sync.WaitGroup
 		for _, itemInfo := range itemsInfo.Files {
@@ -780,7 +786,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		s.notifyMsg(map[string]string{
 			"action_id":    rp.ID,
 			"status":       statusComplete,
-			"storage_size": strconv.FormatUint(stat, 10),
+			"storage_size": strconv.FormatUint(storageSize, 10),
 			"total":        strconv.FormatUint(total, 10),
 		})
 

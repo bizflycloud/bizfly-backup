@@ -206,3 +206,40 @@ func (c *Client) RequestRestore(recoveryPointID string, crr *CreateRestoreReques
 	defer resp.Body.Close()
 	return nil
 }
+
+func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, createdAt string) (*RestoreResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.getRestoreSessionKey(recoveryPointID))
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Add("action_id", actionID)
+	q.Add("created_at", createdAt)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	var restoreRsp RestoreResponse
+	if err := json.NewDecoder(resp.Body).Decode(&restoreRsp); err != nil {
+		return nil, err
+	}
+	return &restoreRsp, nil
+}
+
+func (c *Client) getRestoreSessionKey(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/restore-key", recoveryPointID)
+}
+
+type RestoreResponse struct {
+	ActionID          string `json:"action_id"`
+	CreatedAt         string `json:"created_at"`
+	RestoreSessionKey string `json:"restore_session_key"`
+}

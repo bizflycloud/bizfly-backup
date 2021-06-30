@@ -206,9 +206,9 @@ func (c *Client) getItemLatestPath(latestRecoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/path", latestRecoveryPointID)
 }
 
-func (c *Client) getChunksInItem(recoveryPointID string, actionID string, itemID string) (*ChunksResponse, error) {
+func (c *Client) getChunksInItem(recoveryPointID string, actionID string, itemID string, createdAt string) (*ChunksResponse, error) {
 	// Get restore session key
-	restoreRsp, err := c.GetRestoreSessionKeyWithRetry(recoveryPointID, actionID)
+	restoreRsp, err := c.GetRestoreSessionKeyWithRetry(recoveryPointID, actionID, createdAt)
 	if err != nil {
 		return nil, err
 	}

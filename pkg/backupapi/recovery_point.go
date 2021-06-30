@@ -118,11 +118,11 @@ func (c *Client) latestRecoveryPointID(backupDirectoryID string) string {
 	return fmt.Sprintf("/agent/backup-directories/%s/latest-recovery-points", backupDirectoryID)
 }
 
-func (c *Client) GetRestoreSessionKeyWithRetry(recoveryPointID string, actionID string) (*RestoreResponse, error) {
+func (c *Client) GetRestoreSessionKeyWithRetry(recoveryPointID string, actionID string, createdAt string) (*RestoreResponse, error) {
 	var restoreRsp *RestoreResponse
 	var err error
 	for _, backoff := range schedule {
-		restoreRsp, err = c.GetRestoreSessionKey(recoveryPointID, actionID)
+		restoreRsp, err = c.GetRestoreSessionKey(recoveryPointID, actionID, createdAt)
 		if err == nil {
 			break
 		}
@@ -133,7 +133,7 @@ func (c *Client) GetRestoreSessionKeyWithRetry(recoveryPointID string, actionID 
 	return restoreRsp, nil
 }
 
-func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string) (*RestoreResponse, error) {
+func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, created_at string) (*RestoreResponse, error) {
 	reqURL, err := c.urlStringFromRelPath(c.getRestoreSessionKey(recoveryPointID))
 	if err != nil {
 		return nil, err
@@ -145,6 +145,7 @@ func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string) (
 	}
 	q := req.URL.Query()
 	q.Add("action_id", actionID)
+	q.Add("created_at", created_at)
 	req.URL.RawQuery = q.Encode()
 
 	resp, err := c.Do(req)

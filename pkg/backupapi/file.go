@@ -586,7 +586,7 @@ func (c *Client) RestoreFile(recoveryPointID string, actionID string, destDir st
 								log.Error(err)
 								return err
 							}
-							infos, err := c.getChunksInItem(recoveryPointID, actionID, item.ID)
+							infos, err := c.getChunksInItem(recoveryPointID, actionID, item.ID, createdAt)
 							if err != nil {
 								log.Error(err)
 								return err
@@ -671,7 +671,7 @@ func (c *Client) RestoreFile(recoveryPointID string, actionID string, destDir st
 										return err
 									}
 
-									infos, err := c.getChunksInItem(recoveryPointID, actionID, item.ID)
+									infos, err := c.getChunksInItem(recoveryPointID, actionID, item.ID, createdAt)
 									if err != nil {
 										log.Error(err)
 										return err

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/panjf2000/ants/v2"
 	"io"
 	"io/fs"
 	"math"
@@ -22,6 +21,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/panjf2000/ants/v2"
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
@@ -509,6 +510,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 		} else {
 			log.Println("backup item with item no change time")
 			log.Printf("Save file info %v", itemInfo.Attributes.ItemName)
+			start := time.Now()
 			_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
 				ItemType:       itemInfo.ItemType,
 				ParentItemID:   itemInfoLatest.ID,
@@ -519,6 +521,8 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 				log.Error(err)
 				return 0, err
 			}
+			elapsed := time.Since(start)
+			log.Printf("Binomial took %s", elapsed)
 		}
 
 		return 0, nil
@@ -526,7 +530,11 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 }
 
 func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreKey *AuthRestore) error {
-	sem := semaphore.NewWeighted(int64(5 * runtime.NumCPU()))
+	numGoroutine := int(float64(runtime.NumCPU()) * 0.2)
+	if numGoroutine <= 1 {
+		numGoroutine = 2
+	}
+	sem := semaphore.NewWeighted(int64(numGoroutine))
 	group, ctx := errgroup.WithContext(context.Background())
 
 	totalPage, _, err := c.GetListItemPath(recoveryPointID, 1)

@@ -148,6 +148,8 @@ func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, c
 	q.Add("created_at", createdAt)
 	req.URL.RawQuery = q.Encode()
 
+	log.Println(req.URL.String())
+
 	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err

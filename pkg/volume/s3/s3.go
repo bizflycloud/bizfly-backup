@@ -128,6 +128,7 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 }
 
 func (s3 *S3) GetObject(key string) ([]byte, error) {
+	log.Println("Get", key)
 	var err error
 	var once bool
 	var obj *storage.GetObjectOutput

@@ -133,7 +133,7 @@ func (c *Client) GetRestoreSessionKeyWithRetry(recoveryPointID string, actionID 
 	return restoreRsp, nil
 }
 
-func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, created_at string) (*RestoreResponse, error) {
+func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, createdAt string) (*RestoreResponse, error) {
 	reqURL, err := c.urlStringFromRelPath(c.getRestoreSessionKey(recoveryPointID))
 	if err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, c
 	}
 	q := req.URL.Query()
 	q.Add("action_id", actionID)
-	q.Add("created_at", created_at)
+	q.Add("created_at", createdAt)
 	req.URL.RawQuery = q.Encode()
 
 	resp, err := c.Do(req)

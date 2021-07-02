@@ -583,7 +583,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	s.reportStartDownload(progressOutput)
 
-	if err := s.backupClient.RestoreFile(recoveryPointID, destDir, storageVolume, restoreKey); err != nil {
+	if err := s.backupClient.RestoreDirectory(recoveryPointID, destDir, storageVolume, restoreKey); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err

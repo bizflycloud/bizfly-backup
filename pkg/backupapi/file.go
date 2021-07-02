@@ -529,207 +529,253 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 	}
 }
 
-func (c *Client) RestoreFile(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreKey *AuthRestore) error {
+func (c *Client) RestoreDirectory(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreKey *AuthRestore) error {
 	numGoroutine := int(float64(runtime.NumCPU()) * 0.2)
 	if numGoroutine <= 1 {
 		numGoroutine = 2
 	}
 	sem := semaphore.NewWeighted(int64(numGoroutine))
-	group, ctx := errgroup.WithContext(context.Background())
-
+	ctx, cancel := context.WithCancel(context.Background())
+	group, ctx := errgroup.WithContext(ctx)
 	totalPage, _, err := c.GetListItemPath(recoveryPointID, 1)
 	if err != nil {
 		log.Error(err)
 		return err
 	}
-	var file *os.File
-	if totalPage > 0 {
-		for page := 1; page <= totalPage; page++ {
 
+	for page := 1; page <= totalPage; page++ {
+		p := page
+		_, rp, err := c.GetListItemPath(recoveryPointID, p)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		for _, item := range rp.Items {
+			item := item
 			err := sem.Acquire(ctx, 1)
 			if err != nil {
 				continue
 			}
-
-			p := page
 			group.Go(func() error {
 				defer sem.Release(1)
-				_, rp, err := c.GetListItemPath(recoveryPointID, p)
+				err := c.RestoreItem(ctx, recoveryPointID, destDir, item, volume, restoreKey)
 				if err != nil {
-					log.Error(err)
+					log.Println("Restore file error:", item.ItemName)
+					cancel()
 					return err
-				}
-
-				for _, item := range rp.Items {
-					path := filepath.Join(destDir, item.RealName)
-					log.Println("restore item", path)
-					if fi, err := os.Stat(path); os.IsNotExist(err) {
-						switch item.ItemType {
-						case "SYMLINK":
-							log.Println("symlink not exist. create", path)
-							err := createSymlink(item.SymlinkPath, path, item.AccessMode, int(item.UID), int(item.GID))
-							if err != nil {
-								log.Error(err)
-								return err
-							}
-						case "DIRECTORY":
-							log.Println("dir not exist. create", path)
-							err := createDir(path, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
-							if err != nil {
-								log.Error(err)
-								return err
-							}
-						case "FILE":
-							log.Println("file not exist. create", path)
-							if file, err = createFile(path, item.AccessMode, int(item.UID), int(item.GID)); err != nil {
-								log.Error(err)
-								return err
-							}
-							infos, err := c.getChunksInItem(recoveryPointID, item.ID)
-							if err != nil {
-								log.Error(err)
-								return err
-							}
-
-							if len(infos.Chunks) == 0 {
-								break
-							}
-
-							for _, info := range infos.Chunks {
-								offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
-								if err != nil {
-									return err
-								}
-								key := info.Etag
-
-								data, err := c.GetObject(volume, key, restoreKey)
-								if err != nil {
-									log.Error(err)
-									return err
-								}
-								_, errWriteFile := file.WriteAt(data, offset)
-								if errWriteFile != nil {
-									log.Error(err)
-									return err
-								}
-							}
-							err = os.Chtimes(file.Name(), item.AccessTime, item.ModifyTime)
-							if err != nil {
-								log.Error(err)
-								return err
-							}
-						}
-					} else {
-						switch item.ItemType {
-						case "SYMLINK":
-							log.Println("symlink exist", path)
-							_, ctimeLocal, _ := itemLocal(fi)
-							if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
-								log.Printf("symlink %s change ctime. update mode, uid, gid", item.RealName)
-								err = os.Chmod(path, item.AccessMode)
-								if err != nil {
-									log.Error(err)
-									return err
-								}
-								err = os.Chown(path, int(item.UID), int(item.GID))
-								if err != nil {
-									log.Error(err)
-									return err
-								}
-							}
-						case "DIRECTORY":
-							log.Println("dir exist", path)
-							_, ctimeLocal, _ := itemLocal(fi)
-							if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
-								log.Printf("dir %s change ctime. update mode, uid, gid", item.RealName)
-								err = os.Chmod(path, item.AccessMode)
-								if err != nil {
-									log.Error(err)
-									return err
-								}
-								err = os.Chown(path, int(item.UID), int(item.GID))
-								if err != nil {
-									log.Error(err)
-									return err
-								}
-							}
-						case "FILE":
-							log.Println("file exist", path)
-							_, ctimeLocal, mtimeLocal := itemLocal(fi)
-							if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
-								if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModifyTime)) {
-									log.Printf("file %s change mtime, ctime", path)
-
-									if err = os.Remove(path); err != nil {
-										log.Error(err)
-										return err
-									}
-
-									if file, err = createFile(path, item.AccessMode, int(item.UID), int(item.GID)); err != nil {
-										log.Error(err)
-										return err
-									}
-
-									infos, err := c.getChunksInItem(recoveryPointID, item.ID)
-									if err != nil {
-										log.Error(err)
-										return err
-									}
-
-									if len(infos.Chunks) == 0 {
-										break
-									}
-
-									for _, info := range infos.Chunks {
-										offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
-										if err != nil {
-											return err
-										}
-										key := info.Etag
-
-										data, err := c.GetObject(volume, key, restoreKey)
-										if err != nil {
-											log.Error(err)
-											return err
-										}
-										_, errWriteFile := file.WriteAt(data, offset)
-										if errWriteFile != nil {
-											log.Error(err)
-											return err
-										}
-									}
-									err = os.Chtimes(file.Name(), item.AccessTime, item.ModifyTime)
-									if err != nil {
-										log.Error(err)
-										return err
-									}
-								} else {
-									log.Printf("file %s change ctime. update mode, uid, gid", path)
-									err = os.Chmod(path, item.AccessMode)
-									if err != nil {
-										log.Error(err)
-										return err
-									}
-									err = os.Chown(path, int(item.UID), int(item.GID))
-									if err != nil {
-										log.Error(err)
-										return err
-									}
-								}
-							} else {
-								log.Printf("file %s not change. not restore", path)
-							}
-						}
-					}
 				}
 				return nil
 			})
 		}
 	}
-	defer file.Close()
-
 	if err := group.Wait(); err != nil {
 		log.Error("Has a goroutine error" + err.Error())
+		return err
+	}
+	return nil
+}
+
+func (c *Client) RestoreItem(ctx context.Context, recoveryPointID string, destDir string, item Item, volume volume.StorageVolume, restoreKey *AuthRestore) error {
+	select {
+	case <-ctx.Done():
+		return errors.New("context restore item done")
+	default:
+		pathItem := filepath.Join(destDir, item.RealName)
+		switch item.ItemType {
+		case "SYMLINK":
+			err := c.restoreSymlink(pathItem, item)
+			if err != nil {
+				log.Error("Error restore symlink", err)
+				return err
+			}
+		case "DIRECTORY":
+			err := c.restoreDirectory(pathItem, item)
+			if err != nil {
+				log.Error("Error restore directory", err)
+				return err
+			}
+		case "FILE":
+			err := c.restoreFile(recoveryPointID, pathItem, item, volume, restoreKey)
+			if err != nil {
+				log.Error("Error restore file", err)
+				return err
+			}
+		}
+		return nil
+	}
+}
+
+func (c *Client) restoreSymlink(target string, item Item) error {
+	fi, err := os.Stat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			err := createSymlink(item.SymlinkPath, target, item.AccessMode, int(item.UID), int(item.GID))
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+			return nil
+		}
+	} else {
+		return err
+	}
+	_, ctimeLocal, _ := itemLocal(fi)
+	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
+		log.Printf("symlink %s change ctime. update mode, uid, gid", item.RealName)
+		err = os.Chmod(target, item.AccessMode)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		err = os.Chown(target, int(item.UID), int(item.GID))
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Client) restoreDirectory(target string, item Item) error {
+	fi, err := os.Stat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			err := createDir(target, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+			return nil
+		} else {
+			return err
+		}
+	}
+	_, ctimeLocal, _ := itemLocal(fi)
+	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
+		log.Printf("dir %s change ctime. update mode, uid, gid", item.RealName)
+		err = os.Chmod(target, item.AccessMode)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		err = os.Chown(target, int(item.UID), int(item.GID))
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Client) restoreFile(recoveryPointID string, target string, item Item, volume volume.StorageVolume, restoreKey *AuthRestore) error {
+	fi, err := os.Stat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Println("file not exist. create", target)
+			file, err := createFile(target, item.AccessMode, int(item.UID), int(item.GID))
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+
+			err = c.downloadFile(file, recoveryPointID, item, volume, restoreKey)
+			if err != nil {
+				log.Error("downloadFile error", err)
+				return err
+			}
+			return nil
+		} else {
+			return err
+		}
+	}
+	log.Println("file exist", target)
+	_, ctimeLocal, mtimeLocal := itemLocal(fi)
+	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
+		if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModifyTime)) {
+			log.Printf("file %s change mtime, ctime", target)
+			if err = os.Remove(target); err != nil {
+				log.Error(err)
+				return err
+			}
+
+			file, err := createFile(target, item.AccessMode, int(item.UID), int(item.GID))
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+
+			err = c.downloadFile(file, recoveryPointID, item, volume, restoreKey)
+			if err != nil {
+				log.Error("downloadFile error", err)
+				return err
+			}
+			return nil
+		} else {
+			log.Printf("file %s change ctime. update mode, uid, gid", target)
+			err = os.Chmod(target, item.AccessMode)
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+			err = os.Chown(target, int(item.UID), int(item.GID))
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+			err = os.Chtimes(target, item.AccessTime, item.ModifyTime)
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+		}
+	} else {
+		log.Printf("file %s not change. not restore", target)
+	}
+
+	return nil
+}
+
+func (c *Client) downloadFile(file *os.File, recoveryPointID string, item Item, volume volume.StorageVolume, restoreKey *AuthRestore) error {
+	infos, err := c.getChunksInItem(recoveryPointID, item.ID)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	if len(infos.Chunks) == 0 {
+		return nil
+	}
+
+	for _, info := range infos.Chunks {
+		offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+		if err != nil {
+			return err
+		}
+		key := info.Etag
+
+		data, err := c.GetObject(volume, key, restoreKey)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		_, errWriteFile := file.WriteAt(data, offset)
+		if errWriteFile != nil {
+			log.Error(err)
+			return err
+		}
+	}
+	err = os.Chmod(file.Name(), item.AccessMode)
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	err = os.Chown(file.Name(), int(item.UID), int(item.GID))
+	if err != nil {
+		log.Error(err)
+		return err
+	}
+	err = os.Chtimes(file.Name(), item.AccessTime, item.ModifyTime)
+	if err != nil {
+		log.Error(err)
 		return err
 	}
 	return nil

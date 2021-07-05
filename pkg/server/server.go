@@ -701,6 +701,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, a
 		if err != nil {
 			*errCh = err
 			cancel()
+			s.logger.Error("uploadFileWorker error", zap.Error(err))
 			return
 		}
 		fmt.Printf("storage size: %d, item %s\n", storageSize, itemInfo.Attributes.ItemName)
@@ -768,9 +769,16 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		var errFileWorker error
 
 		var wg sync.WaitGroup
+		ctx, cancel := context.WithCancel(ctx)
+
 		for _, itemInfo := range itemsInfo.Files {
 			wg.Add(1)
 			s.pool.Submit(s.uploadFileWorker(ctx, rp.RecoveryPoint.ID, rp.ID, lrp.ID, itemInfo, storageVolume, &wg, &storageSize, &errFileWorker))
+			if errFileWorker != nil {
+				s.logger.Error("pool submit uploadFileWorker error", zap.Error(errFileWorker))
+				cancel()
+				break
+			}
 		}
 		wg.Wait()
 

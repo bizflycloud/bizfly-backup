@@ -206,28 +206,37 @@ func (c *Client) getItemLatestPath(latestRecoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/path", latestRecoveryPointID)
 }
 
-func (c *Client) getChunksInItem(recoveryPointID string, itemID string) (*ChunksResponse, error) {
+func (c *Client) getChunksInItem(recoveryPointID string, itemID string, page int) (int, *ChunksResponse, error) {
 	reqURL, err := c.urlStringFromRelPath(c.saveChunkPath(recoveryPointID, itemID))
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 
 	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
+
+	itemsPerPage := 20
+	q := req.URL.Query()
+	q.Add("items_per_page", strconv.Itoa(itemsPerPage))
+	q.Add("page", strconv.Itoa(page))
+	req.URL.RawQuery = q.Encode()
 
 	resp, err := c.Do(req)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 	var chunkResp ChunksResponse
 	if err := json.NewDecoder(resp.Body).Decode(&chunkResp); err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 
-	return &chunkResp, nil
+	totalItem := chunkResp.Total
+	totalPage := int(math.Ceil(float64(totalItem) / float64(itemsPerPage)))
+
+	return totalPage, &chunkResp, nil
 }
 
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
@@ -736,7 +745,7 @@ func (c *Client) restoreFile(recoveryPointID string, target string, item Item, v
 }
 
 func (c *Client) downloadFile(file *os.File, recoveryPointID string, item Item, volume volume.StorageVolume, restoreKey *AuthRestore) error {
-	infos, err := c.getChunksInItem(recoveryPointID, item.ID)
+	totalPage, infos, err := c.getChunksInItem(recoveryPointID, item.ID, 1)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -745,24 +754,32 @@ func (c *Client) downloadFile(file *os.File, recoveryPointID string, item Item, 
 		return nil
 	}
 
-	for _, info := range infos.Chunks {
-		offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+	for page := 1; page <= totalPage; page++ {
+		_, infos, err := c.getChunksInItem(recoveryPointID, item.ID, page)
 		if err != nil {
+			log.Error(err)
 			return err
 		}
-		key := info.Etag
+		for _, info := range infos.Chunks {
+			offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+			if err != nil {
+				return err
+			}
+			key := info.Etag
 
-		data, err := c.GetObject(volume, key, restoreKey)
-		if err != nil {
-			log.Error(err)
-			return err
-		}
-		_, errWriteFile := file.WriteAt(data, offset)
-		if errWriteFile != nil {
-			log.Error(err)
-			return err
+			data, err := c.GetObject(volume, key, restoreKey)
+			if err != nil {
+				log.Error(err)
+				return err
+			}
+			_, errWriteFile := file.WriteAt(data, offset)
+			if errWriteFile != nil {
+				log.Error(err)
+				return err
+			}
 		}
 	}
+
 	err = os.Chmod(file.Name(), item.AccessMode)
 	if err != nil {
 		log.Error(err)

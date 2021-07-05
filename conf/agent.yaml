@@ -1,4 +1,4 @@
-machine_id: foo
-access_key: <Access Key>
-secret_key: <Secret Key>
-api_url: <API URL>
+access_key: 558W76OWTNT4RPENBQXU 
+api_url: https://backup-staging.bizflycloud.vn 
+machine_id: 65aa51dd-f09f-4a15-bfe6-d6eca1fd75cb 
+secret_key: 94ac2de0cff3d48350a84781d1ed2c219fb7bb26589a055a5c90010455e0ecb3 

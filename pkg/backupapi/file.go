@@ -217,7 +217,7 @@ func (c *Client) getChunksInItem(recoveryPointID string, itemID string, page int
 		return 0, nil, err
 	}
 
-	itemsPerPage := 20
+	itemsPerPage := 50
 	q := req.URL.Query()
 	q.Add("items_per_page", strconv.Itoa(itemsPerPage))
 	q.Add("page", strconv.Itoa(page))

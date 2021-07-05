@@ -1,4 +1,4 @@
-machine_id: 64054e34-5704-4047-b2d0-8e8b399cd0c1
-access_key: 7OPKK2EAB1Z4VJAJ3OB5
-secret_key: 456cc735c09d4f4e495323144abf4a837c19176346359ffa66dfe49f7b809a7d
-api_url: http://localhost:5000
+machine_id: foo
+access_key: <Access Key>
+secret_key: <Secret Key>
+api_url: <API URL>

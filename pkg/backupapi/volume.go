@@ -113,7 +113,7 @@ func (c *Client) HeadObject(volume volume.StorageVolume, key string) (bool, stri
 		}
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == "Forbidden" && volume.Type().StorageType == "DEFAULT" {
-				log.Info("GetCredential in head object")
+				log.Info("GetCredential in head object ", key)
 				volID, actID := volume.ID()
 				vol, err := c.GetCredentialVolume(volID, actID, nil)
 				if err != nil {
@@ -125,6 +125,7 @@ func (c *Client) HeadObject(volume volume.StorageVolume, key string) (bool, stri
 					break
 				}
 			} else if aerr.Code() == "NotFound" {
+				err = nil
 				break
 			}
 		} else {

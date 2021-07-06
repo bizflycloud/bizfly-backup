@@ -357,7 +357,11 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 			return stat, err
 		}
 
-		isExist, etag, _ := c.HeadObject(volume, key)
+		isExist, etag, err := c.HeadObject(volume, key)
+		if err != nil {
+			log.Errorf("backup chunk head object error: %s", err.Error())
+			return 0, err
+		}
 		log.Println("Backup chunk", etag, key)
 		if isExist {
 			integrity := strings.Contains(etag, key)

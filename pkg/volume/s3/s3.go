@@ -67,7 +67,7 @@ func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
 		fmt.Println("Bad credentials", err)
 	}
 	sess := storage.New(session.Must(session.NewSession(&aws.Config{
-		DisableSSL:       aws.Bool(true),
+		DisableSSL:       aws.Bool(false),
 		Credentials:      cred,
 		Endpoint:         aws.String(vol.Credential.AwsLocation),
 		Region:           aws.String(vol.Credential.Region),
@@ -106,7 +106,7 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Error() == "Forbidden" {
 				if once {
-					log.Info("Return false cause: ", aerr.Code())
+					log.Info("Return false cause in put object: ", aerr.Code(), key)
 					return err
 				}
 				log.Info("====== Put object one more time =============")
@@ -127,6 +127,7 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 	var once bool
 	var obj *storage.GetObjectOutput
 	for _, backoff := range backoffSchedule {
+		log.Infof("Access key: %s, secret key: %s")
 		obj, err = s3.S3Session.GetObject(&storage.GetObjectInput{
 			Bucket: aws.String(s3.StorageBucket),
 			Key:    aws.String(key),
@@ -138,7 +139,7 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Error() == "Forbidden" {
 				if once {
-					log.Info("Return false cause: ", aerr.Code())
+					log.Info("Return false cause in get object: ", aerr.Code(), key)
 					return nil, err
 				}
 				log.Info("====== Get object one more time =============")
@@ -176,15 +177,13 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 			if aerr.Code() == "NotFound" {
 				return false, "", err
 			}
-			if !once {
-				once = true
-			}
+
 			if aerr.Code() == "Forbidden" {
 				if once {
-					log.Info("Return false cause: ", aerr.Code())
+					log.Info(fmt.Sprintf("Return false cause in head object: %s %s", aerr.Code(), key))
 					return false, "", err
 				}
-				log.Info("====== head object one more time =============")
+				log.Info("====== head object one more time ============= ", key)
 				once = true
 				rand.Seed(time.Now().UnixNano())
 				n := rand.Intn(3) // n will be between 0 and 10
@@ -204,7 +203,7 @@ func (s3 *S3) RefreshCredential(credential volume.Credential) error {
 		return err
 	}
 	sess := storage.New(session.Must(session.NewSession(&aws.Config{
-		DisableSSL:       aws.Bool(true),
+		DisableSSL:       aws.Bool(false),
 		Credentials:      cred,
 		Endpoint:         aws.String(s3.Location),
 		Region:           aws.String(s3.Region),

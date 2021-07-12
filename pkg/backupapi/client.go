@@ -44,7 +44,7 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 				ResponseHeaderTimeout: 10 * time.Second,
 				ExpectContinueTimeout: 1 * time.Second,
 			},
-			Timeout: 30 * time.Second,
+			Timeout: 10 * time.Second,
 		},
 		ServerURL: serverUrl,
 		userAgent: userAgent,

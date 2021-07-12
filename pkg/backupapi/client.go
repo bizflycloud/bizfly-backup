@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -28,6 +30,8 @@ type Client struct {
 	secretKey string
 
 	userAgent string
+
+	logger *zap.Logger
 }
 
 // NewClient creates a Client with given options.
@@ -54,6 +58,15 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 		if err := opt(c); err != nil {
 			return nil, err
 		}
+	}
+
+	if c.logger == nil {
+		l, err := zap.NewDevelopment()
+		if err != nil {
+			return nil, err
+		}
+
+		c.logger = l
 	}
 
 	return c, nil

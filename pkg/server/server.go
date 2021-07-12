@@ -106,7 +106,6 @@ func New(opts ...Option) (*Server, error) {
 	if numGoroutine <= 1 {
 		numGoroutine = 2
 	}
-	fmt.Printf("Num goroutine: %d\n", numGoroutine)
 	s.pool, err = ants.NewPool(numGoroutine)
 	if err != nil {
 		return nil, err
@@ -696,21 +695,21 @@ func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, a
 	return func() {
 		ctx, cancel := context.WithCancel(ctx)
 		defer wg.Done()
-		fmt.Printf("Upload file worker: recoverypoint: %s, action id %s itemname %s\n", recoveryPointID, actionID, itemInfo.Attributes.ItemName)
+		s.logger.Info("Upload file worker: ", zap.String("recoveryPointID", recoveryPointID), zap.String("actionID", actionID), zap.String("item name", itemInfo.Attributes.ItemName))
 		storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, recoveryPointID, actionID, latestRecoveryPointID, itemInfo, volume)
 		if err != nil {
 			*errCh = err
 			cancel()
 			return
 		}
-		fmt.Printf("storage size: %d, item %s\n", storageSize, itemInfo.Attributes.ItemName)
+		s.logger.Info("storage: ", zap.Uint64("storageSize", storageSize), zap.String("item name", itemInfo.Attributes.ItemName))
 		*size += storageSize
 	}
 }
 
 func (s *Server) backupWorker(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer, errCh chan<- error) backupJob {
 	return func() {
-		fmt.Printf("Backup directory ID: %s, policy: %s, name: %s, recovery point type: %s\n", backupDirectoryID, policyID, name, recoveryPointType)
+		s.logger.Info("Backup directory ID: ", zap.String("backupDirectoryID", backupDirectoryID), zap.String("policyID", policyID), zap.String("name", name), zap.String("recoveryPointType", recoveryPointType))
 
 		ctx := context.Background()
 		// Get BackupDirectory

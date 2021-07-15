@@ -68,6 +68,7 @@ type Server struct {
 	testSignalCh chan os.Signal
 
 	// Goroutines pool
+	poolDir   *ants.Pool
 	pool      *ants.Pool
 	chunkPool *ants.Pool
 
@@ -106,6 +107,11 @@ func New(opts ...Option) (*Server, error) {
 	if numGoroutine <= 1 {
 		numGoroutine = 2
 	}
+	s.poolDir, err = ants.NewPool(numGoroutine)
+	if err != nil {
+		return nil, err
+	}
+
 	s.pool, err = ants.NewPool(numGoroutine)
 	if err != nil {
 		return nil, err
@@ -147,9 +153,11 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
 	case broker.BackupManual:
-		return s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+		go s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+		return nil
 	case broker.RestoreManual:
-		return s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.VolumeId, ioutil.Discard)
+		go s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.VolumeId, ioutil.Discard)
+		return nil
 	case broker.ConfigUpdate:
 		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
 	case broker.ConfigRefresh:
@@ -526,7 +534,7 @@ func (s *Server) notifyStatusFailed(recoveryPointID, reason string) {
 // backup performs backup flow.
 func (s *Server) backup(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer) error {
 	chErr := make(chan error, 1)
-	s.pool.Submit(s.backupWorker(backupDirectoryID, policyID, name, recoveryPointType, progressOutput, chErr))
+	s.poolDir.Submit(s.backupWorker(backupDirectoryID, policyID, name, recoveryPointType, progressOutput, chErr))
 	return <-chErr
 }
 
@@ -702,6 +710,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, a
 			s.logger.Info("Upload file worker: ", zap.String("recoveryPointID", recoveryPointID), zap.String("actionID", actionID), zap.String("item name", itemInfo.Attributes.ItemName))
 			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, recoveryPointID, actionID, latestRecoveryPointID, itemInfo, volume)
 			if err != nil {
+				s.logger.Error("uploadFileWorker error", zap.Error(err))
 				*errCh = err
 				cancel()
 				return
@@ -775,6 +784,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		var wg sync.WaitGroup
 		for _, itemInfo := range itemsInfo.Files {
 			if errFileWorker != nil {
+				s.logger.Error("uploadFileWorker error", zap.Error(errFileWorker))
 				cancel()
 				break
 			}

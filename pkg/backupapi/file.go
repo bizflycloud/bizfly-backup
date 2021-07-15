@@ -483,7 +483,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 			return 0, err
 		}
 
-		c.logger.Sugar().Info("Backup item  ", itemInfo)
+		//c.logger.Sugar().Info("Backup item  ", itemInfo)
 		// s := progress.Stat{}
 		// backup item with item change ctime
 		if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {

@@ -693,17 +693,22 @@ type backupJob func()
 func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, actionID string, latestRecoveryPointID string,
 	itemInfo backupapi.ItemInfo, volume volume.StorageVolume, wg *sync.WaitGroup, size *uint64, errCh *error) backupJob {
 	return func() {
-		ctx, cancel := context.WithCancel(ctx)
-		defer wg.Done()
-		s.logger.Info("Upload file worker: ", zap.String("recoveryPointID", recoveryPointID), zap.String("actionID", actionID), zap.String("item name", itemInfo.Attributes.ItemName))
-		storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, recoveryPointID, actionID, latestRecoveryPointID, itemInfo, volume)
-		if err != nil {
-			*errCh = err
-			cancel()
+		select {
+		case <-ctx.Done():
 			return
+		default:
+			ctx, cancel := context.WithCancel(ctx)
+			defer wg.Done()
+			s.logger.Info("Upload file worker: ", zap.String("recoveryPointID", recoveryPointID), zap.String("actionID", actionID), zap.String("item name", itemInfo.Attributes.ItemName))
+			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, recoveryPointID, actionID, latestRecoveryPointID, itemInfo, volume)
+			if err != nil {
+				*errCh = err
+				cancel()
+				return
+			}
+			//s.logger.Info("storage: ", zap.Uint64("storageSize", storageSize), zap.String("item name", itemInfo.Attributes.ItemName))
+			*size += storageSize
 		}
-		s.logger.Info("storage: ", zap.Uint64("storageSize", storageSize), zap.String("item name", itemInfo.Attributes.ItemName))
-		*size += storageSize
 	}
 }
 
@@ -766,8 +771,13 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		var storageSize uint64
 		var errFileWorker error
 
+		ctx, cancel := context.WithCancel(ctx)
 		var wg sync.WaitGroup
 		for _, itemInfo := range itemsInfo.Files {
+			if errFileWorker != nil {
+				cancel()
+				break
+			}
 			wg.Add(1)
 			s.pool.Submit(s.uploadFileWorker(ctx, rp.RecoveryPoint.ID, rp.ID, lrp.ID, itemInfo, storageVolume, &wg, &storageSize, &errFileWorker))
 		}

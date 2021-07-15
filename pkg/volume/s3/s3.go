@@ -127,7 +127,6 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 	var once bool
 	var obj *storage.GetObjectOutput
 	for _, backoff := range backoffSchedule {
-		log.Infof("Access key: %s, secret key: %s")
 		obj, err = s3.S3Session.GetObject(&storage.GetObjectInput{
 			Bucket: aws.String(s3.StorageBucket),
 			Key:    aws.String(key),

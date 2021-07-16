@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 	"io"
 	"io/fs"
 	"math"
@@ -389,8 +390,7 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 }
 
 // func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) error {
-func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) (uint64, error) {
-	// p.Start()
+func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	select {
 	case <-ctx.Done():
@@ -398,6 +398,8 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		cancel()
 		return 0, nil
 	default:
+		p.Start()
+		s := progress.Stat{}
 		var errBackupChunk error
 		file, err := os.Open(itemInfo.Attributes.ItemName)
 		if err != nil {
@@ -431,14 +433,15 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 				Data:   temp,
 			}
 			wg.Add(1)
-			pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, chunkToBackup, itemInfo, recoveryPointID, actionID, volume))
+			pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, chunkToBackup, itemInfo, recoveryPointID, actionID, volume, p))
 		}
 		wg.Wait()
 
 		if errBackupChunk != nil {
 			return 0, errBackupChunk
 		}
-
+		s.Items = 1
+		p.Report(s)
 		return stat, nil
 	}
 
@@ -447,8 +450,9 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 type chunkJob func()
 
 func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *error, size *uint64,
-	chunk ChunkInfo, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) chunkJob {
+	chunk ChunkInfo, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) chunkJob {
 	return func() {
+		p.Start()
 		defer func() {
 			c.logger.Sugar().Info("Done task ", chunk.Start)
 			wg.Done()
@@ -457,20 +461,26 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 		case <-ctx.Done():
 			return
 		default:
+			s := progress.Stat{}
 			ctx, cancel := context.WithCancel(ctx)
 			saveSize, err := c.backupChunk(ctx, chunk, itemInfo, recoveryPointID, actionID, volume)
 			if err != nil {
 				*chErr = err
+				s.Errors = true
+				p.Report(s)
 				cancel()
 				return
 			}
+			s.Storage = saveSize
+			s.Bytes = uint64(chunk.Length)
+			p.Report(s)
 			*size += saveSize
 		}
 	}
 }
 
 // func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) error {
-func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume) (uint64, error) {
+func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
 
 	select {
 	case <-ctx.Done():
@@ -482,8 +492,10 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 			return 0, err
 		}
 
-		//c.logger.Sugar().Info("Backup item  ", itemInfo)
-		// s := progress.Stat{}
+		s := progress.Stat{
+			Items:  1,
+			Errors: false,
+		}
 		// backup item with item change ctime
 		if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {
 			// backup item with item change mtime
@@ -494,18 +506,23 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 				_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 				if err != nil {
 					c.logger.Error("c.SaveFileInfo ", zap.Error(err))
+					s.Errors = true
+					p.Report(s)
 					return 0, err
 				}
 				if itemInfo.ItemType == "FILE" {
 					c.logger.Sugar().Info("Continue chunk file to backup ", itemInfo.Attributes.ItemName)
 					// err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume, p)
-					storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, recoveryPointID, actionID, volume)
+					storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, recoveryPointID, actionID, volume, p)
 					if err != nil {
 						c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
+						s.Errors = true
+						p.Report(s)
 						return 0, err
 					}
 					return storageSize, nil
 				}
+				p.Report(s)
 				return 0, nil
 			} else {
 				// save info va reference chunk neu la file
@@ -515,8 +532,12 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 				_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 				if err != nil {
 					c.logger.Error("err ", zap.Error(err))
+					s.Errors = true
+					p.Report(s)
 					return 0, err
 				}
+				s.Bytes = uint64(itemInfo.Attributes.Size)
+				p.Report(s)
 				return 0, nil
 			}
 
@@ -531,10 +552,13 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return 0, err
 			}
+			s.Bytes = uint64(itemInfo.Attributes.Size)
 		}
-
+		p.Report(s)
 		return 0, nil
 	}
 }

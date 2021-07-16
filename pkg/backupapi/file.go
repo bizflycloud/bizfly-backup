@@ -449,16 +449,15 @@ type chunkJob func()
 func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *error, size *uint64,
 	chunk ChunkInfo, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) chunkJob {
 	return func() {
+		defer func() {
+			c.logger.Sugar().Info("Done task ", chunk.Start)
+			wg.Done()
+		}()
 		select {
 		case <-ctx.Done():
 			return
 		default:
 			ctx, cancel := context.WithCancel(ctx)
-			defer func() {
-				c.logger.Sugar().Info("Done task ", chunk.Start)
-				wg.Done()
-			}()
-
 			saveSize, err := c.backupChunk(ctx, chunk, itemInfo, recoveryPointID, actionID, volume)
 			if err != nil {
 				*chErr = err

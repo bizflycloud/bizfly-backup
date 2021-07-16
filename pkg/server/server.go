@@ -701,12 +701,12 @@ type backupJob func()
 func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, actionID string, latestRecoveryPointID string,
 	itemInfo backupapi.ItemInfo, volume volume.StorageVolume, wg *sync.WaitGroup, size *uint64, errCh *error) backupJob {
 	return func() {
+		defer wg.Done()
 		select {
 		case <-ctx.Done():
 			return
 		default:
 			ctx, cancel := context.WithCancel(ctx)
-			defer wg.Done()
 			s.logger.Info("Upload file worker: ", zap.String("recoveryPointID", recoveryPointID), zap.String("actionID", actionID), zap.String("item name", itemInfo.Attributes.ItemName))
 			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, recoveryPointID, actionID, latestRecoveryPointID, itemInfo, volume)
 			if err != nil {
@@ -795,7 +795,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		if errFileWorker != nil {
 			s.notifyStatusFailed(rp.ID, errFileWorker.Error())
-			s.logger.Error("Error uploadFileWorker error", zap.Error(err))
+			s.logger.Error("Error uploadFileWorker error", zap.Error(errFileWorker))
 			errCh <- errFileWorker
 			return
 		}

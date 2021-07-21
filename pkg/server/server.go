@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 	"io"
 	"io/ioutil"
 	"net"
@@ -19,6 +18,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
@@ -659,12 +660,11 @@ func WalkerDir(dir string, p *progress.Progress) (progress.Stat, *backupapi.File
 			},
 		}
 
-		if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
-			singleFile.Attributes.AccessTime = time.Unix(stat.Atim.Unix()).UTC()
-			singleFile.Attributes.ChangeTime = time.Unix(stat.Ctim.Unix()).UTC()
-			singleFile.Attributes.UID = stat.Uid
-			singleFile.Attributes.GID = stat.Gid
-		}
+		atimeLocal, ctimeLocal, _, uid, gid := backupapi.ItemLocal(fi)
+		singleFile.Attributes.AccessTime = atimeLocal
+		singleFile.Attributes.ChangeTime = ctimeLocal
+		singleFile.Attributes.UID = uid
+		singleFile.Attributes.GID = gid
 
 		if fi.IsDir() {
 			singleFile.ItemType = "DIRECTORY"

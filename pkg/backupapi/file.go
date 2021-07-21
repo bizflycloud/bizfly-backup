@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 	"io"
 	"io/fs"
 	"math"
@@ -20,8 +19,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
+
+	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 
 	"github.com/panjf2000/ants/v2"
 	"go.uber.org/zap"
@@ -389,7 +389,6 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 
 }
 
-// func (c *Client) ChunkFileToBackup(itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) error {
 func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	select {
@@ -418,8 +417,6 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			if err != nil {
 				break
 			}
-
-			// p.Report(s)
 
 			temp := make([]byte, chunk.Length)
 			length := copy(temp, chunk.Data)
@@ -479,7 +476,6 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 	}
 }
 
-// func (c *Client) UploadFile(recoveryPointID string, actionID string, latestRecoveryPointID string, backupDir string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) error {
 func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
 
 	select {
@@ -512,7 +508,6 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 				}
 				if itemInfo.ItemType == "FILE" {
 					c.logger.Sugar().Info("Continue chunk file to backup ", itemInfo.Attributes.ItemName)
-					// err := c.ChunkFileToBackup(itemInfo, recoveryPointID, actionID, volume, p)
 					storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, recoveryPointID, actionID, volume, p)
 					if err != nil {
 						c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
@@ -653,7 +648,7 @@ func (c *Client) restoreSymlink(target string, item Item) error {
 	} else {
 		return err
 	}
-	_, ctimeLocal, _ := itemLocal(fi)
+	_, ctimeLocal, _, _, _ := ItemLocal(fi)
 	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
 		c.logger.Sugar().Info("symlink change ctime. update mode, uid, gid ", item.RealName)
 		err = os.Chmod(target, item.AccessMode)
@@ -684,7 +679,7 @@ func (c *Client) restoreDirectory(target string, item Item) error {
 			return err
 		}
 	}
-	_, ctimeLocal, _ := itemLocal(fi)
+	_, ctimeLocal, _, _, _ := ItemLocal(fi)
 	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
 		c.logger.Sugar().Info("dir change ctime. update mode, uid, gid ", item.RealName)
 		err = os.Chmod(target, item.AccessMode)
@@ -723,7 +718,7 @@ func (c *Client) restoreFile(recoveryPointID string, target string, item Item, v
 		}
 	}
 	c.logger.Sugar().Info("file exist ", target)
-	_, ctimeLocal, mtimeLocal := itemLocal(fi)
+	_, ctimeLocal, mtimeLocal, _, _ := ItemLocal(fi)
 	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
 		if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModifyTime)) {
 			c.logger.Sugar().Info("file change mtime, ctime ", target)
@@ -982,14 +977,4 @@ func createFile(path string, mode fs.FileMode, uid int, gid int) (*os.File, erro
 
 func timeToString(time time.Time) string {
 	return time.Format("2006-01-02 15:04:05.000000")
-}
-
-func itemLocal(fi fs.FileInfo) (time.Time, time.Time, time.Time) {
-	var atimeLocal, ctimeLocal, mtimeLocal time.Time
-	if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
-		atimeLocal = time.Unix(stat.Atim.Unix()).UTC()
-		ctimeLocal = time.Unix(stat.Ctim.Unix()).UTC()
-		mtimeLocal = time.Unix(stat.Mtim.Unix()).UTC()
-	}
-	return atimeLocal, ctimeLocal, mtimeLocal
 }

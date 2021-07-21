@@ -3,11 +3,13 @@ package s3
 import (
 	"bytes"
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"io/ioutil"
 	"math/rand"
 	"time"
+
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
+	"go.uber.org/zap"
 
 	log "github.com/sirupsen/logrus"
 
@@ -30,6 +32,8 @@ type S3 struct {
 	Location      string
 	Region        string
 	S3Session     *storage.S3
+
+	logger *zap.Logger
 }
 
 func (s3 *S3) Type() volume.Type {
@@ -58,6 +62,15 @@ func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
 		VolumeType:    vol.VolumeType,
 		Location:      vol.Credential.AwsLocation,
 		Region:        vol.Credential.Region,
+	}
+
+	if s3.logger == nil {
+		l, err := zap.NewDevelopment()
+		if err != nil {
+			return nil
+		}
+
+		s3.logger = l
 	}
 
 	cred := credentials.NewStaticCredentials(vol.Credential.AwsAccessKeyId, vol.Credential.AwsSecretAccessKey, vol.Credential.Token)
@@ -106,10 +119,10 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Error() == "Forbidden" {
 				if once {
-					log.Info("Return false cause in put object: ", aerr.Code(), key)
+					s3.logger.Sugar().Info("Return false cause in put object: ", aerr.Code(), key)
 					return err
 				}
-				log.Info("====== Put object one more time =============")
+				s3.logger.Info("====== Put object one more time =============")
 				once = true
 				rand.Seed(time.Now().UnixNano())
 				n := rand.Intn(3) // n will be between 0 and 10
@@ -138,10 +151,10 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Error() == "Forbidden" {
 				if once {
-					log.Info("Return false cause in get object: ", aerr.Code(), key)
+					s3.logger.Sugar().Info("Return false cause in get object: ", aerr.Code(), key)
 					return nil, err
 				}
-				log.Info("====== Get object one more time =============")
+				s3.logger.Info("====== Get object one more time =============")
 				once = true
 				rand.Seed(time.Now().UnixNano())
 				n := rand.Intn(3) // n will be between 0 and 10
@@ -179,10 +192,10 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 
 			if aerr.Code() == "Forbidden" {
 				if once {
-					log.Info(fmt.Sprintf("Return false cause in head object: %s %s", aerr.Code(), key))
+					s3.logger.Sugar().Info(fmt.Sprintf("Return false cause in head object: %s %s", aerr.Code(), key))
 					return false, "", err
 				}
-				log.Info("====== head object one more time ============= ", key)
+				s3.logger.Sugar().Info("====== head object one more time ============= ", key)
 				once = true
 				rand.Seed(time.Now().UnixNano())
 				n := rand.Intn(3) // n will be between 0 and 10

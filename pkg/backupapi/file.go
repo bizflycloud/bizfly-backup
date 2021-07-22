@@ -400,9 +400,13 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		p.Start()
 		s := progress.Stat{}
 		var errBackupChunk error
+
 		file, err := os.Open(itemInfo.Attributes.ItemName)
 		if err != nil {
-			return 0, err
+			for os.IsNotExist(err) {
+				c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
+				return 0, err
+			}
 		}
 		chk := chunker.New(file, 0x3dea92648f6e83)
 		buf := make([]byte, ChunkUploadLowerBound)
@@ -492,39 +496,65 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 			Items:  1,
 			Errors: false,
 		}
-		// backup item with item change ctime
-		if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {
-			// backup item with item change mtime
-			if !strings.EqualFold(timeToString(itemInfoLatest.ModifyTime), timeToString(itemInfo.Attributes.ModifyTime)) {
-				c.logger.Info("backup item with item change mtime, ctime")
-				c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
-				itemInfo.ChunkReference = false
-				_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
-				if err != nil {
-					c.logger.Error("c.SaveFileInfo ", zap.Error(err))
-					s.Errors = true
-					p.Report(s)
-					return 0, err
-				}
-				if itemInfo.ItemType == "FILE" {
-					c.logger.Sugar().Info("Continue chunk file to backup ", itemInfo.Attributes.ItemName)
-					storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, recoveryPointID, actionID, volume, p)
+		_, err = os.Stat(itemInfo.Attributes.ItemName)
+		if err != nil {
+			if os.IsNotExist(err) {
+				c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
+			}
+		} else {
+			// backup item with item change ctime
+			if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {
+				// backup item with item change mtime
+				if !strings.EqualFold(timeToString(itemInfoLatest.ModifyTime), timeToString(itemInfo.Attributes.ModifyTime)) {
+					c.logger.Info("backup item with item change mtime, ctime")
+					c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
+					itemInfo.ChunkReference = false
+					_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 					if err != nil {
-						c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
+						c.logger.Error("c.SaveFileInfo ", zap.Error(err))
 						s.Errors = true
 						p.Report(s)
 						return 0, err
 					}
-					return storageSize, nil
+					if itemInfo.ItemType == "FILE" {
+						c.logger.Sugar().Info("Continue chunk file to backup ", itemInfo.Attributes.ItemName)
+						storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, recoveryPointID, actionID, volume, p)
+						if err != nil {
+							c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
+							s.Errors = true
+							p.Report(s)
+							return 0, err
+						}
+						return storageSize, nil
+					}
+					p.Report(s)
+					return 0, nil
+				} else {
+					// save info va reference chunk neu la file
+					c.logger.Info("backup item with item change ctime and mtime not change")
+					c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
+					itemInfo.ParentItemID = itemInfoLatest.ID
+					_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+					if err != nil {
+						c.logger.Error("err ", zap.Error(err))
+						s.Errors = true
+						p.Report(s)
+						return 0, err
+					}
+					s.Bytes = uint64(itemInfo.Attributes.Size)
+					p.Report(s)
+					return 0, nil
 				}
-				p.Report(s)
-				return 0, nil
+
 			} else {
-				// save info va reference chunk neu la file
-				c.logger.Info("backup item with item change ctime and mtime not change")
+				c.logger.Info("backup item with item no change time")
 				c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
-				itemInfo.ParentItemID = itemInfoLatest.ID
-				_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+				_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
+					ItemType:       itemInfo.ItemType,
+					ParentItemID:   itemInfoLatest.ID,
+					ChunkReference: itemInfo.ChunkReference,
+				})
+
 				if err != nil {
 					c.logger.Error("err ", zap.Error(err))
 					s.Errors = true
@@ -532,26 +562,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 					return 0, err
 				}
 				s.Bytes = uint64(itemInfo.Attributes.Size)
-				p.Report(s)
-				return 0, nil
 			}
-
-		} else {
-			c.logger.Info("backup item with item no change time")
-			c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
-			_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
-				ItemType:       itemInfo.ItemType,
-				ParentItemID:   itemInfoLatest.ID,
-				ChunkReference: itemInfo.ChunkReference,
-			})
-
-			if err != nil {
-				c.logger.Error("err ", zap.Error(err))
-				s.Errors = true
-				p.Report(s)
-				return 0, err
-			}
-			s.Bytes = uint64(itemInfo.Attributes.Size)
 		}
 		p.Report(s)
 		return 0, nil
@@ -656,11 +667,7 @@ func (c *Client) restoreSymlink(target string, item Item) error {
 			c.logger.Error("err ", zap.Error(err))
 			return err
 		}
-		err = os.Chown(target, int(item.UID), int(item.GID))
-		if err != nil {
-			c.logger.Error("err ", zap.Error(err))
-			return err
-		}
+		SetChownItem(target, int(item.UID), int(item.GID))
 	}
 	return nil
 }
@@ -687,11 +694,7 @@ func (c *Client) restoreDirectory(target string, item Item) error {
 			c.logger.Error("err ", zap.Error(err))
 			return err
 		}
-		err = os.Chown(target, int(item.UID), int(item.GID))
-		if err != nil {
-			c.logger.Error("err ", zap.Error(err))
-			return err
-		}
+		SetChownItem(target, int(item.UID), int(item.GID))
 	}
 	return nil
 }
@@ -746,11 +749,7 @@ func (c *Client) restoreFile(recoveryPointID string, target string, item Item, v
 				c.logger.Error("err ", zap.Error(err))
 				return err
 			}
-			err = os.Chown(target, int(item.UID), int(item.GID))
-			if err != nil {
-				c.logger.Error("err ", zap.Error(err))
-				return err
-			}
+			SetChownItem(target, int(item.UID), int(item.GID))
 			err = os.Chtimes(target, item.AccessTime, item.ModifyTime)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
@@ -805,11 +804,7 @@ func (c *Client) downloadFile(file *os.File, recoveryPointID string, item Item, 
 		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
-	err = os.Chown(file.Name(), int(item.UID), int(item.GID))
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return err
-	}
+	SetChownItem(file.Name(), int(item.UID), int(item.GID))
 	err = os.Chtimes(file.Name(), item.AccessTime, item.ModifyTime)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
@@ -875,29 +870,6 @@ func (c *Client) GetInfoFileDownload(recoveryPointID string, itemFileID string, 
 	return &fileDownload, nil
 }
 
-func (c *Client) infoPresignedUrl(recoveryPointID string, itemID string, infoUrl *InfoPresignUrl) (*ChunkResponse, error) {
-	reqURL, err := c.urlStringFromRelPath(c.infoFile(recoveryPointID, itemID))
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodPost, reqURL, infoUrl)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	var chunkResp ChunkResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chunkResp); err != nil {
-		return nil, err
-	}
-
-	return &chunkResp, nil
-}
-
 func createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, gid int) error {
 	dirName := filepath.Dir(path)
 	if _, err := os.Stat(dirName); os.IsNotExist(err) {
@@ -915,12 +887,7 @@ func createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, g
 	if err != nil {
 		log.Println(err)
 	}
-
-	err = os.Chown(path, uid, gid)
-	if err != nil {
-		log.Println(err)
-	}
-
+	SetChownItem(path, uid, gid)
 	return nil
 }
 
@@ -935,11 +902,7 @@ func createDir(path string, mode fs.FileMode, uid int, gid int, atime time.Time,
 		return err
 	}
 
-	err = os.Chown(path, uid, gid)
-	if err != nil {
-		return err
-	}
-
+	SetChownItem(path, uid, gid)
 	err = os.Chtimes(path, atime, mtime)
 	if err != nil {
 		return err
@@ -967,11 +930,7 @@ func createFile(path string, mode fs.FileMode, uid int, gid int) (*os.File, erro
 		return nil, err
 	}
 
-	err = os.Chown(path, uid, gid)
-	if err != nil {
-		return nil, err
-	}
-
+	SetChownItem(path, uid, gid)
 	return file, nil
 }
 

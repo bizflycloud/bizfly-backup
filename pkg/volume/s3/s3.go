@@ -74,7 +74,6 @@ func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
 	}
 
 	cred := credentials.NewStaticCredentials(vol.Credential.AwsAccessKeyId, vol.Credential.AwsSecretAccessKey, vol.Credential.Token)
-	//cred := credentials.NewStaticCredentials(accessKey, secretKey, token)
 	_, err := cred.Get()
 	if err != nil {
 		fmt.Println("Bad credentials", err)

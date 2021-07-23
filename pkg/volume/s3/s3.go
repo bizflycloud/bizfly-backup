@@ -7,16 +7,16 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"go.uber.org/zap"
 
-	log "github.com/sirupsen/logrus"
-
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	storage "github.com/aws/aws-sdk-go/service/s3"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 )
 

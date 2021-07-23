@@ -19,8 +19,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bizflycloud/bizfly-backup/pkg/progress"
-
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
 	"github.com/google/uuid"
@@ -33,6 +31,7 @@ import (
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
+	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 	"github.com/bizflycloud/bizfly-backup/pkg/volume/s3"
 )

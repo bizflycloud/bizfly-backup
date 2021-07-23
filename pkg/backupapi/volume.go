@@ -3,11 +3,13 @@ package backupapi
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/aws/aws-sdk-go/aws/awserr"
-	"github.com/bizflycloud/bizfly-backup/pkg/volume"
-	log "github.com/sirupsen/logrus"
 	"net/http"
 	"time"
+
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 )
 
 var backoffSchedule = []time.Duration{

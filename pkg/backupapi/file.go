@@ -22,14 +22,13 @@ import (
 	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/progress"
+	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 
-	"github.com/panjf2000/ants/v2"
 	"go.uber.org/zap"
-
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/bizflycloud/bizfly-backup/pkg/volume"
+	"github.com/panjf2000/ants/v2"
 	"github.com/restic/chunker"
 	log "github.com/sirupsen/logrus"
 )

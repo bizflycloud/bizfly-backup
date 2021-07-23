@@ -43,10 +43,12 @@ type AuthRestore struct {
 	RestoreSessionKey string
 }
 
+// credentialVolumePath API
 func (c *Client) credentialVolumePath(volumeID string, actionID string) string {
 	return fmt.Sprintf("/agent/volumes/%s/credential?action_id=%s", volumeID, actionID)
 }
 
+// GetCredentialVolume get a new credential with backend credential not constant.
 func (c *Client) GetCredentialVolume(volumeID string, actionID string, restoreKey *AuthRestore) (*Volume, error) {
 
 	var resp *http.Response
@@ -104,6 +106,7 @@ func (c *Client) GetCredentialVolume(volumeID string, actionID string, restoreKe
 	return &vol, nil
 }
 
+// HeadObject a boolean value whether object name existing in storage volume.
 func (c *Client) HeadObject(volume volume.StorageVolume, key string) (bool, string, error) {
 	var isExist bool
 	var etag string
@@ -139,6 +142,7 @@ func (c *Client) HeadObject(volume volume.StorageVolume, key string) (bool, stri
 	return isExist, etag, err
 }
 
+// PutObject stores the data to the storage volume.
 func (c *Client) PutObject(volume volume.StorageVolume, key string, data []byte) error {
 	var err error
 	for _, backoff := range backoffSchedule {
@@ -167,6 +171,7 @@ func (c *Client) PutObject(volume volume.StorageVolume, key string, data []byte)
 	return err
 }
 
+// GetObject downloads the object by name in storage volume.
 func (c *Client) GetObject(volume volume.StorageVolume, key string, restoreKey *AuthRestore) ([]byte, error) {
 	var err error
 	for _, backoff := range backoffSchedule {

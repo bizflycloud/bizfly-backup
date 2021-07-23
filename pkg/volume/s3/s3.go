@@ -76,7 +76,7 @@ func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
 	cred := credentials.NewStaticCredentials(vol.Credential.AwsAccessKeyId, vol.Credential.AwsSecretAccessKey, vol.Credential.Token)
 	_, err := cred.Get()
 	if err != nil {
-		fmt.Println("Bad credentials", err)
+		s3.logger.Sugar().Info("Bad credentials", err)
 	}
 	sess := storage.New(session.Must(session.NewSession(&aws.Config{
 		DisableSSL:       aws.Bool(false),
@@ -121,7 +121,7 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 					s3.logger.Sugar().Info("Return false cause in put object: ", aerr.Code(), key)
 					return err
 				}
-				s3.logger.Info("====== Put object one more time =============")
+				s3.logger.Info("Put object one more time")
 				once = true
 				rand.Seed(time.Now().UnixNano())
 				n := rand.Intn(3) // n will be between 0 and 10
@@ -153,7 +153,7 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 					s3.logger.Sugar().Info("Return false cause in get object: ", aerr.Code(), key)
 					return nil, err
 				}
-				s3.logger.Info("====== Get object one more time =============")
+				s3.logger.Info("Get object one more time")
 				once = true
 				rand.Seed(time.Now().UnixNano())
 				n := rand.Intn(3) // n will be between 0 and 10
@@ -194,7 +194,7 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 					s3.logger.Sugar().Info(fmt.Sprintf("Return false cause in head object: %s %s", aerr.Code(), key))
 					return false, "", err
 				}
-				s3.logger.Sugar().Info("====== head object one more time ============= ", key)
+				s3.logger.Sugar().Info("Head object one more time", key)
 				once = true
 				rand.Seed(time.Now().UnixNano())
 				n := rand.Intn(3) // n will be between 0 and 10

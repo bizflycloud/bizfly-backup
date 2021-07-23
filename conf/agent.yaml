@@ -2,3 +2,4 @@ machine_id: foo
 access_key: <Access Key>
 secret_key: <Secret Key>
 api_url: <API URL>
+

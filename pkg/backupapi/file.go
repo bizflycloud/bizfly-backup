@@ -405,6 +405,9 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		if err != nil {
 			if os.IsNotExist(err) {
 				c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
+				s.ItemName = append(s.ItemName, itemInfo.Attributes.ItemName)
+				s.Errors = true
+				p.Report(s)
 				return 0, err
 			}
 		}
@@ -500,6 +503,9 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 		if err != nil {
 			if os.IsNotExist(err) {
 				c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
+				s.ItemName = append(s.ItemName, itemInfo.Attributes.ItemName)
+				s.Errors = true
+				p.Report(s)
 			}
 		} else {
 			// backup item with item change ctime

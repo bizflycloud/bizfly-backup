@@ -92,10 +92,7 @@ func New(opts ...Option) (*Server, error) {
 	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 
 	if s.logger == nil {
-		l, err := zap.NewDevelopment()
-		if err != nil {
-			return nil, err
-		}
+		l := backupapi.NewLog()
 		s.logger = l
 	}
 

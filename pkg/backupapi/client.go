@@ -61,11 +61,7 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 	}
 
 	if c.logger == nil {
-		l, err := zap.NewDevelopment()
-		if err != nil {
-			return nil, err
-		}
-
+		l := NewLog()
 		c.logger = l
 	}
 

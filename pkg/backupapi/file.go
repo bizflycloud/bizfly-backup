@@ -852,31 +852,6 @@ func (c *Client) GetListItemPath(recoveryPointID string, page int) (int, *ItemsR
 	return totalPage, &items, nil
 }
 
-func (c *Client) GetInfoFileDownload(recoveryPointID string, itemFileID string, restoreSessionKey string, createdAt string) (*FileDownloadResponse, error) {
-	reqURL, err := c.urlStringFromRelPath(c.infoFile(recoveryPointID, itemFileID))
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("X-Session-Created-At", createdAt)
-	req.Header.Add("X-Restore-Session-Key", restoreSessionKey)
-
-	resp, err := c.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	var fileDownload FileDownloadResponse
-	if err := json.NewDecoder(resp.Body).Decode(&fileDownload); err != nil {
-		return nil, err
-	}
-
-	return &fileDownload, nil
-}
-
 func createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, gid int) error {
 	dirName := filepath.Dir(path)
 	if _, err := os.Stat(dirName); os.IsNotExist(err) {

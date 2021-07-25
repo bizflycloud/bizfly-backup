@@ -407,6 +407,8 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 				s.ItemName = append(s.ItemName, itemInfo.Attributes.ItemName)
 				s.Errors = true
 				p.Report(s)
+				return 0, nil
+			} else {
 				return 0, err
 			}
 		}

@@ -92,8 +92,8 @@ func New(opts ...Option) (*Server, error) {
 	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 
 	if s.logger == nil {
-		l := backupapi.NewLog()
-		s.logger = l
+		logFile := backupapi.LogFile()
+		s.logger = logFile
 	}
 
 	s.setupRoutes()

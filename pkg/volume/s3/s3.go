@@ -65,8 +65,8 @@ func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
 	}
 
 	if s3.logger == nil {
-		l := backupapi.NewLog()
-		s3.logger = l
+		logFile := backupapi.LogFile()
+		s3.logger = logFile
 	}
 
 	cred := credentials.NewStaticCredentials(vol.Credential.AwsAccessKeyId, vol.Credential.AwsSecretAccessKey, vol.Credential.Token)

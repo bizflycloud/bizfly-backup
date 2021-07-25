@@ -61,8 +61,8 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 	}
 
 	if c.logger == nil {
-		l := NewLog()
-		c.logger = l
+		logFile := LogFile()
+		c.logger = logFile
 	}
 
 	return c, nil

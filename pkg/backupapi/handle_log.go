@@ -8,14 +8,23 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-func NewLog() *zap.Logger {
-	writerSyncer := getLogWriter()
-	encoder := getEncoder()
+func configZap() zap.Config {
+	cfg := zap.Config{
+		Encoding:    "json",
+		Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
+		OutputPaths: []string{"stderr"},
 
-	core := zapcore.NewCore(encoder, writerSyncer, zapcore.DebugLevel)
-
-	logger := zap.New(core, zap.AddCaller())
-	return logger
+		EncoderConfig: zapcore.EncoderConfig{
+			MessageKey:   "message",
+			TimeKey:      "time",
+			LevelKey:     "level",
+			CallerKey:    "caller",
+			EncodeCaller: zapcore.FullCallerEncoder,
+			EncodeLevel:  CustomLevelEncoder,
+			EncodeTime:   SyslogTimeEncoder,
+		},
+	}
+	return cfg
 }
 
 func getEncoder() zapcore.Encoder {
@@ -26,7 +35,7 @@ func getEncoder() zapcore.Encoder {
 		CallerKey:    "caller",
 		EncodeLevel:  CustomLevelEncoder,         //Format cách hiển thị level log
 		EncodeTime:   SyslogTimeEncoder,          //Format hiển thị thời điểm log
-		EncodeCaller: zapcore.ShortCallerEncoder, //Format caller
+		EncodeCaller: zapcore.ShortCallerEncoder, //Format dòng code bắt đầu log
 	})
 }
 
@@ -39,6 +48,24 @@ func CustomLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) 
 }
 
 func getLogWriter() zapcore.WriteSyncer {
-	file, _ := os.Create("./bizfly-backup.log")
+	file, _ := os.OpenFile("./bizfly-backup.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	return zapcore.AddSync(file)
+}
+
+// Write log to file
+func LogFile() *zap.Logger {
+	writerSyncer := getLogWriter()
+	encoder := getEncoder()
+
+	core := zapcore.NewCore(encoder, writerSyncer, zapcore.DebugLevel)
+
+	logger := zap.New(core, zap.AddCaller())
+	return logger
+}
+
+// Write log to console
+func LogConsole() *zap.Logger {
+	cfg := configZap()
+	logger, _ := cfg.Build()
+	return logger
 }

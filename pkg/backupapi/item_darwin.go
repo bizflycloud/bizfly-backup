@@ -13,7 +13,7 @@ func ItemLocal(fi fs.FileInfo) (time.Time, time.Time, time.Time, uint32, uint32)
 	var uid, gid uint32
 	if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
 		atimeLocal = time.Unix(stat.Atimespec.Unix()).UTC()
-		ctimeLocal = time.Unix(stat.ctimespec.Unix()).UTC()
+		ctimeLocal = time.Unix(stat.Ctimespec.Unix()).UTC()
 		mtimeLocal = time.Unix(stat.Mtimespec.Unix()).UTC()
 		uid = stat.Uid
 		gid = stat.Gid

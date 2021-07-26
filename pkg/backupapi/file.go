@@ -407,8 +407,10 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 				s.ItemName = append(s.ItemName, itemInfo.Attributes.ItemName)
 				s.Errors = true
 				p.Report(s)
+				cancel()
 				return 0, nil
 			} else {
+				cancel()
 				return 0, err
 			}
 		}
@@ -429,6 +431,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			temp := make([]byte, chunk.Length)
 			length := copy(temp, chunk.Data)
 			if uint(length) != chunk.Length {
+				cancel()
 				return 0, errors.New("copy chunk data error")
 			}
 			chunkToBackup := ChunkInfo{
@@ -443,10 +446,12 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		wg.Wait()
 
 		if errBackupChunk != nil {
+			cancel()
 			return 0, errBackupChunk
 		}
 		s.Items = 1
 		p.Report(s)
+		cancel()
 		return stat, nil
 	}
 
@@ -480,6 +485,7 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 			s.Bytes = uint64(chunk.Length)
 			p.Report(s)
 			*size += saveSize
+			cancel()
 		}
 	}
 }
@@ -587,6 +593,7 @@ func (c *Client) RestoreDirectory(recoveryPointID string, destDir string, volume
 	totalPage, _, err := c.GetListItemPath(recoveryPointID, 1)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
+		cancel()
 		return err
 	}
 
@@ -595,6 +602,7 @@ func (c *Client) RestoreDirectory(recoveryPointID string, destDir string, volume
 		_, rp, err := c.GetListItemPath(recoveryPointID, p)
 		if err != nil {
 			c.logger.Error("err ", zap.Error(err))
+			cancel()
 			return err
 		}
 		for _, item := range rp.Items {
@@ -617,8 +625,10 @@ func (c *Client) RestoreDirectory(recoveryPointID string, destDir string, volume
 	}
 	if err := group.Wait(); err != nil {
 		c.logger.Error("Has a goroutine error ", zap.Error(err))
+		cancel()
 		return err
 	}
+	cancel()
 	return nil
 }
 
@@ -674,7 +684,7 @@ func (c *Client) restoreSymlink(target string, item Item) error {
 			c.logger.Error("err ", zap.Error(err))
 			return err
 		}
-		SetChownItem(target, int(item.UID), int(item.GID))
+		_ = SetChownItem(target, int(item.UID), int(item.GID))
 	}
 	return nil
 }
@@ -701,7 +711,7 @@ func (c *Client) restoreDirectory(target string, item Item) error {
 			c.logger.Error("err ", zap.Error(err))
 			return err
 		}
-		SetChownItem(target, int(item.UID), int(item.GID))
+		_ = SetChownItem(target, int(item.UID), int(item.GID))
 	}
 	return nil
 }
@@ -756,7 +766,7 @@ func (c *Client) restoreFile(recoveryPointID string, target string, item Item, v
 				c.logger.Error("err ", zap.Error(err))
 				return err
 			}
-			SetChownItem(target, int(item.UID), int(item.GID))
+			_ = SetChownItem(target, int(item.UID), int(item.GID))
 			err = os.Chtimes(target, item.AccessTime, item.ModifyTime)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
@@ -811,7 +821,7 @@ func (c *Client) downloadFile(file *os.File, recoveryPointID string, item Item, 
 		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
-	SetChownItem(file.Name(), int(item.UID), int(item.GID))
+	_ = SetChownItem(file.Name(), int(item.UID), int(item.GID))
 	err = os.Chtimes(file.Name(), item.AccessTime, item.ModifyTime)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
@@ -869,7 +879,7 @@ func createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, g
 	if err != nil {
 		log.Println(err)
 	}
-	SetChownItem(path, uid, gid)
+	_ = SetChownItem(path, uid, gid)
 	return nil
 }
 
@@ -884,7 +894,7 @@ func createDir(path string, mode fs.FileMode, uid int, gid int, atime time.Time,
 		return err
 	}
 
-	SetChownItem(path, uid, gid)
+	_ = SetChownItem(path, uid, gid)
 	err = os.Chtimes(path, atime, mtime)
 	if err != nil {
 		return err
@@ -912,7 +922,7 @@ func createFile(path string, mode fs.FileMode, uid int, gid int) (*os.File, erro
 		return nil, err
 	}
 
-	SetChownItem(path, uid, gid)
+	_ = SetChownItem(path, uid, gid)
 	return file, nil
 }
 

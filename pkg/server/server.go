@@ -42,8 +42,8 @@ const (
 	statusUploadFile  = "UPLOADING"
 	statusComplete    = "COMPLETED"
 	statusDownloading = "DOWNLOADING"
-	statusRestoring   = "RESTORING"
-	statusFailed      = "FAILED"
+	// statusRestoring   = "RESTORING"
+	statusFailed = "FAILED"
 )
 
 const (
@@ -366,7 +366,7 @@ func (s *Server) doUpgrade() error {
 	}
 	defer resp.Body.Close()
 	s.logger.Info("Finish downloading, perform upgrading...")
-	err = update.Apply(resp.Body, update.Options{})
+	_ = update.Apply(resp.Body, update.Options{})
 	s.logger.Info("Upgrading done! TODO: self restart? For now, call os.Exit so service manager will restart us!")
 	if s.useUnixSock {
 		//	Remove socket and exit
@@ -506,9 +506,9 @@ func (s *Server) Run() error {
 	return srv.ListenAndServe()
 }
 
-func (s *Server) reportStartUpload(w io.Writer) {
-	_, _ = w.Write([]byte("Start uploading ..."))
-}
+// func (s *Server) reportStartUpload(w io.Writer) {
+// 	_, _ = w.Write([]byte("Start uploading ..."))
+// }
 
 func (s *Server) reportUploadCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Upload completed ..."))
@@ -532,7 +532,7 @@ func (s *Server) notifyStatusFailed(recoveryPointID, reason string) {
 // backup performs backup flow.
 func (s *Server) backup(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer) error {
 	chErr := make(chan error, 1)
-	s.poolDir.Submit(s.backupWorker(backupDirectoryID, policyID, name, recoveryPointType, progressOutput, chErr))
+	_ = s.poolDir.Submit(s.backupWorker(backupDirectoryID, policyID, name, recoveryPointType, progressOutput, chErr))
 	return <-chErr
 }
 
@@ -579,7 +579,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		s.logger.Debug("Get credential volume error", zap.Error(err))
 		return err
 	}
-	storageVolume, err := NewStorageVolume(*vol, actionID)
+	storageVolume, _ := NewStorageVolume(*vol, actionID)
 
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
@@ -716,6 +716,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, a
 				return
 			}
 			*size += storageSize
+			cancel()
 		}
 	}
 }
@@ -787,7 +788,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 				break
 			}
 			wg.Add(1)
-			s.pool.Submit(s.uploadFileWorker(ctx, rp.RecoveryPoint.ID, rp.ID, lrp.ID, itemInfo, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
+			_ = s.pool.Submit(s.uploadFileWorker(ctx, rp.RecoveryPoint.ID, rp.ID, lrp.ID, itemInfo, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
 		}
 		wg.Wait()
 
@@ -796,7 +797,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			s.logger.Error("Error uploadFileWorker error", zap.Error(errFileWorker))
 			progressUpload.Done()
 			errCh <- errFileWorker
-			return
+			cancel()
 		}
 
 		s.reportUploadCompleted(progressOutput)
@@ -809,7 +810,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		})
 
 		errCh <- nil
-		return
+		cancel()
 	}
 }
 

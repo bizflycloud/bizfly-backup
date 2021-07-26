@@ -441,7 +441,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 				Data:   temp,
 			}
 			wg.Add(1)
-			pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, chunkToBackup, itemInfo, recoveryPointID, actionID, volume, p))
+			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, chunkToBackup, itemInfo, recoveryPointID, actionID, volume, p))
 		}
 		wg.Wait()
 

@@ -10,7 +10,7 @@ import (
 
 func configZap() zap.Config {
 	cfg := zap.Config{
-		Encoding:    "json",
+		Encoding:    "console",
 		Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
 		OutputPaths: []string{"stderr"},
 
@@ -28,7 +28,7 @@ func configZap() zap.Config {
 }
 
 func getEncoder() zapcore.Encoder {
-	return zapcore.NewJSONEncoder(zapcore.EncoderConfig{
+	return zapcore.NewConsoleEncoder(zapcore.EncoderConfig{
 		MessageKey:   "message",
 		TimeKey:      "time",
 		LevelKey:     "level",

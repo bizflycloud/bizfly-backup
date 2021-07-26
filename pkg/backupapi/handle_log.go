@@ -6,6 +6,8 @@ import (
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func configZap() zap.Config {
@@ -49,7 +51,12 @@ func CustomLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) 
 
 func getLogWriter() zapcore.WriteSyncer {
 	file, _ := os.OpenFile("./bizfly-backup.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	return zapcore.AddSync(file)
+
+	return zapcore.AddSync(&lumberjack.Logger{
+		Filename: file.Name(),
+		MaxSize:  500, // megabytes
+		MaxAge:   30,  // days
+	})
 }
 
 // Write log to file

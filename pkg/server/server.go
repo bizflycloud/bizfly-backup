@@ -42,8 +42,7 @@ const (
 	statusUploadFile  = "UPLOADING"
 	statusComplete    = "COMPLETED"
 	statusDownloading = "DOWNLOADING"
-	// statusRestoring   = "RESTORING"
-	statusFailed = "FAILED"
+	statusFailed      = "FAILED"
 )
 
 const (
@@ -505,10 +504,6 @@ func (s *Server) Run() error {
 	srv.Addr = s.Addr
 	return srv.ListenAndServe()
 }
-
-// func (s *Server) reportStartUpload(w io.Writer) {
-// 	_, _ = w.Write([]byte("Start uploading ..."))
-// }
 
 func (s *Server) reportUploadCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Upload completed ..."))

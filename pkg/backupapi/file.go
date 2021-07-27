@@ -407,10 +407,8 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 				s.ItemName = append(s.ItemName, itemInfo.Attributes.ItemName)
 				s.Errors = true
 				p.Report(s)
-				cancel()
 				return 0, nil
 			} else {
-				cancel()
 				return 0, err
 			}
 		}
@@ -431,7 +429,6 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			temp := make([]byte, chunk.Length)
 			length := copy(temp, chunk.Data)
 			if uint(length) != chunk.Length {
-				cancel()
 				return 0, errors.New("copy chunk data error")
 			}
 			chunkToBackup := ChunkInfo{
@@ -446,15 +443,12 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		wg.Wait()
 
 		if errBackupChunk != nil {
-			cancel()
 			return 0, errBackupChunk
 		}
 		s.Items = 1
 		p.Report(s)
-		cancel()
 		return stat, nil
 	}
-
 }
 
 type chunkJob func()
@@ -485,7 +479,6 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 			s.Bytes = uint64(chunk.Length)
 			p.Report(s)
 			*size += saveSize
-			cancel()
 		}
 	}
 }
@@ -593,7 +586,6 @@ func (c *Client) RestoreDirectory(recoveryPointID string, destDir string, volume
 	totalPage, _, err := c.GetListItemPath(recoveryPointID, 1)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
-		cancel()
 		return err
 	}
 
@@ -602,7 +594,6 @@ func (c *Client) RestoreDirectory(recoveryPointID string, destDir string, volume
 		_, rp, err := c.GetListItemPath(recoveryPointID, p)
 		if err != nil {
 			c.logger.Error("err ", zap.Error(err))
-			cancel()
 			return err
 		}
 		for _, item := range rp.Items {
@@ -616,7 +607,6 @@ func (c *Client) RestoreDirectory(recoveryPointID string, destDir string, volume
 				err := c.RestoreItem(ctx, recoveryPointID, destDir, item, volume, restoreKey)
 				if err != nil {
 					c.logger.Sugar().Info("Restore file error ", item.ItemName)
-					cancel()
 					return err
 				}
 				return nil
@@ -628,7 +618,6 @@ func (c *Client) RestoreDirectory(recoveryPointID string, destDir string, volume
 		cancel()
 		return err
 	}
-	cancel()
 	return nil
 }
 

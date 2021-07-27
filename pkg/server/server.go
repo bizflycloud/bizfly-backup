@@ -711,7 +711,6 @@ func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, a
 				return
 			}
 			*size += storageSize
-			cancel()
 		}
 	}
 }
@@ -792,7 +791,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			s.logger.Error("Error uploadFileWorker error", zap.Error(errFileWorker))
 			progressUpload.Done()
 			errCh <- errFileWorker
-			cancel()
+			return
 		}
 
 		s.reportUploadCompleted(progressOutput)
@@ -805,7 +804,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		})
 
 		errCh <- nil
-		cancel()
+		return
 	}
 }
 

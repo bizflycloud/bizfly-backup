@@ -87,7 +87,6 @@ func WithServerURL(serverURL string) ClientOption {
 	return func(c *Client) error {
 		su, err := url.Parse(serverURL)
 		if err != nil {
-			c.logger.Error("err ", zap.Error(err))
 			return err
 		}
 		c.ServerURL = su
@@ -124,19 +123,16 @@ func (c *Client) NewRequest(method, relPath string, body interface{}) (*http.Req
 	buf := new(bytes.Buffer)
 	if body != nil {
 		if err := json.NewEncoder(buf).Encode(body); err != nil {
-			c.logger.Error("err ", zap.Error(err))
 			return nil, err
 		}
 	}
 
 	reqURl, err := c.urlStringFromRelPath(relPath)
 	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	req, err := http.NewRequest(method, reqURl, buf)
 	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
@@ -173,18 +169,15 @@ type Version struct {
 func (c *Client) LatestVersion() (*Version, error) {
 	req, err := c.NewRequest(http.MethodGet, latestVersionPath, nil)
 	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 	var v Version
 	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
-		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	return &v, nil

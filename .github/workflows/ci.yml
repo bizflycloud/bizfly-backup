@@ -19,7 +19,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v1
         with:
-          version: v1.26
+          version: v1.41.1
   Test:
     strategy:
       matrix:

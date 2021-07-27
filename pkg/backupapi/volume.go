@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
-	log "github.com/sirupsen/logrus"
+	"go.uber.org/zap"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 )
@@ -67,13 +67,13 @@ func (c *Client) GetCredentialVolume(volumeID string, actionID string, restoreKe
 				continue
 			}
 			if resp.StatusCode == 401 {
-				log.Printf("GetCredential access denied: %d", resp.StatusCode)
+				c.logger.Sugar().Info("GetCredential access denied: ", resp.StatusCode)
 				newSessionKey, err := c.GetRestoreSessionKey(restoreKey.RecoveryPointID, restoreKey.ActionID, restoreKey.CreatedAt)
 				if err != nil {
-					fmt.Printf("Get restore session key error: %s\n", err)
+					c.logger.Sugar().Info("Get restore session key error: ", err)
 					return nil, err
 				}
-				fmt.Printf("new session key: %+v\n", newSessionKey)
+				c.logger.Sugar().Info("new session key: ", newSessionKey)
 				restoreKey.CreatedAt = newSessionKey.CreatedAt
 				restoreKey.RestoreSessionKey = newSessionKey.RestoreSessionKey
 				continue
@@ -118,11 +118,11 @@ func (c *Client) HeadObject(volume volume.StorageVolume, key string) (bool, stri
 		}
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == "Forbidden" && volume.Type().StorageType == "DEFAULT" {
-				log.Info("GetCredential in head object ", key)
+				c.logger.Sugar().Info("GetCredential in head object ", key)
 				volID, actID := volume.ID()
 				vol, err := c.GetCredentialVolume(volID, actID, nil)
 				if err != nil {
-					log.Error("Error get credential")
+					c.logger.Error("Error get credential", zap.Error(err))
 					break
 				}
 				err = volume.RefreshCredential(vol.Credential)
@@ -134,7 +134,7 @@ func (c *Client) HeadObject(volume volume.StorageVolume, key string) (bool, stri
 				break
 			}
 		} else {
-			log.Error("Error head object", err)
+			c.logger.Error("Error head object", zap.Error(err))
 			time.Sleep(backoff)
 		}
 
@@ -152,11 +152,11 @@ func (c *Client) PutObject(volume volume.StorageVolume, key string, data []byte)
 		}
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == "Forbidden" && volume.Type().StorageType == "DEFAULT" {
-				log.Info("GetCredential for refreshing session s3")
+				c.logger.Sugar().Info("GetCredential for refreshing session s3")
 				volID, actID := volume.ID()
 				vol, err := c.GetCredentialVolume(volID, actID, nil)
 				if err != nil {
-					log.Error("Error get credential")
+					c.logger.Error("Error get credential", zap.Error(err))
 					break
 				}
 				err = volume.RefreshCredential(vol.Credential)
@@ -165,7 +165,7 @@ func (c *Client) PutObject(volume volume.StorageVolume, key string, data []byte)
 				}
 			}
 		}
-		log.Error("Error PutObject", err)
+		c.logger.Error("Error PutObject", zap.Error(err))
 		time.Sleep(backoff)
 	}
 	return err
@@ -192,7 +192,7 @@ func (c *Client) GetObject(volume volume.StorageVolume, key string, restoreKey *
 				}
 			}
 		}
-		log.Error("Error GetObject", err)
+		c.logger.Error("Error GetObject", zap.Error(err))
 		time.Sleep(backoff)
 	}
 	return nil, err

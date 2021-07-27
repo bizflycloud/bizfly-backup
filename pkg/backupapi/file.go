@@ -485,7 +485,6 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 			s.Bytes = uint64(chunk.Length)
 			p.Report(s)
 			*size += saveSize
-			cancel()
 		}
 	}
 }

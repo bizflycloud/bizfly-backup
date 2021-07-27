@@ -2,7 +2,6 @@ package backupapi
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/agentversion"
+	"go.uber.org/zap"
 )
 
 const (
@@ -60,7 +60,8 @@ func osName() string {
 func (c *Client) UpdateMachine() (*UpdateMachineResponse, error) {
 	hostname, err := os.Hostname()
 	if err != nil {
-		return nil, fmt.Errorf("os.Hostname(): %w", err)
+		c.logger.Error("os.Hostname() ", zap.Error(err))
+		return nil, err
 	}
 	m := &Machine{
 		HostName:     hostname,
@@ -71,28 +72,34 @@ func (c *Client) UpdateMachine() (*UpdateMachineResponse, error) {
 
 	req, err := c.NewRequest(http.MethodPatch, updateMachinePath, m)
 	if err != nil {
-		return nil, fmt.Errorf("c.NewRequest(): %w", err)
+		c.logger.Error("c.NewRequest() ", zap.Error(err))
+		return nil, err
 	}
 
 	resp, err := c.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("c.Do(): %w", err)
+		c.logger.Error("c.Do() ", zap.Error(err))
+		return nil, err
 	}
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 	var umr UpdateMachineResponse
 	if err := json.NewDecoder(resp.Body).Decode(&umr); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
 	buf, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("ioutil.ReadAll(): err")
+		c.logger.Error("ioutil.ReadAll() ", zap.Error(err))
+		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected error: %s, status: %d", string(buf), resp.StatusCode)
+		c.logger.Error("err ", zap.Error(err), zap.String("unexpected error", string(buf)), zap.Int("status", resp.StatusCode))
+		return nil, err
 	}
 	return &umr, nil
 }

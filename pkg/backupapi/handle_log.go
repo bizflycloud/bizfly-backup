@@ -10,25 +10,6 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-func configZap() zap.Config {
-	cfg := zap.Config{
-		Encoding:    "console",
-		Level:       zap.NewAtomicLevelAt(zap.InfoLevel),
-		OutputPaths: []string{"stderr"},
-
-		EncoderConfig: zapcore.EncoderConfig{
-			MessageKey:   "message",
-			TimeKey:      "time",
-			LevelKey:     "level",
-			CallerKey:    "caller",
-			EncodeCaller: zapcore.FullCallerEncoder,
-			EncodeLevel:  CustomLevelEncoder,
-			EncodeTime:   SyslogTimeEncoder,
-		},
-	}
-	return cfg
-}
-
 func getEncoder() zapcore.Encoder {
 	return zapcore.NewConsoleEncoder(zapcore.EncoderConfig{
 		MessageKey:   "message",
@@ -52,27 +33,22 @@ func CustomLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) 
 func getLogWriter() zapcore.WriteSyncer {
 	file, _ := os.OpenFile("./bizfly-backup.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 
-	return zapcore.AddSync(&lumberjack.Logger{
-		Filename: file.Name(),
-		MaxSize:  500, // megabytes
-		MaxAge:   30,  // days
-	})
+	return zapcore.NewMultiWriteSyncer(
+		zapcore.AddSync(&lumberjack.Logger{
+			Filename: file.Name(),
+			MaxSize:  500, // megabytes
+			MaxAge:   30,  // days
+		}),
+		zapcore.AddSync(os.Stdout))
 }
 
-// Write log to file
-func LogFile() *zap.Logger {
+// Write log to file and console
+func WriteLog() *zap.Logger {
 	writerSyncer := getLogWriter()
 	encoder := getEncoder()
 
 	core := zapcore.NewCore(encoder, writerSyncer, zapcore.DebugLevel)
 
 	logger := zap.New(core, zap.AddCaller())
-	return logger
-}
-
-// Write log to console
-func LogConsole() *zap.Logger {
-	cfg := configZap()
-	logger, _ := cfg.Build()
 	return logger
 }

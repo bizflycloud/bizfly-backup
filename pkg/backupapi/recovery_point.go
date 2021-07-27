@@ -8,6 +8,8 @@ import (
 
 	"io/ioutil"
 	"net/http"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -102,19 +104,23 @@ func (c *Client) latestRecoveryPointID(backupDirectoryID string) string {
 func (c *Client) GetLatestRecoveryPointID(backupDirectoryID string) (*RecoveryPointResponse, error) {
 	req, err := c.NewRequest(http.MethodGet, c.latestRecoveryPointID(backupDirectoryID), nil)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	resp, err := c.Do(req)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var lrp RecoveryPointResponse
 	if err := json.NewDecoder(resp.Body).Decode(&lrp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	return &lrp, nil
@@ -123,19 +129,23 @@ func (c *Client) GetLatestRecoveryPointID(backupDirectoryID string) (*RecoveryPo
 func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID string, crpr *CreateRecoveryPointRequest) (*CreateRecoveryPointResponse, error) {
 	req, err := c.NewRequest(http.MethodPost, c.recoveryPointPath(backupDirectoryID), crpr)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
 	resp, err := c.Do(req.WithContext(ctx))
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 	var crp CreateRecoveryPointResponse
 	if err := json.NewDecoder(resp.Body).Decode(&crp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
@@ -145,19 +155,23 @@ func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID string, recoveryPointID string, urpr *UpdateRecoveryPointRequest) error {
 	req, err := c.NewRequest(http.MethodPatch, c.recoveryPointItemPath(backupDirectoryID, recoveryPointID), urpr)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 
 	resp, err := c.Do(req.WithContext(ctx))
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	defer resp.Body.Close()
 	buf, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -170,20 +184,24 @@ func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID string) ([]RecoveryPoint, error) {
 	req, err := c.NewRequest(http.MethodGet, c.recoveryPointPath(backupDirectoryID), nil)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
 	resp, err := c.Do(req.WithContext(ctx))
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var rps []RecoveryPoint
 	if err := json.NewDecoder(resp.Body).Decode(&rps); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	return rps, nil
@@ -193,14 +211,17 @@ func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID strin
 func (c *Client) RequestRestore(recoveryPointID string, crr *CreateRestoreRequest) error {
 	req, err := c.NewRequest(http.MethodPost, c.recoveryPointActionPath(recoveryPointID), crr)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	resp, err := c.Do(req)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	defer resp.Body.Close()
@@ -210,11 +231,13 @@ func (c *Client) RequestRestore(recoveryPointID string, crr *CreateRestoreReques
 func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, createdAt string) (*RestoreResponse, error) {
 	reqURL, err := c.urlStringFromRelPath(c.getRestoreSessionKey(recoveryPointID))
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
 	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	q := req.URL.Query()
@@ -224,11 +247,13 @@ func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, c
 
 	resp, err := c.Do(req)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
 	var restoreRsp RestoreResponse
 	if err := json.NewDecoder(resp.Body).Decode(&restoreRsp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	return &restoreRsp, nil

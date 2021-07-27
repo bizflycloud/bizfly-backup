@@ -57,12 +57,14 @@ func (c *Client) GetCredentialVolume(volumeID string, actionID string, restoreKe
 		for _, backoff := range backoffSchedule {
 			req, err := c.NewRequest(http.MethodGet, c.credentialVolumePath(volumeID, actionID), nil)
 			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
 				return nil, err
 			}
 			req.Header.Add("X-Session-Created-At", restoreKey.CreatedAt)
 			req.Header.Add("X-Restore-Session-Key", restoreKey.RestoreSessionKey)
 			resp, err = c.Do(req)
 			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
 				time.Sleep(backoff)
 				continue
 			}
@@ -70,7 +72,7 @@ func (c *Client) GetCredentialVolume(volumeID string, actionID string, restoreKe
 				c.logger.Sugar().Info("GetCredential access denied: ", resp.StatusCode)
 				newSessionKey, err := c.GetRestoreSessionKey(restoreKey.RecoveryPointID, restoreKey.ActionID, restoreKey.CreatedAt)
 				if err != nil {
-					c.logger.Sugar().Info("Get restore session key error: ", err)
+					c.logger.Error("Get restore session key error: ", zap.Error(err))
 					return nil, err
 				}
 				c.logger.Sugar().Info("new session key: ", newSessionKey)
@@ -86,21 +88,25 @@ func (c *Client) GetCredentialVolume(volumeID string, actionID string, restoreKe
 	} else {
 		req, err := c.NewRequest(http.MethodGet, c.credentialVolumePath(volumeID, actionID), nil)
 		if err != nil {
+			c.logger.Error("err ", zap.Error(err))
 			return nil, err
 		}
 		resp, err = c.Do(req)
 		if err != nil {
+			c.logger.Error("err ", zap.Error(err))
 			return nil, err
 		}
 	}
 
 	if err = checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var vol Volume
 	if err := json.NewDecoder(resp.Body).Decode(&vol); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	return &vol, nil
@@ -127,6 +133,7 @@ func (c *Client) HeadObject(volume volume.StorageVolume, key string) (bool, stri
 				}
 				err = volume.RefreshCredential(vol.Credential)
 				if err != nil {
+					c.logger.Error("Error refresht credential ", zap.Error(err))
 					break
 				}
 			} else if aerr.Code() == "NotFound" {
@@ -161,6 +168,7 @@ func (c *Client) PutObject(volume volume.StorageVolume, key string, data []byte)
 				}
 				err = volume.RefreshCredential(vol.Credential)
 				if err != nil {
+					c.logger.Error("Error refresht credential ", zap.Error(err))
 					break
 				}
 			}
@@ -184,10 +192,12 @@ func (c *Client) GetObject(volume volume.StorageVolume, key string, restoreKey *
 				volID, actID := volume.ID()
 				vol, err := c.GetCredentialVolume(volID, actID, restoreKey)
 				if err != nil {
+					c.logger.Error("Error get credential ", zap.Error(err))
 					break
 				}
 				err = volume.RefreshCredential(vol.Credential)
 				if err != nil {
+					c.logger.Error("Error refresht credential ", zap.Error(err))
 					break
 				}
 			}

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"go.uber.org/zap"
 )
 
 // BackupDirectory ...
@@ -37,14 +39,17 @@ func (c *Client) backupDirectoryActionPath(id string) string {
 func (c *Client) GetBackupDirectory(id string) (*BackupDirectory, error) {
 	req, err := c.NewRequest(http.MethodGet, c.backupDirectoryPath(id), nil)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
 	resp, err := c.Do(req)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -60,15 +65,18 @@ func (c *Client) GetBackupDirectory(id string) (*BackupDirectory, error) {
 func (c *Client) RequestBackupDirectory(id string, cmbr *CreateManualBackupRequest) error {
 	req, err := c.NewRequest(http.MethodPost, c.backupDirectoryActionPath(id), cmbr)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	resp, err := c.Do(req)
 
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	defer resp.Body.Close()

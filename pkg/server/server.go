@@ -91,8 +91,8 @@ func New(opts ...Option) (*Server, error) {
 	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 
 	if s.logger == nil {
-		logFile := backupapi.LogFile()
-		s.logger = logFile
+		l := backupapi.WriteLog()
+		s.logger = l
 	}
 
 	s.setupRoutes()
@@ -106,15 +106,18 @@ func New(opts ...Option) (*Server, error) {
 	}
 	s.poolDir, err = ants.NewPool(numGoroutine)
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
 	s.pool, err = ants.NewPool(numGoroutine)
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	s.chunkPool, err = ants.NewPool(numGoroutine)
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	return s, nil
@@ -263,6 +266,7 @@ func (s *Server) RequestBackup(w http.ResponseWriter, r *http.Request) {
 func (s *Server) ListBackup(w http.ResponseWriter, r *http.Request) {
 	c, err := s.backupClient.GetConfig(r.Context())
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
@@ -274,6 +278,7 @@ func (s *Server) ListRecoveryPoints(w http.ResponseWriter, r *http.Request) {
 	backupID := chi.URLParam(r, "backupID")
 	rps, err := s.backupClient.ListRecoveryPoints(r.Context(), backupID)
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
@@ -304,6 +309,7 @@ func (s *Server) RequestRestore(w http.ResponseWriter, r *http.Request) {
 func (s *Server) SyncConfig(w http.ResponseWriter, r *http.Request) {
 	c, err := s.backupClient.GetConfig(r.Context())
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
@@ -335,6 +341,7 @@ func (s *Server) doUpgrade() error {
 	}
 	lv, err := s.backupClient.LatestVersion()
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	latestVer := "v" + lv.Ver
@@ -361,6 +368,7 @@ func (s *Server) doUpgrade() error {
 	s.logger.Info("Detect new version, downloading...", fields...)
 	resp, err := http.Get(binURL)
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	defer resp.Body.Close()
@@ -496,6 +504,7 @@ func (s *Server) Run() error {
 	if s.useUnixSock {
 		unixListener, err := net.Listen("unix", s.Addr)
 		if err != nil {
+			s.logger.Error("err ", zap.Error(err))
 			return err
 		}
 		return srv.Serve(unixListener)
@@ -571,7 +580,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	vol, err := s.backupClient.GetCredentialVolume(volumeId, actionID, restoreKey)
 	if err != nil {
-		s.logger.Debug("Get credential volume error", zap.Error(err))
+		s.logger.Error("Get credential volume error", zap.Error(err))
 		return err
 	}
 	storageVolume, _ := NewStorageVolume(*vol, actionID)

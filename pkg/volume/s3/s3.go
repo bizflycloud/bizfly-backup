@@ -2,7 +2,6 @@ package s3
 
 import (
 	"bytes"
-	"fmt"
 	"io/ioutil"
 	"math/rand"
 	"time"
@@ -65,14 +64,14 @@ func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
 	}
 
 	if s3.logger == nil {
-		logFile := backupapi.LogFile()
-		s3.logger = logFile
+		l := backupapi.WriteLog()
+		s3.logger = l
 	}
 
 	cred := credentials.NewStaticCredentials(vol.Credential.AwsAccessKeyId, vol.Credential.AwsSecretAccessKey, vol.Credential.Token)
 	_, err := cred.Get()
 	if err != nil {
-		s3.logger.Sugar().Info("Bad credentials", err)
+		s3.logger.Error("Bad credentials", zap.Error(err))
 	}
 	sess := storage.New(session.Must(session.NewSession(&aws.Config{
 		DisableSSL:       aws.Bool(false),
@@ -114,7 +113,7 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Error() == "Forbidden" {
 				if once {
-					s3.logger.Sugar().Info("Return false cause in put object: ", aerr.Code(), key)
+					s3.logger.Error("Return false cause in put object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return err
 				}
 				s3.logger.Info("Put object one more time")
@@ -146,7 +145,7 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Error() == "Forbidden" {
 				if once {
-					s3.logger.Sugar().Info("Return false cause in get object: ", aerr.Code(), key)
+					s3.logger.Error("Return false cause in get object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return nil, err
 				}
 				s3.logger.Info("Get object one more time")
@@ -182,12 +181,13 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == "NotFound" {
+				s3.logger.Error("err ", zap.Error(err))
 				return false, "", err
 			}
 
 			if aerr.Code() == "Forbidden" {
 				if once {
-					s3.logger.Sugar().Info(fmt.Sprintf("Return false cause in head object: %s %s", aerr.Code(), key))
+					s3.logger.Error("Return false cause in head object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return false, "", err
 				}
 				s3.logger.Sugar().Info("Head object one more time", key)
@@ -207,6 +207,7 @@ func (s3 *S3) RefreshCredential(credential volume.Credential) error {
 	cred := credentials.NewStaticCredentials(credential.AwsAccessKeyId, credential.AwsSecretAccessKey, credential.Token)
 	_, err := cred.Get()
 	if err != nil {
+		s3.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	sess := storage.New(session.Must(session.NewSession(&aws.Config{

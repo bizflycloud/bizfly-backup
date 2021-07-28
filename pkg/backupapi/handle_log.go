@@ -30,25 +30,66 @@ func CustomLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) 
 	enc.AppendString("[" + level.CapitalString() + "]")
 }
 
-func getLogWriter() zapcore.WriteSyncer {
-	file, _ := os.OpenFile("./bizfly-backup.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+func logErrorWriter() zapcore.WriteSyncer {
+	errFileLog, _ := os.OpenFile("./error.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
-			Filename: file.Name(),
+			Filename: errFileLog.Name(),
 			MaxSize:  500, // megabytes
 			MaxAge:   30,  // days
 		}),
 		zapcore.AddSync(os.Stdout))
 }
 
-// Write log to file and console
+func logInfoWriter() zapcore.WriteSyncer {
+	errFileLog, _ := os.OpenFile("./info.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+	return zapcore.NewMultiWriteSyncer(
+		zapcore.AddSync(&lumberjack.Logger{
+			Filename: errFileLog.Name(),
+			MaxSize:  500, // megabytes
+			MaxAge:   30,  // days
+		}),
+		zapcore.AddSync(os.Stdout))
+}
+
+func logDebugWriter() zapcore.WriteSyncer {
+	errFileLog, _ := os.OpenFile("./debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+	return zapcore.NewMultiWriteSyncer(
+		zapcore.AddSync(&lumberjack.Logger{
+			Filename: errFileLog.Name(),
+			MaxSize:  500, // megabytes
+			MaxAge:   30,  // days
+		}),
+		zapcore.AddSync(os.Stdout))
+}
+
+// Write log to file by level log and console
 func WriteLog() *zap.Logger {
-	writerSyncer := getLogWriter()
+	highWriteSyncer := logErrorWriter()
+	averageWriteSyncer := logDebugWriter()
+	lowWriteSyncer := logInfoWriter()
+
 	encoder := getEncoder()
 
-	core := zapcore.NewCore(encoder, writerSyncer, zapcore.DebugLevel)
+	highPriority := zap.LevelEnablerFunc(func(lev zapcore.Level) bool {
+		return lev >= zap.ErrorLevel
+	})
 
-	logger := zap.New(core, zap.AddCaller())
+	lowPriority := zap.LevelEnablerFunc(func(lev zapcore.Level) bool {
+		return lev < zap.ErrorLevel && lev > zap.DebugLevel
+	})
+
+	averagePriority := zap.LevelEnablerFunc(func(lev zapcore.Level) bool {
+		return lev < zap.ErrorLevel && lev < zap.InfoLevel
+	})
+
+	lowCore := zapcore.NewCore(encoder, lowWriteSyncer, lowPriority)
+	averageCore := zapcore.NewCore(encoder, averageWriteSyncer, averagePriority)
+	highCore := zapcore.NewCore(encoder, highWriteSyncer, highPriority)
+
+	logger := zap.New(zapcore.NewTee(lowCore, averageCore, highCore), zap.AddCaller())
 	return logger
 }

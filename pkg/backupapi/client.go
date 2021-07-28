@@ -21,6 +21,17 @@ const (
 	latestVersionPath      = "/dashboard/download-urls"
 )
 
+var backoff = []time.Duration{
+	1 * time.Second,
+	3 * time.Second,
+	5 * time.Second,
+	10 * time.Second,
+	20 * time.Second,
+	30 * time.Second,
+	45 * time.Second,
+	1 * time.Minute,
+}
+
 // Client is the client for interacting with BackupService API server.
 type Client struct {
 	client    *http.Client
@@ -141,7 +152,23 @@ func (c *Client) NewRequest(method, relPath string, body interface{}) (*http.Req
 
 // Do makes an http request.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	return c.do(c.client, req, "application/json")
+	var err error
+	var resp *http.Response
+	for _, backoff := range backoff {
+		resp, err = c.do(c.client, req, "application/json")
+		if err == nil {
+			break
+		}
+		c.logger.Error("Request error ", zap.Error(err))
+		c.logger.Sugar().Info("Retrying in ", backoff)
+		time.Sleep(backoff)
+	}
+	// All retries failed
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	return resp, nil
 }
 
 func (c *Client) do(httpClient *http.Client, req *http.Request, contentType string) (*http.Response, error) {

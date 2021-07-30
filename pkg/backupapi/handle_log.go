@@ -31,11 +31,11 @@ func CustomLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) 
 }
 
 func logErrorWriter() zapcore.WriteSyncer {
-	errFileLog, _ := os.OpenFile("./error.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	zap.Open("./var/log/bizflycloud-backup/error.log")
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
-			Filename: errFileLog.Name(),
+			Filename: "./var/log/bizflycloud-backup/error.log",
 			MaxSize:  500, // megabytes
 			MaxAge:   30,  // days
 		}),
@@ -43,25 +43,25 @@ func logErrorWriter() zapcore.WriteSyncer {
 }
 
 func logInfoWriter() zapcore.WriteSyncer {
-	errFileLog, _ := os.OpenFile("./info.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	zap.Open("./var/log/bizflycloud-backup/info.log")
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
-			Filename: errFileLog.Name(),
-			MaxSize:  500, // megabytes
-			MaxAge:   30,  // days
+			Filename: "./var/log/bizflycloud-backup/info.log",
+			MaxSize:  500,
+			MaxAge:   30,
 		}),
 		zapcore.AddSync(os.Stdout))
 }
 
 func logDebugWriter() zapcore.WriteSyncer {
-	errFileLog, _ := os.OpenFile("./debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	zap.Open("./var/log/bizflycloud-backup/debug.log")
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
-			Filename: errFileLog.Name(),
-			MaxSize:  500, // megabytes
-			MaxAge:   30,  // days
+			Filename: "./var/log/bizflycloud-backup/debug.log",
+			MaxSize:  500,
+			MaxAge:   30,
 		}),
 		zapcore.AddSync(os.Stdout))
 }

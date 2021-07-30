@@ -147,6 +147,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	var resp *http.Response
 
 	bo := backoff.NewExponentialBackOff()
+	bo.MaxElapsedTime = 3 * time.Minute
 	for {
 		resp, err = c.do(c.client, req, "application/json")
 		if err == nil {

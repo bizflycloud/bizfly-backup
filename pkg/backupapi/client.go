@@ -9,9 +9,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/cenkalti/backoff"
 	"go.uber.org/zap"
 )
 
@@ -20,17 +22,6 @@ const (
 	userAgent              = "bizfly-backup-client"
 	latestVersionPath      = "/dashboard/download-urls"
 )
-
-var backoff = []time.Duration{
-	1 * time.Second,
-	3 * time.Second,
-	5 * time.Second,
-	10 * time.Second,
-	20 * time.Second,
-	30 * time.Second,
-	45 * time.Second,
-	1 * time.Minute,
-}
 
 // Client is the client for interacting with BackupService API server.
 type Client struct {
@@ -154,19 +145,22 @@ func (c *Client) NewRequest(method, relPath string, body interface{}) (*http.Req
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	var err error
 	var resp *http.Response
-	for _, backoff := range backoff {
+
+	bo := backoff.NewExponentialBackOff()
+	for {
 		resp, err = c.do(c.client, req, "application/json")
 		if err == nil {
 			break
 		}
 		c.logger.Error("Request error ", zap.Error(err))
-		c.logger.Sugar().Info("Retrying in ", backoff)
-		time.Sleep(backoff)
-	}
-	// All retries failed
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return nil, err
+
+		d := bo.NextBackOff()
+		if d == backoff.Stop {
+			os.Exit(1)
+		}
+
+		c.logger.Sugar().Info("Retrying in ", d)
+		time.Sleep(d)
 	}
 	return resp, nil
 }

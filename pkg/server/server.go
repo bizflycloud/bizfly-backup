@@ -796,7 +796,11 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		wg.Wait()
 
 		if errFileWorker != nil {
-			s.notifyStatusFailed(rp.ID, errFileWorker.Error())
+			if err != nil {
+				s.notifyStatusFailed(rp.ID, err.Error())
+			} else {
+				s.notifyStatusFailed(rp.ID, errFileWorker.Error())
+			}
 			s.logger.Error("Error uploadFileWorker error", zap.Error(errFileWorker))
 			progressUpload.Done()
 			errCh <- errFileWorker

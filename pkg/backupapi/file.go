@@ -1,6 +1,7 @@
 package backupapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/hex"
@@ -230,10 +231,18 @@ func (c *Client) getChunksInItem(recoveryPointID string, itemID string, page int
 		c.logger.Error("err ", zap.Error(err))
 		return 0, nil, err
 	}
+
+	var b bytes.Buffer
+	_, err = io.Copy(&b, resp.Body)
+	if err != nil {
+		c.logger.Error("Err write to buf ", zap.Error(err))
+	}
+
 	defer resp.Body.Close()
 	var chunkResp ChunksResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chunkResp); err != nil {
-		c.logger.Error("err ", zap.Error(err))
+	if err := json.NewDecoder(&b).Decode(&chunkResp); err != nil {
+		c.logger.Error("Err ", zap.Error(err))
+		c.logger.Error("Body ", zap.String("Body", b.String()))
 		return 0, nil, err
 	}
 
@@ -276,11 +285,18 @@ func (c *Client) SaveFileInfo(recoveryPointID string, itemInfo *ItemInfo) (*File
 		return nil, err
 	}
 
+	var b bytes.Buffer
+	_, err = io.Copy(&b, resp.Body)
+	if err != nil {
+		c.logger.Error("Err write to buf ", zap.Error(err))
+	}
+
 	defer resp.Body.Close()
 
 	var file File
-	if err = json.NewDecoder(resp.Body).Decode(&file); err != nil {
-		c.logger.Error("err ", zap.Error(err))
+	if err = json.NewDecoder(&b).Decode(&file); err != nil {
+		c.logger.Error("Err ", zap.Error(err))
+		c.logger.Error("Body ", zap.String("Body", b.String()))
 		return nil, err
 	}
 
@@ -305,10 +321,18 @@ func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRe
 		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
+
+	var b bytes.Buffer
+	_, err = io.Copy(&b, resp.Body)
+	if err != nil {
+		c.logger.Error("Err write to buf ", zap.Error(err))
+	}
+
 	defer resp.Body.Close()
 	var chunkResp ChunkResponse
-	if err := json.NewDecoder(resp.Body).Decode(&chunkResp); err != nil {
-		c.logger.Error("err ", zap.Error(err))
+	if err := json.NewDecoder(&b).Decode(&chunkResp); err != nil {
+		c.logger.Error("Err ", zap.Error(err))
+		c.logger.Error("Body ", zap.String("Body", b.String()))
 		return nil, err
 	}
 
@@ -345,9 +369,16 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 		return nil, err
 	}
 
+	var b bytes.Buffer
+	_, err = io.Copy(&b, resp.Body)
+	if err != nil {
+		c.logger.Error("Err write to buf ", zap.Error(err))
+	}
+
 	var itemInfoLatest ItemInfoLatest
-	if err := json.NewDecoder(resp.Body).Decode(&itemInfoLatest); err != nil {
+	if err := json.NewDecoder(&b).Decode(&itemInfoLatest); err != nil {
 		c.logger.Error("err ", zap.Error(err))
+		c.logger.Error("Body ", zap.String("Body", b.String()))
 		return nil, err
 	}
 	return &itemInfoLatest, nil

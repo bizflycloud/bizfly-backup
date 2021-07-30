@@ -55,7 +55,7 @@ type Server struct {
 	router          *chi.Mux
 	b               broker.Broker
 	subscribeTopics []string
-	publishTopic    string
+	publishTopic    []string
 	useUnixSock     bool
 	backupClient    *backupapi.Client
 
@@ -422,7 +422,7 @@ func (s *Server) subscribeBrokerLoop(ctx context.Context) {
 	}
 	msg := map[string]string{"status": "ONLINE", "event_type": broker.StatusNotify}
 	payload, _ := json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+	if err := s.b.Publish(s.publishTopic[0], payload); err != nil {
 		s.logger.Error("failed to notify server status online", zap.Error(err))
 	}
 	if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
@@ -520,7 +520,14 @@ func (s *Server) reportUploadCompleted(w io.Writer) {
 
 func (s *Server) notifyMsg(msg map[string]string) {
 	payload, _ := json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+	if err := s.b.Publish(s.publishTopic[0], payload); err != nil {
+		s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
+	}
+}
+
+func (s *Server) notifyMsgProgress(recoveryPointID string, msg map[string]string) {
+	payload, _ := json.Marshal(msg)
+	if err := s.b.Publish(s.publishTopic[1]+"/"+recoveryPointID, payload); err != nil {
 		s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
 	}
 }
@@ -770,7 +777,8 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			"action_id": rp.ID,
 			"status":    statusUploadFile,
 		})
-		progressScan := s.newProgressScanDir()
+		rpID := rp.RecoveryPoint.ID
+		progressScan := s.newProgressScanDir(rpID)
 		itemTodo, itemsInfo, err := WalkerDir(bd.Path, progressScan)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
@@ -781,7 +789,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		var storageSize uint64
 		var errFileWorker error
-		progressUpload := s.newUploadProgress(itemTodo)
+		progressUpload := s.newUploadProgress(rpID, itemTodo)
 		ctx, cancel := context.WithCancel(ctx)
 		var wg sync.WaitGroup
 		for _, itemInfo := range itemsInfo.Files {
@@ -817,22 +825,22 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 	}
 }
 
-func (s *Server) newProgressScanDir() *progress.Progress {
+func (s *Server) newProgressScanDir(recoverypointID string) *progress.Progress {
 	p := progress.NewProgress(time.Second)
 	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
-		s.notifyMsg(map[string]string{
+		s.notifyMsgProgress(recoverypointID, map[string]string{
 			"STATISTIC": stat.String(),
 		})
 	}
 	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
-		s.notifyMsg(map[string]string{
+		s.notifyMsgProgress(recoverypointID, map[string]string{
 			"SCANNED": stat.String(),
 		})
 	}
 	return p
 }
 
-func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
+func (s *Server) newUploadProgress(recoveryPointID string, todo progress.Stat) *progress.Progress {
 	p := progress.NewProgress(time.Second * 2)
 
 	var bps, eta uint64
@@ -859,7 +867,7 @@ func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
 			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
 
 			message := fmt.Sprintf("%s %s", status1, status2)
-			s.notifyMsg(map[string]string{
+			s.notifyMsgProgress(recoveryPointID, map[string]string{
 				"Uploading": message,
 			})
 		}
@@ -867,7 +875,7 @@ func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
 
 	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
 		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
-		s.notifyMsg(map[string]string{
+		s.notifyMsgProgress(recoveryPointID, map[string]string{
 			"COMPLETE UPLOAD": message,
 		})
 	}

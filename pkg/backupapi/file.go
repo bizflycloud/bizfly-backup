@@ -377,7 +377,7 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 
 	var itemInfoLatest ItemInfoLatest
 	if err := json.NewDecoder(&b).Decode(&itemInfoLatest); err != nil {
-		c.logger.Error("err ", zap.Error(err))
+		c.logger.Error("Err ", zap.Error(err))
 		c.logger.Error("Body ", zap.String("Body", b.String()))
 		return nil, err
 	}
@@ -906,9 +906,17 @@ func (c *Client) GetListItemPath(recoveryPointID string, page int) (int, *ItemsR
 		c.logger.Error("err ", zap.Error(err))
 		return 0, nil, err
 	}
+
+	var b bytes.Buffer
+	_, err = io.Copy(&b, resp.Body)
+	if err != nil {
+		c.logger.Error("Err write to buf ", zap.Error(err))
+	}
+
 	var items ItemsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
-		c.logger.Error("err ", zap.Error(err))
+		c.logger.Error("Err ", zap.Error(err))
+		c.logger.Error("Body ", zap.String("Body", b.String()))
 		return 0, nil, err
 	}
 

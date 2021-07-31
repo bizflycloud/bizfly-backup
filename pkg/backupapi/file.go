@@ -236,6 +236,8 @@ func (c *Client) getChunksInItem(recoveryPointID string, itemID string, page int
 	_, err = io.Copy(&b, resp.Body)
 	if err != nil {
 		c.logger.Error("Err write to buf ", zap.Error(err))
+	} else {
+		c.logger.Debug("Body request", zap.String("Body", b.String()))
 	}
 
 	defer resp.Body.Close()
@@ -289,6 +291,8 @@ func (c *Client) SaveFileInfo(recoveryPointID string, itemInfo *ItemInfo) (*File
 	_, err = io.Copy(&b, resp.Body)
 	if err != nil {
 		c.logger.Error("Err write to buf ", zap.Error(err))
+	} else {
+		c.logger.Debug("Body request", zap.String("Body", b.String()))
 	}
 
 	defer resp.Body.Close()
@@ -326,6 +330,8 @@ func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRe
 	_, err = io.Copy(&b, resp.Body)
 	if err != nil {
 		c.logger.Error("Err write to buf ", zap.Error(err))
+	} else {
+		c.logger.Debug("Body request", zap.String("Body", b.String()))
 	}
 
 	defer resp.Body.Close()
@@ -373,6 +379,8 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 	_, err = io.Copy(&b, resp.Body)
 	if err != nil {
 		c.logger.Error("Err write to buf ", zap.Error(err))
+	} else {
+		c.logger.Debug("Body request", zap.String("Body", b.String()))
 	}
 
 	var itemInfoLatest ItemInfoLatest
@@ -911,6 +919,8 @@ func (c *Client) GetListItemPath(recoveryPointID string, page int) (int, *ItemsR
 	_, err = io.Copy(&b, resp.Body)
 	if err != nil {
 		c.logger.Error("Err write to buf ", zap.Error(err))
+	} else {
+		c.logger.Debug("Body request", zap.String("Body", b.String()))
 	}
 
 	var items ItemsResponse

@@ -2,6 +2,7 @@ package backupapi
 
 import (
 	"os"
+	"os/user"
 	"time"
 
 	"go.uber.org/zap"
@@ -30,47 +31,61 @@ func CustomLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) 
 	enc.AppendString("[" + level.CapitalString() + "]")
 }
 
-func logErrorWriter() zapcore.WriteSyncer {
-	zap.Open("./var/log/bizflycloud-backup/error.log")
+func logErrorWriter() (zapcore.WriteSyncer, error) {
+	homeDirectory, err := getCurrentDirectory()
+	if err != nil {
+		return nil, err
+	}
+	logErrorPath := homeDirectory + "/var/log/bizflycloud-backup/error.log"
+	zap.Open(logErrorPath)
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
-			Filename: "./var/log/bizflycloud-backup/error.log",
+			Filename: logErrorPath,
 			MaxSize:  500, // megabytes
 			MaxAge:   30,  // days
 		}),
-		zapcore.AddSync(os.Stdout))
+		zapcore.AddSync(os.Stdout)), nil
 }
 
-func logInfoWriter() zapcore.WriteSyncer {
-	zap.Open("./var/log/bizflycloud-backup/info.log")
+func logInfoWriter() (zapcore.WriteSyncer, error) {
+	homeDirectory, err := getCurrentDirectory()
+	if err != nil {
+		return nil, err
+	}
+	logInfoPath := homeDirectory + "/var/log/bizflycloud-backup/info.log"
+	zap.Open(logInfoPath)
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
-			Filename: "./var/log/bizflycloud-backup/info.log",
+			Filename: logInfoPath,
 			MaxSize:  500,
 			MaxAge:   30,
 		}),
-		zapcore.AddSync(os.Stdout))
+		zapcore.AddSync(os.Stdout)), nil
 }
 
-func logDebugWriter() zapcore.WriteSyncer {
-	zap.Open("./var/log/bizflycloud-backup/debug.log")
+func logDebugWriter() (zapcore.WriteSyncer, error) {
+	homeDirectory, err := getCurrentDirectory()
+	if err != nil {
+		return nil, err
+	}
+	logDebugPath := homeDirectory + "/var/log/bizflycloud-backup/debug.log"
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
-			Filename: "./var/log/bizflycloud-backup/debug.log",
+			Filename: logDebugPath,
 			MaxSize:  500,
 			MaxAge:   30,
 		}),
-		zapcore.AddSync(os.Stdout))
+		zapcore.AddSync(os.Stdout)), nil
 }
 
 // Write log to file by level log and console
 func WriteLog() *zap.Logger {
-	highWriteSyncer := logErrorWriter()
-	averageWriteSyncer := logDebugWriter()
-	lowWriteSyncer := logInfoWriter()
+	highWriteSyncer, _ := logErrorWriter()
+	averageWriteSyncer, _ := logDebugWriter()
+	lowWriteSyncer, _ := logInfoWriter()
 
 	encoder := getEncoder()
 
@@ -92,4 +107,13 @@ func WriteLog() *zap.Logger {
 
 	logger := zap.New(zapcore.NewTee(lowCore, averageCore, highCore), zap.AddCaller())
 	return logger
+}
+
+func getCurrentDirectory() (string, error) {
+	user, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	homeDirectory := user.HomeDir
+	return homeDirectory, nil
 }

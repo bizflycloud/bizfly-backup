@@ -148,8 +148,10 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxElapsedTime = 3 * time.Minute
+	var requestTodo http.Request
 	for {
-		resp, err = c.do(c.client, req, "application/json")
+		requestTodo = *req
+		resp, err = c.do(c.client, &requestTodo, "application/json")
 		if err == nil {
 			break
 		}
@@ -162,6 +164,12 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 
 		c.logger.Sugar().Info("Retrying in ", d)
 		time.Sleep(d)
+	}
+
+	// All retries failed
+	if err != nil {
+		c.logger.Error("Err ", zap.Error(err))
+		return nil, err
 	}
 	return resp, nil
 }

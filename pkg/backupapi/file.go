@@ -237,14 +237,14 @@ func (c *Client) getChunksInItem(recoveryPointID string, itemID string, page int
 	if err != nil {
 		c.logger.Error("Err write to buf ", zap.Error(err))
 	} else {
-		c.logger.Debug("Body request", zap.String("Body", b.String()))
+		c.logger.Debug("Body request", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
 	}
 
 	defer resp.Body.Close()
 	var chunkResp ChunksResponse
 	if err := json.NewDecoder(&b).Decode(&chunkResp); err != nil {
 		c.logger.Error("Err ", zap.Error(err))
-		c.logger.Error("Body ", zap.String("Body", b.String()))
+		c.logger.Error("Body ", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
 		return 0, nil, err
 	}
 
@@ -292,7 +292,7 @@ func (c *Client) SaveFileInfo(recoveryPointID string, itemInfo *ItemInfo) (*File
 	if err != nil {
 		c.logger.Error("Err write to buf ", zap.Error(err))
 	} else {
-		c.logger.Debug("Body request", zap.String("Body", b.String()))
+		c.logger.Debug("Body request", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
 	}
 
 	defer resp.Body.Close()
@@ -300,7 +300,7 @@ func (c *Client) SaveFileInfo(recoveryPointID string, itemInfo *ItemInfo) (*File
 	var file File
 	if err = json.NewDecoder(&b).Decode(&file); err != nil {
 		c.logger.Error("Err ", zap.Error(err))
-		c.logger.Error("Body ", zap.String("Body", b.String()))
+		c.logger.Error("Body ", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
 		return nil, err
 	}
 
@@ -331,14 +331,14 @@ func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRe
 	if err != nil {
 		c.logger.Error("Err write to buf ", zap.Error(err))
 	} else {
-		c.logger.Debug("Body request", zap.String("Body", b.String()))
+		c.logger.Debug("Body request", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
 	}
 
 	defer resp.Body.Close()
 	var chunkResp ChunkResponse
 	if err := json.NewDecoder(&b).Decode(&chunkResp); err != nil {
 		c.logger.Error("Err ", zap.Error(err))
-		c.logger.Error("Body ", zap.String("Body", b.String()))
+		c.logger.Error("Body ", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
 		return nil, err
 	}
 
@@ -380,13 +380,13 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 	if err != nil {
 		c.logger.Error("Err write to buf ", zap.Error(err))
 	} else {
-		c.logger.Debug("Body request", zap.String("Body", b.String()))
+		c.logger.Debug("Body request", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
 	}
 
 	var itemInfoLatest ItemInfoLatest
 	if err := json.NewDecoder(&b).Decode(&itemInfoLatest); err != nil {
 		c.logger.Error("Err ", zap.Error(err))
-		c.logger.Error("Body ", zap.String("Body", b.String()))
+		c.logger.Error("Body ", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
 		return nil, err
 	}
 	return &itemInfoLatest, nil
@@ -920,7 +920,7 @@ func (c *Client) GetListItemPath(recoveryPointID string, page int) (int, *ItemsR
 	if err != nil {
 		c.logger.Error("Err write to buf ", zap.Error(err))
 	} else {
-		c.logger.Debug("Body request", zap.String("Body", b.String()))
+		c.logger.Debug("Body request", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
 	}
 
 	var items ItemsResponse

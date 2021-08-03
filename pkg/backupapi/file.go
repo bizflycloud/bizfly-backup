@@ -931,7 +931,7 @@ func (c *Client) GetListItemPath(recoveryPointID string, page int) (int, *ItemsR
 	}
 
 	var items ItemsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+	if err := json.NewDecoder(&b).Decode(&items); err != nil {
 		c.logger.Error("Err ", zap.Error(err))
 		c.logger.Error("Body ", zap.String("Body", b.String()))
 		return 0, nil, err

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -168,13 +170,25 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		c.logger.Debug("BackOff retry")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
+			c.logger.Debug("Retry time out")
 			break
 		}
 		c.logger.Sugar().Info("Retry in ", d)
 		time.Sleep(d)
 	}
 
-	return resp, err
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode >= 400 {
+		var b bytes.Buffer
+		_, _ = io.Copy(&b, resp.Body)
+		c.logger.Error("Request error ", zap.Int("StatusCode", resp.StatusCode), zap.String("Body Response", b.String()))
+		return nil, errors.New(fmt.Sprintf("StatusCode %d Body response %s", resp.StatusCode, b.String()))
+	}
+
+	return resp, nil
 }
 
 func (c *Client) do(httpClient *http.Client, req *http.Request, contentType string) (*http.Response, error) {

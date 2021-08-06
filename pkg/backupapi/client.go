@@ -147,7 +147,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	var resp *http.Response
 
 	bo := backoff.NewExponentialBackOff()
-	bo.MaxInterval = 10 * time.Minute
+	bo.MaxInterval = 3 * time.Minute
 
 	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {
@@ -168,7 +168,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		c.logger.Debug("BackOff retry")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
-			c.logger.Debug("Retry time out")
+			break
 		}
 		c.logger.Sugar().Info("Retry in ", d)
 		time.Sleep(d)

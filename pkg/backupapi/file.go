@@ -878,8 +878,8 @@ func (c *Client) downloadFile(file *os.File, recoveryPointID string, item Item, 
 			}
 			_, errWriteFile := file.WriteAt(data, offset)
 			if errWriteFile != nil {
-				c.logger.Error("err ", zap.Error(errWriteFile))
-				return err
+				c.logger.Error("err write file ", zap.Error(errWriteFile))
+				return errWriteFile
 			}
 		}
 	}

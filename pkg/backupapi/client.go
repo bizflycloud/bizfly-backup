@@ -6,10 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
@@ -47,10 +47,10 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 					KeepAlive: 30 * time.Second,
 				}).DialContext,
 				TLSHandshakeTimeout:   10 * time.Second,
-				ResponseHeaderTimeout: 10 * time.Second,
+				ResponseHeaderTimeout: 2 * time.Minute,
 				ExpectContinueTimeout: 1 * time.Second,
 			},
-			Timeout: 10 * time.Second,
+			Timeout: 2 * time.Minute,
 		},
 		ServerURL: serverUrl,
 		userAgent: userAgent,
@@ -147,34 +147,40 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	var resp *http.Response
 
 	bo := backoff.NewExponentialBackOff()
-	bo.MaxElapsedTime = 3 * time.Minute
-	var requestTodo http.Request
-	for {
-		requestTodo = *req
-		resp, err = c.do(c.client, &requestTodo, "application/json")
-		if err == nil {
-			break
-		}
-		c.logger.Error("Request error ", zap.Error(err))
+	bo.MaxInterval = 10 * time.Minute
 
+	body, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	for {
+		req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+		resp, err = c.do(c.client, req, "application/json")
+		if err == nil {
+			if resp.StatusCode < 400 {
+				return resp, nil
+			}
+			c.logger.Error("Request StatusCode ", zap.Int("StatusCode", resp.StatusCode))
+		} else {
+			c.logger.Error("Request error ", zap.Error(err))
+		}
+		c.logger.Debug("BackOff retry")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
-			os.Exit(1)
+			c.logger.Debug("Retry time out")
 		}
-
-		c.logger.Sugar().Info("Retrying in ", d)
+		c.logger.Sugar().Info("Retry in ", d)
 		time.Sleep(d)
 	}
 
-	// All retries failed
-	if err != nil {
-		c.logger.Error("Err ", zap.Error(err))
-		return nil, err
-	}
-	return resp, nil
+	return resp, err
 }
 
 func (c *Client) do(httpClient *http.Client, req *http.Request, contentType string) (*http.Response, error) {
+	req.Header.Del("Date")
+	req.Header.Del("Authorization")
+	req.Header.Del("Content-Type")
 	req.Header.Add("User-Agent", c.userAgent)
 	now := time.Now().UTC().Format(http.TimeFormat)
 	req.Header.Add("Date", now)

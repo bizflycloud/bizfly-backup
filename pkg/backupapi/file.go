@@ -328,6 +328,7 @@ func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRe
 	resp, err := c.Do(req)
 	if err != nil {
 		c.logger.Error("Err ", zap.Error(err))
+		return nil, err
 	}
 
 	var b bytes.Buffer
@@ -877,7 +878,7 @@ func (c *Client) downloadFile(file *os.File, recoveryPointID string, item Item, 
 			}
 			_, errWriteFile := file.WriteAt(data, offset)
 			if errWriteFile != nil {
-				c.logger.Error("err ", zap.Error(err))
+				c.logger.Error("err ", zap.Error(errWriteFile))
 				return err
 			}
 		}

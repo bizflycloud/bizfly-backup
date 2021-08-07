@@ -160,7 +160,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
 		resp, err = c.do(c.client, req, "application/json")
 		if err == nil {
-			if resp.StatusCode < 400 {
+			if resp.StatusCode < 400 || resp.StatusCode == 404 {
 				return resp, nil
 			}
 			c.logger.Error("Request StatusCode ", zap.Int("StatusCode", resp.StatusCode))

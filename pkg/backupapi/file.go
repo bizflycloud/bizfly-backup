@@ -380,7 +380,7 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 
 	resp, err := c.Do(req)
 	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
+		c.logger.Error("err ", zap.String("Request", req.URL.String()), zap.Error(err))
 		return nil, err
 	}
 

@@ -787,6 +787,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		for _, itemInfo := range itemsInfo.Files {
 			if errFileWorker != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(errFileWorker))
+				err = errFileWorker
 				cancel()
 				break
 			}

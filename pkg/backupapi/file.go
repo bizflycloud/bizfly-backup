@@ -560,59 +560,90 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 		c.logger.Debug("Context backup done")
 		return 0, errors.New("context backup done")
 	default:
-		itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
-		if err != nil {
-			c.logger.Error("err ", zap.Error(err))
-			return 0, err
-		}
-
+		var err error
 		s := progress.Stat{
 			Items:  1,
 			Errors: false,
 		}
-		_, err = os.Stat(itemInfo.Attributes.ItemName)
-		if err != nil {
-			c.logger.Error("err ", zap.Error(err))
-			if os.IsNotExist(err) {
-				c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
-				s.ItemName = append(s.ItemName, itemInfo.Attributes.ItemName)
+		if itemInfo.ItemType == "DIRECTORY" {
+			c.logger.Sugar().Info("Save Dir info ", itemInfo.Attributes.ItemName)
+			itemInfo.ChunkReference = false
+			_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+			if err != nil {
+				c.logger.Error("c.SaveFileInfo ", zap.Error(err))
 				s.Errors = true
 				p.Report(s)
+				return 0, err
 			}
 		} else {
-			// backup item with item change ctime
-			if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {
-				// backup item with item change mtime
-				if !strings.EqualFold(timeToString(itemInfoLatest.ModifyTime), timeToString(itemInfo.Attributes.ModifyTime)) {
-					c.logger.Info("backup item with item change mtime, ctime")
-					c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
-					itemInfo.ChunkReference = false
-					_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
-					if err != nil {
-						c.logger.Error("c.SaveFileInfo ", zap.Error(err))
-						s.Errors = true
-						p.Report(s)
-						return 0, err
-					}
-					if itemInfo.ItemType == "FILE" {
-						c.logger.Sugar().Info("Continue chunk file to backup ", itemInfo.Attributes.ItemName)
-						storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, recoveryPointID, actionID, volume, p)
+			itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return 0, err
+			}
+
+			_, err = os.Stat(itemInfo.Attributes.ItemName)
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				if os.IsNotExist(err) {
+					c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
+					s.ItemName = append(s.ItemName, itemInfo.Attributes.ItemName)
+					s.Errors = true
+					p.Report(s)
+				}
+			} else {
+				// backup item with item change ctime
+				if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {
+					// backup item with item change mtime
+					if !strings.EqualFold(timeToString(itemInfoLatest.ModifyTime), timeToString(itemInfo.Attributes.ModifyTime)) {
+						c.logger.Info("backup item with item change mtime, ctime")
+						c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
+						itemInfo.ChunkReference = false
+						_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
 						if err != nil {
-							c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
+							c.logger.Error("c.SaveFileInfo ", zap.Error(err))
 							s.Errors = true
 							p.Report(s)
 							return 0, err
 						}
-						return storageSize, nil
+						if itemInfo.ItemType == "FILE" {
+							c.logger.Sugar().Info("Continue chunk file to backup ", itemInfo.Attributes.ItemName)
+							storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, recoveryPointID, actionID, volume, p)
+							if err != nil {
+								c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
+								s.Errors = true
+								p.Report(s)
+								return 0, err
+							}
+							return storageSize, nil
+						}
+						p.Report(s)
+						return 0, nil
+					} else {
+						// save info va reference chunk neu la file
+						c.logger.Info("backup item with item change ctime and mtime not change")
+						c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
+						itemInfo.ParentItemID = itemInfoLatest.ID
+						_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+						if err != nil {
+							c.logger.Error("err ", zap.Error(err))
+							s.Errors = true
+							p.Report(s)
+							return 0, err
+						}
+						s.Bytes = uint64(itemInfo.Attributes.Size)
+						p.Report(s)
+						return 0, nil
 					}
-					p.Report(s)
-					return 0, nil
 				} else {
-					// save info va reference chunk neu la file
-					c.logger.Info("backup item with item change ctime and mtime not change")
+					c.logger.Info("backup item with item no change time")
 					c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
-					itemInfo.ParentItemID = itemInfoLatest.ID
-					_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+					_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
+						ItemType:       itemInfo.ItemType,
+						ParentItemID:   itemInfoLatest.ID,
+						ChunkReference: itemInfo.ChunkReference,
+					})
+
 					if err != nil {
 						c.logger.Error("err ", zap.Error(err))
 						s.Errors = true
@@ -620,26 +651,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointI
 						return 0, err
 					}
 					s.Bytes = uint64(itemInfo.Attributes.Size)
-					p.Report(s)
-					return 0, nil
 				}
-
-			} else {
-				c.logger.Info("backup item with item no change time")
-				c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
-				_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
-					ItemType:       itemInfo.ItemType,
-					ParentItemID:   itemInfoLatest.ID,
-					ChunkReference: itemInfo.ChunkReference,
-				})
-
-				if err != nil {
-					c.logger.Error("err ", zap.Error(err))
-					s.Errors = true
-					p.Report(s)
-					return 0, err
-				}
-				s.Bytes = uint64(itemInfo.Attributes.Size)
 			}
 		}
 		p.Report(s)

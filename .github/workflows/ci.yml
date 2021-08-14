@@ -26,7 +26,7 @@ jobs:
     strategy:
       matrix:
         go-version: [1.16.x]
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     name: Test
     steps:

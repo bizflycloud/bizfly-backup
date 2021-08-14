@@ -102,25 +102,6 @@ func TestDo(t *testing.T) {
 	}
 }
 
-func TestDoError(t *testing.T) {
-	setUp()
-	defer tearDown()
-
-	mux.HandleFunc("/api/v1", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusBadRequest)
-	})
-
-	client.accessKey = "access_key"
-	client.secretKey = "secret_key"
-	req, _ := client.NewRequest("GET", "/", nil)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("Do(): %v", err)
-	}
-	require.Error(t, checkResponse(resp))
-}
-
 var latestVer = `
 {
     "lastest_version": "0.0.8",

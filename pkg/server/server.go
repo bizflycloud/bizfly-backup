@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bizflycloud/bizfly-backup/pkg/cache"
 	"io"
 	"io/ioutil"
 	"net"
@@ -21,7 +22,6 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
-	"github.com/google/uuid"
 	"github.com/inconshreveable/go-update"
 	"github.com/jpillora/backoff"
 	"github.com/panjf2000/ants/v2"
@@ -628,12 +628,11 @@ func NewStorageVolume(vol backupapi.Volume, actionID string) (volume.StorageVolu
 	}
 }
 
-func WalkerDir(dir string, p *progress.Progress) (progress.Stat, *backupapi.FileInfoRequest, error) {
+func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.Stat, error) {
 	//func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 	p.Start()
 	defer p.Done()
 
-	var fileInfoRequest backupapi.FileInfoRequest
 	//var total uint64
 	var st progress.Stat
 	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
@@ -646,63 +645,26 @@ func WalkerDir(dir string, p *progress.Progress) (progress.Stat, *backupapi.File
 			Bytes: uint64(fi.Size()),
 		}
 
-		singleFile := backupapi.ItemInfo{
-			ParentItemID:   "",
-			ChunkReference: false,
-			Attributes: &backupapi.Attribute{
-				ID:          uuid.New().String(),
-				ItemName:    path,
-				ModifyTime:  fi.ModTime().UTC(),
-				Mode:        fi.Mode().String(),
-				AccessMode:  fi.Mode(),
-				Size:        fi.Size(),
-				SymlinkPath: "",
-			},
+		node, err := cache.NodeFromFileInfo(path, fi)
+		if err != nil {
+			return err
 		}
-
-		atimeLocal, ctimeLocal, _, uid, gid := backupapi.ItemLocal(fi)
-		singleFile.Attributes.AccessTime = atimeLocal
-		singleFile.Attributes.ChangeTime = ctimeLocal
-		singleFile.Attributes.UID = uid
-		singleFile.Attributes.GID = gid
-
-		if fi.IsDir() {
-			singleFile.ItemType = "DIRECTORY"
-			singleFile.Attributes.ItemType = "DIRECTORY"
-			singleFile.Attributes.IsDir = true
-			singleFile.ChunkReference = false
-		} else if fi.Mode()&os.ModeSymlink != 0 {
-			link, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			singleFile.ItemType = "SYMLINK"
-			singleFile.Attributes.ItemType = "SYMLINK"
-			singleFile.Attributes.SymlinkPath = link
-			singleFile.ChunkReference = false
-		} else {
-			singleFile.ItemType = "FILE"
-			singleFile.Attributes.ItemType = "FILE"
-			singleFile.Attributes.IsDir = false
-			singleFile.ChunkReference = true
-		}
-
-		fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
+		index.Items[path] = node
 		p.Report(s)
 		st.Add(s)
 		return nil
 	})
 	if err != nil {
-		return progress.Stat{}, nil, err
+		return progress.Stat{}, err
 	}
 
-	return st, &fileInfoRequest, err
+	return st, err
 }
 
 type backupJob func()
 
-func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, actionID string, latestRecoveryPointID string,
-	itemInfo backupapi.ItemInfo, volume volume.StorageVolume, wg *sync.WaitGroup, size *uint64, errCh *error, p *progress.Progress) backupJob {
+func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, volume volume.StorageVolume,
+	wg *sync.WaitGroup, size *uint64, errCh *error, p *progress.Progress) backupJob {
 	return func() {
 		defer wg.Done()
 		select {
@@ -711,8 +673,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, a
 		default:
 			p.Start()
 			ctx, cancel := context.WithCancel(ctx)
-			s.logger.Info("Upload file worker: ", zap.String("recoveryPointID", recoveryPointID), zap.String("actionID", actionID), zap.String("item name", itemInfo.Attributes.ItemName))
-			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, recoveryPointID, actionID, latestRecoveryPointID, itemInfo, volume, p)
+			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, nil, itemInfo, volume, p)
 			if err != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(err))
 				*errCh = err
@@ -750,13 +711,13 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Get latest recovery point
-		lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
-		if err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
-			s.logger.Error("GetLatestRecoveryPointID error", zap.Error(err))
-			errCh <- err
-			return
-		}
+		//lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
+		//if err != nil {
+		//	s.notifyStatusFailed(rp.ID, err.Error())
+		//	s.logger.Error("GetLatestRecoveryPointID error", zap.Error(err))
+		//	errCh <- err
+		//	return
+		//}
 
 		// Get storage volume
 		storageVolume, err := NewStorageVolume(*rp.Volume, rp.ID)
@@ -771,10 +732,17 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			"status":    statusUploadFile,
 		})
 		progressScan := s.newProgressScanDir()
-		itemTodo, itemsInfo, err := WalkerDir(bd.Path, progressScan)
+
+		index := cache.NewIndex(bd.ID, rp.RecoveryPoint.ID)
+		itemTodo, err := WalkerDir(bd.Path, index, progressScan)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
 			s.logger.Error("WalkerDir error", zap.Error(err))
+			errCh <- err
+			return
+		}
+		cacheWriter, err := cache.NewRepository(".cache", rp.RecoveryPoint.ID)
+		if err != nil {
 			errCh <- err
 			return
 		}
@@ -784,18 +752,20 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		progressUpload := s.newUploadProgress(itemTodo)
 		ctx, cancel := context.WithCancel(ctx)
 		var wg sync.WaitGroup
-		for _, itemInfo := range itemsInfo.Files {
+		for _, itemInfo := range index.Items {
 			if errFileWorker != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(errFileWorker))
 				err = errFileWorker
 				cancel()
 				break
 			}
-			wg.Add(1)
-			_ = s.pool.Submit(s.uploadFileWorker(ctx, rp.RecoveryPoint.ID, rp.ID, lrp.ID, itemInfo, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
+			if itemInfo.Type == "file" {
+				wg.Add(1)
+				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
+			}
 		}
 		wg.Wait()
-
+		cacheWriter.SaveIndex(index)
 		if errFileWorker != nil {
 			if err != nil {
 				s.notifyStatusFailed(rp.ID, err.Error())

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/bizflycloud/bizfly-backup/pkg/cache"
 	"io"
 	"io/fs"
 	"io/ioutil"
@@ -400,7 +401,7 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 	return &itemInfoLatest, nil
 }
 
-func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) (uint64, error) {
+func (c *Client) backupChunk(ctx context.Context, chunk *cache.ChunkInfo, volume volume.StorageVolume) (uint64, error) {
 	select {
 	case <-ctx.Done():
 		c.logger.Debug("context backupChunk done")
@@ -410,18 +411,7 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 
 		hash := md5.Sum(chunk.Data)
 		key := hex.EncodeToString(hash[:])
-		chunkReq := ChunkRequest{
-			Length: int(chunk.Length),
-			Offset: int(chunk.Start),
-			Etag:   key,
-		}
-
-		_, err := c.saveChunk(recoveryPointID, itemInfo.Attributes.ID, &chunkReq)
-		if err != nil {
-			c.logger.Error("err ", zap.Error(err))
-			return stat, err
-		}
-
+		chunk.Etag = key
 		isExist, etag, err := c.HeadObject(volume, key)
 		if err != nil {
 			c.logger.Sugar().Errorf("backup chunk head object error: ", zap.Error(err))
@@ -454,7 +444,8 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 
 }
 
-func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
+func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node,
+	volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	select {
 	case <-ctx.Done():
@@ -466,11 +457,11 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		s := progress.Stat{}
 		var errBackupChunk error
 
-		file, err := os.Open(itemInfo.Attributes.ItemName)
+		file, err := os.Open(itemInfo.Path)
 		if err != nil {
 			if os.IsNotExist(err) {
-				c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
-				s.ItemName = append(s.ItemName, itemInfo.Attributes.ItemName)
+				//c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
+				s.ItemName = append(s.ItemName, itemInfo.Path)
 				s.Errors = true
 				p.Report(s)
 				return 0, nil
@@ -499,14 +490,14 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			if uint(length) != chunk.Length {
 				return 0, errors.New("copy chunk data error")
 			}
-			chunkToBackup := ChunkInfo{
+			chunkToBackup := cache.ChunkInfo{
 				Start:  chunk.Start,
 				Length: chunk.Length,
-				Cut:    chunk.Cut,
 				Data:   temp,
 			}
+			itemInfo.Content = append(itemInfo.Content, &chunkToBackup)
 			wg.Add(1)
-			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, chunkToBackup, itemInfo, recoveryPointID, actionID, volume, p))
+			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, &chunkToBackup, volume, p))
 		}
 		wg.Wait()
 
@@ -523,7 +514,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 type chunkJob func()
 
 func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *error, size *uint64,
-	chunk ChunkInfo, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) chunkJob {
+	chunk *cache.ChunkInfo, volume volume.StorageVolume, p *progress.Progress) chunkJob {
 	return func() {
 		p.Start()
 		defer func() {
@@ -536,7 +527,7 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 		default:
 			s := progress.Stat{}
 			ctx, cancel := context.WithCancel(ctx)
-			saveSize, err := c.backupChunk(ctx, chunk, itemInfo, recoveryPointID, actionID, volume)
+			saveSize, err := c.backupChunk(ctx, chunk, volume)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
 				*chErr = err
@@ -553,94 +544,35 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 	}
 }
 
-func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
+func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cache.Node, itemInfo *cache.Node,
+	volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
 
 	select {
 	case <-ctx.Done():
 		c.logger.Debug("Context backup done")
 		return 0, errors.New("context backup done")
 	default:
-		itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
-		if err != nil {
-			c.logger.Error("err ", zap.Error(err))
-			return 0, err
-		}
 
 		s := progress.Stat{
 			Items:  1,
 			Errors: false,
 		}
-		_, err = os.Stat(itemInfo.Attributes.ItemName)
-		if err != nil {
-			c.logger.Error("err ", zap.Error(err))
-			if os.IsNotExist(err) {
-				c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
-				s.ItemName = append(s.ItemName, itemInfo.Attributes.ItemName)
+
+		// backup item with item change mtime
+		if lastInfo == nil || !strings.EqualFold(timeToString(lastInfo.ModTime), timeToString(itemInfo.ModTime)) {
+			c.logger.Info("backup item with item change mtime, ctime")
+
+			storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, volume, p)
+			if err != nil {
+				c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
 				s.Errors = true
 				p.Report(s)
+				return 0, err
 			}
+			p.Report(s)
+			return storageSize, nil
 		} else {
-			// backup item with item change ctime
-			if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {
-				// backup item with item change mtime
-				if !strings.EqualFold(timeToString(itemInfoLatest.ModifyTime), timeToString(itemInfo.Attributes.ModifyTime)) {
-					c.logger.Info("backup item with item change mtime, ctime")
-					c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
-					itemInfo.ChunkReference = false
-					_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
-					if err != nil {
-						c.logger.Error("c.SaveFileInfo ", zap.Error(err))
-						s.Errors = true
-						p.Report(s)
-						return 0, err
-					}
-					if itemInfo.ItemType == "FILE" {
-						c.logger.Sugar().Info("Continue chunk file to backup ", itemInfo.Attributes.ItemName)
-						storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, recoveryPointID, actionID, volume, p)
-						if err != nil {
-							c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
-							s.Errors = true
-							p.Report(s)
-							return 0, err
-						}
-						return storageSize, nil
-					}
-					p.Report(s)
-					return 0, nil
-				} else {
-					// save info va reference chunk neu la file
-					c.logger.Info("backup item with item change ctime and mtime not change")
-					c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
-					itemInfo.ParentItemID = itemInfoLatest.ID
-					_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
-					if err != nil {
-						c.logger.Error("err ", zap.Error(err))
-						s.Errors = true
-						p.Report(s)
-						return 0, err
-					}
-					s.Bytes = uint64(itemInfo.Attributes.Size)
-					p.Report(s)
-					return 0, nil
-				}
-
-			} else {
-				c.logger.Info("backup item with item no change time")
-				c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
-				_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
-					ItemType:       itemInfo.ItemType,
-					ParentItemID:   itemInfoLatest.ID,
-					ChunkReference: itemInfo.ChunkReference,
-				})
-
-				if err != nil {
-					c.logger.Error("err ", zap.Error(err))
-					s.Errors = true
-					p.Report(s)
-					return 0, err
-				}
-				s.Bytes = uint64(itemInfo.Attributes.Size)
-			}
+			itemInfo.Content = lastInfo.Content
 		}
 		p.Report(s)
 		return 0, nil

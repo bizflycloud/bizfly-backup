@@ -1,11 +1,15 @@
 package cache
 
 type Chunk struct {
-	Chunks map[string]int `json:"chunks"`
+	BackupDirectoryID string         `json:"backup_directory_id"`
+	RecoveryPointID   string         `json:"recovery_point_id"`
+	Chunks            map[string]int `json:"chunks"`
 }
 
-func NewChunk() *Chunk {
+func NewChunk(bdID string, rpID string) *Chunk {
 	return &Chunk{
-		Chunks: make(map[string]int),
+		BackupDirectoryID: bdID,
+		RecoveryPointID:   rpID,
+		Chunks:            make(map[string]int),
 	}
 }

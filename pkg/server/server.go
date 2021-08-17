@@ -736,7 +736,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		progressScan := s.newProgressScanDir()
 
 		index := cache.NewIndex(bd.ID, rp.RecoveryPoint.ID)
-		chunks := cache.NewChunk()
+		chunks := cache.NewChunk(bd.ID, rp.RecoveryPoint.ID)
 		itemTodo, err := WalkerDir(bd.Path, index, progressScan)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())

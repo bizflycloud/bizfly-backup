@@ -665,7 +665,7 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.S
 
 type backupJob func()
 
-func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, volume volume.StorageVolume,
+func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, chunks *cache.Chunk, volume volume.StorageVolume,
 	wg *sync.WaitGroup, size *uint64, errCh *error, p *progress.Progress) backupJob {
 	return func() {
 		defer wg.Done()
@@ -675,7 +675,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 		default:
 			p.Start()
 			ctx, cancel := context.WithCancel(ctx)
-			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, volume, p)
+			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, chunks, volume, p)
 			if err != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(err))
 				*errCh = err
@@ -736,6 +736,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		progressScan := s.newProgressScanDir()
 
 		index := cache.NewIndex(bd.ID, rp.RecoveryPoint.ID)
+		chunks := cache.NewChunk()
 		itemTodo, err := WalkerDir(bd.Path, index, progressScan)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
@@ -793,7 +794,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			if itemInfo.Type == "file" {
 				lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
 				wg.Add(1)
-				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
+				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, chunks, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
 			}
 		}
 		wg.Wait()
@@ -817,6 +818,12 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			errCh <- err
 			return
 		}
+		err = cacheWriter.SaveChunk(chunks)
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			errCh <- err
+			return
+		}
 
 		buf, err := ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "index.json"))
 		if err != nil {
@@ -825,6 +832,19 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 		err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "index.json"), buf)
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			errCh <- err
+			return
+		}
+
+		buf, err = ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "chunk.json"))
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			errCh <- err
+			return
+		}
+		err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "chunk.json"), buf)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
 			errCh <- err

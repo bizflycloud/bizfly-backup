@@ -109,3 +109,20 @@ func (r *Repository) SaveIndex(index *Index) error {
 	}
 	return nil
 }
+
+func (r *Repository) SaveChunk(chunk *Chunk) error {
+	buf, err := json.Marshal(chunk)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.chunkFile.Write(buf)
+	if err != nil {
+		return err
+	}
+	err = r.renameFile(r.chunkFile, CHUNK)
+	if err != nil {
+		return err
+	}
+	return nil
+}

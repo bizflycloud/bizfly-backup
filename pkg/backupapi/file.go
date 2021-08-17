@@ -401,7 +401,7 @@ func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*
 	return &itemInfoLatest, nil
 }
 
-func (c *Client) backupChunk(ctx context.Context, chunk *cache.ChunkInfo, volume volume.StorageVolume) (uint64, error) {
+func (c *Client) backupChunk(ctx context.Context, chunk *cache.ChunkInfo, chunks *cache.Chunk, volume volume.StorageVolume) (uint64, error) {
 	select {
 	case <-ctx.Done():
 		c.logger.Debug("context backupChunk done")
@@ -412,6 +412,11 @@ func (c *Client) backupChunk(ctx context.Context, chunk *cache.ChunkInfo, volume
 		hash := md5.Sum(chunk.Data)
 		key := hex.EncodeToString(hash[:])
 		chunk.Etag = key
+		if count, ok := chunks.Chunks[key]; ok {
+			chunks.Chunks[key] = count + 1
+		} else {
+			chunks.Chunks[key] = 1
+		}
 		isExist, etag, err := c.HeadObject(volume, key)
 		if err != nil {
 			c.logger.Sugar().Errorf("backup chunk head object error: ", zap.Error(err))
@@ -444,7 +449,7 @@ func (c *Client) backupChunk(ctx context.Context, chunk *cache.ChunkInfo, volume
 
 }
 
-func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node,
+func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node, chunks *cache.Chunk,
 	volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	select {
@@ -497,7 +502,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			}
 			itemInfo.Content = append(itemInfo.Content, &chunkToBackup)
 			wg.Add(1)
-			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, &chunkToBackup, volume, p))
+			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, &chunkToBackup, chunks, volume, p))
 		}
 		wg.Wait()
 
@@ -514,7 +519,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 type chunkJob func()
 
 func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *error, size *uint64,
-	chunk *cache.ChunkInfo, volume volume.StorageVolume, p *progress.Progress) chunkJob {
+	chunk *cache.ChunkInfo, chunks *cache.Chunk, volume volume.StorageVolume, p *progress.Progress) chunkJob {
 	return func() {
 		p.Start()
 		defer func() {
@@ -527,7 +532,7 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 		default:
 			s := progress.Stat{}
 			ctx, cancel := context.WithCancel(ctx)
-			saveSize, err := c.backupChunk(ctx, chunk, volume)
+			saveSize, err := c.backupChunk(ctx, chunk, chunks, volume)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
 				*chErr = err
@@ -544,7 +549,7 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 	}
 }
 
-func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cache.Node, itemInfo *cache.Node,
+func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cache.Node, itemInfo *cache.Node, chunks *cache.Chunk,
 	volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
 
 	select {
@@ -562,7 +567,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 		if lastInfo == nil || !strings.EqualFold(timeToString(lastInfo.ModTime), timeToString(itemInfo.ModTime)) {
 			c.logger.Info("backup item with item change mtime, ctime")
 
-			storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, volume, p)
+			storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, chunks, volume, p)
 			if err != nil {
 				c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
 				s.Errors = true
@@ -573,6 +578,13 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 			return storageSize, nil
 		} else {
 			c.logger.Info("backup item with item no change mtime, ctime")
+			for _, c := range lastInfo.Content {
+				if count, ok := chunks.Chunks[c.Etag]; ok {
+					chunks.Chunks[c.Etag] = count + 1
+				} else {
+					chunks.Chunks[c.Etag] = 1
+				}
+			}
 			itemInfo.Content = lastInfo.Content
 		}
 		p.Report(s)

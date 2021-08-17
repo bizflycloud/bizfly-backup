@@ -49,6 +49,8 @@ const (
 	PERCENT_PROCESS = 0.2
 )
 
+const CACHE_PATH = ".cache"
+
 // Server defines parameters for running BizFly Backup HTTP server.
 type Server struct {
 	Addr            string
@@ -645,7 +647,7 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.S
 			Bytes: uint64(fi.Size()),
 		}
 
-		node, err := cache.NodeFromFileInfo(path, fi)
+		node, err := cache.NodeFromFileInfo(dir, path, fi)
 		if err != nil {
 			return err
 		}
@@ -663,7 +665,7 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.S
 
 type backupJob func()
 
-func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, volume volume.StorageVolume,
+func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, volume volume.StorageVolume,
 	wg *sync.WaitGroup, size *uint64, errCh *error, p *progress.Progress) backupJob {
 	return func() {
 		defer wg.Done()
@@ -673,7 +675,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, vol
 		default:
 			p.Start()
 			ctx, cancel := context.WithCancel(ctx)
-			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, nil, itemInfo, volume, p)
+			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, volume, p)
 			if err != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(err))
 				*errCh = err
@@ -711,13 +713,13 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Get latest recovery point
-		//lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
-		//if err != nil {
-		//	s.notifyStatusFailed(rp.ID, err.Error())
-		//	s.logger.Error("GetLatestRecoveryPointID error", zap.Error(err))
-		//	errCh <- err
-		//	return
-		//}
+		lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			s.logger.Error("GetLatestRecoveryPointID error", zap.Error(err))
+			errCh <- err
+			return
+		}
 
 		// Get storage volume
 		storageVolume, err := NewStorageVolume(*rp.Volume, rp.ID)
@@ -747,6 +749,35 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
+		if lrp != nil {
+			_, err = os.Stat(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
+			if err != nil {
+				if os.IsNotExist(err) {
+					buf, err := storageVolume.GetObject(filepath.Join(lrp.ID, "index.json"))
+					if err == nil {
+						_ = os.MkdirAll(filepath.Join(CACHE_PATH, lrp.ID), 0700)
+						if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"), buf, 0644); err != nil {
+							lrp = nil
+						}
+					} else {
+						lrp = nil
+					}
+				} else {
+					lrp = nil
+				}
+			}
+		}
+		latestIndex := cache.Index{}
+		if lrp != nil {
+			buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
+			if err != nil {
+				fmt.Println("Read file error")
+				lrp = nil
+			} else {
+				_ = json.Unmarshal([]byte(buf), &latestIndex)
+			}
+		}
+
 		var storageSize uint64
 		var errFileWorker error
 		progressUpload := s.newUploadProgress(itemTodo)
@@ -760,12 +791,12 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 				break
 			}
 			if itemInfo.Type == "file" {
+				lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
 				wg.Add(1)
-				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
+				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
 			}
 		}
 		wg.Wait()
-		cacheWriter.SaveIndex(index)
 		if errFileWorker != nil {
 			if err != nil {
 				s.notifyStatusFailed(rp.ID, err.Error())
@@ -780,6 +811,25 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		s.reportUploadCompleted(progressOutput)
 		progressUpload.Done()
+		err = cacheWriter.SaveIndex(index)
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			errCh <- err
+			return
+		}
+
+		buf, err := ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "index.json"))
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			errCh <- err
+			return
+		}
+		err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "index.json"), buf)
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			errCh <- err
+			return
+		}
 		s.notifyMsg(map[string]string{
 			"action_id":    rp.ID,
 			"status":       statusComplete,

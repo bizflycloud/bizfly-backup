@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
@@ -31,20 +32,21 @@ type ChunkInfo struct {
 }
 
 type Node struct {
-	Name       string       `json:"name"`
-	Type       string       `json:"type"`
-	Mode       os.FileMode  `json:"mode,omitempty"`
-	ModTime    time.Time    `json:"mtime,omitempty"`
-	AccessTime time.Time    `json:"atime,omitempty"`
-	ChangeTime time.Time    `json:"ctime,omitempty"`
-	UID        uint32       `json:"uid"`
-	GID        uint32       `json:"gid"`
-	User       string       `json:"user,omitempty"`
-	Group      string       `json:"group,omitempty"`
-	Size       uint64       `json:"size,omitempty"`
-	LinkTarget string       `json:"linktarget,omitempty"`
-	Content    []*ChunkInfo `json:"content,omitempty"`
-	Path       string       `json:"path"`
+	Name         string       `json:"name"`
+	Type         string       `json:"type"`
+	Mode         os.FileMode  `json:"mode,omitempty"`
+	ModTime      time.Time    `json:"mtime,omitempty"`
+	AccessTime   time.Time    `json:"atime,omitempty"`
+	ChangeTime   time.Time    `json:"ctime,omitempty"`
+	UID          uint32       `json:"uid"`
+	GID          uint32       `json:"gid"`
+	User         string       `json:"user,omitempty"`
+	Group        string       `json:"group,omitempty"`
+	Size         uint64       `json:"size,omitempty"`
+	LinkTarget   string       `json:"linktarget,omitempty"`
+	Content      []*ChunkInfo `json:"content,omitempty"`
+	AbsolutePath string       `json:"path"`
+	RelativePath string       `json:"relative_path"`
 }
 
 func (node *Node) fill_extra(path string, fi os.FileInfo) (err error) {
@@ -75,12 +77,17 @@ func (node *Node) fill_extra(path string, fi os.FileInfo) (err error) {
 	return err
 }
 
-func NodeFromFileInfo(path string, fi os.FileInfo) (*Node, error) {
+func NodeFromFileInfo(rootPath string, pathName string, fi os.FileInfo) (*Node, error) {
+	rel, err := filepath.Rel(rootPath, pathName)
+	if err != nil {
+		return nil, err
+	}
 	node := &Node{
-		Name:    fi.Name(),
-		Mode:    fi.Mode() & os.ModePerm,
-		ModTime: fi.ModTime(),
-		Path:    path,
+		Name:         fi.Name(),
+		Mode:         fi.Mode() & os.ModePerm,
+		ModTime:      fi.ModTime(),
+		AbsolutePath: pathName,
+		RelativePath: rel,
 	}
 
 	switch fi.Mode() & (os.ModeType | os.ModeCharDevice) {
@@ -92,6 +99,6 @@ func NodeFromFileInfo(path string, fi os.FileInfo) (*Node, error) {
 		node.Type = "symlink"
 	}
 
-	err := node.fill_extra(path, fi)
+	err = node.fill_extra(pathName, fi)
 	return node, err
 }

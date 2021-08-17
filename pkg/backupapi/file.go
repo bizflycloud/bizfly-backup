@@ -457,11 +457,11 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		s := progress.Stat{}
 		var errBackupChunk error
 
-		file, err := os.Open(itemInfo.Path)
+		file, err := os.Open(itemInfo.AbsolutePath)
 		if err != nil {
 			if os.IsNotExist(err) {
 				//c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
-				s.ItemName = append(s.ItemName, itemInfo.Path)
+				s.ItemName = append(s.ItemName, itemInfo.AbsolutePath)
 				s.Errors = true
 				p.Report(s)
 				return 0, nil
@@ -572,6 +572,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 			p.Report(s)
 			return storageSize, nil
 		} else {
+			c.logger.Info("backup item with item no change mtime, ctime")
 			itemInfo.Content = lastInfo.Content
 		}
 		p.Report(s)

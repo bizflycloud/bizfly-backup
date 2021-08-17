@@ -772,7 +772,6 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		if lrp != nil {
 			buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
 			if err != nil {
-				fmt.Println("Read file error")
 				lrp = nil
 			} else {
 				_ = json.Unmarshal([]byte(buf), &latestIndex)
@@ -798,6 +797,18 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 		wg.Wait()
+		errCache := cacheWriter.SaveChunk(chunks)
+		if errCache != nil {
+			s.logger.Error("Write list chunks error", zap.Error(errCache))
+		}
+		buf, errCache := ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "chunk.json"))
+		if errCache != nil {
+			s.logger.Error("Read list chunks error", zap.Error(errCache))
+		}
+		errCache = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "chunk.json"), buf)
+		if errCache != nil {
+			s.logger.Error("Put list chunks to storage error", zap.Error(errCache))
+		}
 		if errFileWorker != nil {
 			if err != nil {
 				s.notifyStatusFailed(rp.ID, err.Error())
@@ -818,14 +829,8 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			errCh <- err
 			return
 		}
-		err = cacheWriter.SaveChunk(chunks)
-		if err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
-			errCh <- err
-			return
-		}
 
-		buf, err := ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "index.json"))
+		buf, err = ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "index.json"))
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
 			errCh <- err
@@ -838,18 +843,6 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		buf, err = ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "chunk.json"))
-		if err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
-			errCh <- err
-			return
-		}
-		err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "chunk.json"), buf)
-		if err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
-			errCh <- err
-			return
-		}
 		s.notifyMsg(map[string]string{
 			"action_id":    rp.ID,
 			"status":       statusComplete,

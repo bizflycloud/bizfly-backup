@@ -594,7 +594,7 @@ func (c *Client) restoreSymlink(target string, item cache.Node) error {
 			return err
 		}
 	}
-	_, ctimeLocal, _, _, _ := support.ItemLocal(fi)
+	_, ctimeLocal, _, _, _, _ := support.ItemLocal(fi)
 	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
 		c.logger.Sugar().Info("symlink change ctime. update mode, uid, gid ", item.Name)
 		err = os.Chmod(target, item.Mode)
@@ -623,7 +623,7 @@ func (c *Client) restoreDirectory(target string, item cache.Node) error {
 			return err
 		}
 	}
-	_, ctimeLocal, _, _, _ := support.ItemLocal(fi)
+	_, ctimeLocal, _, _, _, _ := support.ItemLocal(fi)
 	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
 		c.logger.Sugar().Info("dir change ctime. update mode, uid, gid ", item.Name)
 		err = os.Chmod(target, os.ModeDir|item.Mode)
@@ -659,7 +659,7 @@ func (c *Client) restoreFile(target string, item cache.Node, volume volume.Stora
 		}
 	}
 	c.logger.Sugar().Info("file exist ", target)
-	_, ctimeLocal, mtimeLocal, _, _ := support.ItemLocal(fi)
+	_, ctimeLocal, mtimeLocal, _, _, _ := support.ItemLocal(fi)
 	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
 		if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModTime)) {
 			c.logger.Sugar().Info("file change mtime, ctime ", target)

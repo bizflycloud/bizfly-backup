@@ -6,7 +6,6 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/support"
@@ -53,12 +52,7 @@ type Node struct {
 }
 
 func (node *Node) fill_extra(path string, fi os.FileInfo) (err error) {
-	stat, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return
-	}
-
-	atime, ctime, _, uid, gid := support.ItemLocal(fi)
+	atime, ctime, _, uid, gid, size := support.ItemLocal(fi)
 	node.ChangeTime = ctime
 	node.AccessTime = atime
 	node.UID = uid
@@ -70,7 +64,7 @@ func (node *Node) fill_extra(path string, fi os.FileInfo) (err error) {
 
 	switch node.Type {
 	case "file":
-		node.Size = uint64(stat.Size)
+		node.Size = uint64(size)
 	case "dir":
 		// nothing to do
 	case "symlink":

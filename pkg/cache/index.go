@@ -46,6 +46,7 @@ type Node struct {
 	LinkTarget   string       `json:"linktarget,omitempty"`
 	Content      []*ChunkInfo `json:"content,omitempty"`
 	AbsolutePath string       `json:"path"`
+	BasePath     string       `json:"base_path"`
 	RelativePath string       `json:"relative_path"`
 }
 
@@ -82,11 +83,18 @@ func NodeFromFileInfo(rootPath string, pathName string, fi os.FileInfo) (*Node, 
 	if err != nil {
 		return nil, err
 	}
+	base := filepath.Base(rootPath)
+	if rel == "." {
+		rel = fi.Name()
+	} else {
+		rel = filepath.Join(base, rel)
+	}
 	node := &Node{
 		Name:         fi.Name(),
 		Mode:         fi.Mode() & os.ModePerm,
 		ModTime:      fi.ModTime(),
 		AbsolutePath: pathName,
+		BasePath:     rootPath,
 		RelativePath: rel,
 	}
 

@@ -587,6 +587,36 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	}
 	storageVolume, _ := NewStorageVolume(*vol, actionID)
 
+	_, err = os.Stat(filepath.Join(CACHE_PATH, recoveryPointID, "index.json"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			buf, err := storageVolume.GetObject(filepath.Join(recoveryPointID, "index.json"))
+			if err == nil {
+				_ = os.MkdirAll(filepath.Join(CACHE_PATH, recoveryPointID), 0700)
+				if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, recoveryPointID, "index.json"), buf, 0644); err != nil {
+					s.logger.Error("Error writing index file", zap.Error(err))
+					return err
+				}
+			} else {
+				s.logger.Error("Error downloading index from storage", zap.Error(err))
+				return err
+			}
+		} else {
+			s.logger.Error("Error stat index file", zap.Error(err))
+			return err
+		}
+	}
+
+	index := cache.Index{}
+
+	buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, recoveryPointID, "index.json"))
+	if err != nil {
+		s.logger.Error("Error read index file", zap.Error(err))
+		return err
+	} else {
+		_ = json.Unmarshal([]byte(buf), &index)
+	}
+
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
 		"status":    statusDownloading,
@@ -594,14 +624,12 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	s.reportStartDownload(progressOutput)
 
-	if err := s.backupClient.RestoreDirectory(recoveryPointID, destDir, storageVolume, restoreKey); err != nil {
+	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVolume, restoreKey); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 
-	s.reportDownloadCompleted(progressOutput)
-	s.reportStartRestore(progressOutput)
 	s.reportRestoreCompleted(progressOutput)
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,

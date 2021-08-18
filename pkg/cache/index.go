@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"github.com/bizflycloud/bizfly-backup/pkg/support"
 )
 
 type Index struct {
@@ -56,12 +58,13 @@ func (node *Node) fill_extra(path string, fi os.FileInfo) (err error) {
 		return
 	}
 
-	node.ChangeTime = time.Unix(stat.Ctim.Unix())
-	node.AccessTime = time.Unix(stat.Atim.Unix())
-	node.UID = stat.Uid
-	node.GID = stat.Gid
+	atime, ctime, _, uid, gid := support.ItemLocal(fi)
+	node.ChangeTime = ctime
+	node.AccessTime = atime
+	node.UID = uid
+	node.GID = gid
 
-	if u, nil := user.LookupId(strconv.Itoa(int(stat.Uid))); err == nil {
+	if u, nil := user.LookupId(strconv.Itoa(int(uid))); err == nil {
 		node.User = u.Username
 	}
 

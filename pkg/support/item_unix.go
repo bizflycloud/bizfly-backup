@@ -1,6 +1,6 @@
 // +build linux
 
-package backupapi
+package support
 
 import (
 	"io/fs"

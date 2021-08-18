@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bizflycloud/bizfly-backup/pkg/cache"
 	"io"
 	"io/fs"
 	"io/ioutil"
@@ -24,7 +23,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bizflycloud/bizfly-backup/pkg/cache"
 	"github.com/bizflycloud/bizfly-backup/pkg/progress"
+	"github.com/bizflycloud/bizfly-backup/pkg/support"
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 
 	"go.uber.org/zap"
@@ -209,52 +210,6 @@ func (c *Client) getItemLatestPath(latestRecoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/path", latestRecoveryPointID)
 }
 
-func (c *Client) getChunksInItem(recoveryPointID string, itemID string, page int) (int, *ChunksResponse, error) {
-	reqURL, err := c.urlStringFromRelPath(c.saveChunkPath(recoveryPointID, itemID))
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return 0, nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return 0, nil, err
-	}
-
-	itemsPerPage := 50
-	q := req.URL.Query()
-	q.Add("items_per_page", strconv.Itoa(itemsPerPage))
-	q.Add("page", strconv.Itoa(page))
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := c.Do(req)
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return 0, nil, err
-	}
-
-	var b bytes.Buffer
-	_, err = io.Copy(&b, resp.Body)
-	if err != nil {
-		c.logger.Error("Err write to buf ", zap.Error(err))
-	} else {
-		c.logger.Debug("Body Response", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
-	}
-
-	defer resp.Body.Close()
-	var chunkResp ChunksResponse
-	if err := json.NewDecoder(&b).Decode(&chunkResp); err != nil {
-		c.logger.Error("Err ", zap.Error(err), zap.String("Body Response", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
-		return 0, nil, err
-	}
-
-	totalItem := chunkResp.Total
-	totalPage := int(math.Ceil(float64(totalItem) / float64(itemsPerPage)))
-
-	return totalPage, &chunkResp, nil
-}
-
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	if c.ServerURL.Path != "" && c.ServerURL.Path != "/" {
 		relPath = path.Join(c.ServerURL.Path, relPath)
@@ -311,48 +266,6 @@ func (c *Client) SaveFileInfo(recoveryPointID string, itemInfo *ItemInfo) (*File
 	}
 
 	return &file, nil
-}
-
-func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRequest) (*ChunkResponse, error) {
-	reqURL, err := c.urlStringFromRelPath(c.saveChunkPath(recoveryPointID, itemID))
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodPost, reqURL, chunk)
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return nil, err
-	}
-
-	resp, err := c.Do(req)
-	if err != nil {
-		c.logger.Error("Err ", zap.Error(err))
-		return nil, err
-	}
-
-	var b bytes.Buffer
-	_, err = io.Copy(&b, resp.Body)
-	if err != nil {
-		c.logger.Error("Err write to buf ", zap.Error(err))
-	} else {
-		c.logger.Debug("Body", zap.String("Body Response", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
-	}
-
-	defer resp.Body.Close()
-	var chunkResp ChunkResponse
-	if err := json.NewDecoder(&b).Decode(&chunkResp); err != nil {
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			c.logger.Error("Err write to buf ", zap.Error(err))
-		}
-		sb := string(body)
-		c.logger.Error("Err ", zap.Error(err), zap.String("Body Response", b.String()), zap.String("Body Request", sb), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
-		return nil, err
-	}
-
-	return &chunkResp, nil
 }
 
 func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*ItemInfoLatest, error) {
@@ -452,6 +365,7 @@ func (c *Client) backupChunk(ctx context.Context, chunk *cache.ChunkInfo, chunks
 func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node, chunks *cache.Chunk,
 	volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
 	ctx, cancel := context.WithCancel(ctx)
+	_ = cancel
 	select {
 	case <-ctx.Done():
 		c.logger.Info("context done ChunkFileToBackup")
@@ -532,6 +446,7 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 		default:
 			s := progress.Stat{}
 			ctx, cancel := context.WithCancel(ctx)
+			_ = cancel
 			saveSize, err := c.backupChunk(ctx, chunk, chunks, volume)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
@@ -599,6 +514,7 @@ func (c *Client) RestoreDirectory(index cache.Index, destDir string, volume volu
 	}
 	sem := semaphore.NewWeighted(int64(numGoroutine))
 	ctx, cancel := context.WithCancel(context.Background())
+	_ = cancel
 	group, ctx := errgroup.WithContext(ctx)
 
 	for _, item := range index.Items {
@@ -678,7 +594,7 @@ func (c *Client) restoreSymlink(target string, item cache.Node) error {
 			return err
 		}
 	}
-	_, ctimeLocal, _, _, _ := ItemLocal(fi)
+	_, ctimeLocal, _, _, _ := support.ItemLocal(fi)
 	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
 		c.logger.Sugar().Info("symlink change ctime. update mode, uid, gid ", item.Name)
 		err = os.Chmod(target, item.Mode)
@@ -686,7 +602,7 @@ func (c *Client) restoreSymlink(target string, item cache.Node) error {
 			c.logger.Error("err ", zap.Error(err))
 			return err
 		}
-		_ = SetChownItem(target, int(item.UID), int(item.GID))
+		_ = support.SetChownItem(target, int(item.UID), int(item.GID))
 	}
 	return nil
 }
@@ -707,7 +623,7 @@ func (c *Client) restoreDirectory(target string, item cache.Node) error {
 			return err
 		}
 	}
-	_, ctimeLocal, _, _, _ := ItemLocal(fi)
+	_, ctimeLocal, _, _, _ := support.ItemLocal(fi)
 	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
 		c.logger.Sugar().Info("dir change ctime. update mode, uid, gid ", item.Name)
 		err = os.Chmod(target, os.ModeDir|item.Mode)
@@ -715,7 +631,7 @@ func (c *Client) restoreDirectory(target string, item cache.Node) error {
 			c.logger.Error("err ", zap.Error(err))
 			return err
 		}
-		_ = SetChownItem(target, int(item.UID), int(item.GID))
+		_ = support.SetChownItem(target, int(item.UID), int(item.GID))
 	}
 	return nil
 }
@@ -743,7 +659,7 @@ func (c *Client) restoreFile(target string, item cache.Node, volume volume.Stora
 		}
 	}
 	c.logger.Sugar().Info("file exist ", target)
-	_, ctimeLocal, mtimeLocal, _, _ := ItemLocal(fi)
+	_, ctimeLocal, mtimeLocal, _, _ := support.ItemLocal(fi)
 	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
 		if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModTime)) {
 			c.logger.Sugar().Info("file change mtime, ctime ", target)
@@ -771,7 +687,7 @@ func (c *Client) restoreFile(target string, item cache.Node, volume volume.Stora
 				c.logger.Error("err ", zap.Error(err))
 				return err
 			}
-			_ = SetChownItem(target, int(item.UID), int(item.GID))
+			_ = support.SetChownItem(target, int(item.UID), int(item.GID))
 			err = os.Chtimes(target, item.AccessTime, item.ModTime)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
@@ -808,7 +724,7 @@ func (c *Client) downloadFile(file *os.File, item cache.Node, volume volume.Stor
 		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
-	_ = SetChownItem(file.Name(), int(item.UID), int(item.GID))
+	_ = support.SetChownItem(file.Name(), int(item.UID), int(item.GID))
 	err = os.Chtimes(file.Name(), item.AccessTime, item.ModTime)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
@@ -881,7 +797,7 @@ func (c *Client) createSymlink(symlinkPath string, path string, mode fs.FileMode
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
 	}
-	_ = SetChownItem(path, uid, gid)
+	_ = support.SetChownItem(path, uid, gid)
 	return nil
 }
 
@@ -898,7 +814,7 @@ func (c *Client) createDir(path string, mode fs.FileMode, uid int, gid int, atim
 		return err
 	}
 
-	_ = SetChownItem(path, uid, gid)
+	_ = support.SetChownItem(path, uid, gid)
 	err = os.Chtimes(path, atime, mtime)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
@@ -930,7 +846,7 @@ func (c *Client) createFile(path string, mode fs.FileMode, uid int, gid int) (*o
 		return nil, err
 	}
 
-	_ = SetChownItem(path, uid, gid)
+	_ = support.SetChownItem(path, uid, gid)
 	return file, nil
 }
 

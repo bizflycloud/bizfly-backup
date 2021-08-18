@@ -47,6 +47,9 @@ func NewRepository(path string, rpID string) (*Repository, error) {
 	}
 
 	err := d.create()
+	if err != nil {
+		return nil, err
+	}
 
 	d.indexFile, err = d.tempFile()
 	if err != nil {

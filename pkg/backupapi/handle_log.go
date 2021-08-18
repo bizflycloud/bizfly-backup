@@ -37,7 +37,7 @@ func logErrorWriter() (zapcore.WriteSyncer, error) {
 		return nil, err
 	}
 	logErrorPath := homeDirectory + "/var/log/bizflycloud-backup/error.log"
-	zap.Open(logErrorPath)
+	_, _, _ = zap.Open(logErrorPath)
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
@@ -54,7 +54,7 @@ func logInfoWriter() (zapcore.WriteSyncer, error) {
 		return nil, err
 	}
 	logInfoPath := homeDirectory + "/var/log/bizflycloud-backup/info.log"
-	zap.Open(logInfoPath)
+	_, _, _ = zap.Open(logInfoPath)
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
@@ -71,6 +71,7 @@ func logDebugWriter() (zapcore.WriteSyncer, error) {
 		return nil, err
 	}
 	logDebugPath := homeDirectory + "/var/log/bizflycloud-backup/debug.log"
+	_, _, _ = zap.Open(logDebugPath)
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
@@ -82,10 +83,19 @@ func logDebugWriter() (zapcore.WriteSyncer, error) {
 }
 
 // Write log to file by level log and console
-func WriteLog() *zap.Logger {
-	highWriteSyncer, _ := logErrorWriter()
-	averageWriteSyncer, _ := logDebugWriter()
-	lowWriteSyncer, _ := logInfoWriter()
+func WriteLog() (*zap.Logger, error) {
+	highWriteSyncer, errorWriter := logErrorWriter()
+	if errorWriter != nil {
+		return nil, errorWriter
+	}
+	averageWriteSyncer, errorDebugWriter := logDebugWriter()
+	if errorDebugWriter != nil {
+		return nil, errorDebugWriter
+	}
+	lowWriteSyncer, errorInfoWriter := logInfoWriter()
+	if errorInfoWriter != nil {
+		return nil, errorInfoWriter
+	}
 
 	encoder := getEncoder()
 
@@ -106,7 +116,7 @@ func WriteLog() *zap.Logger {
 	highCore := zapcore.NewCore(encoder, highWriteSyncer, highPriority)
 
 	logger := zap.New(zapcore.NewTee(lowCore, averageCore, highCore), zap.AddCaller())
-	return logger
+	return logger, nil
 }
 
 func getCurrentDirectory() (string, error) {

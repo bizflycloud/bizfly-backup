@@ -64,7 +64,10 @@ func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
 	}
 
 	if s3.logger == nil {
-		l := backupapi.WriteLog()
+		l, err := backupapi.WriteLog()
+		if err != nil {
+			return nil
+		}
 		s3.logger = l
 	}
 

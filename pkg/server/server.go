@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/bizflycloud/bizfly-backup/pkg/cache"
 	"io"
 	"io/ioutil"
 	"net"
@@ -19,6 +18,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/bizflycloud/bizfly-backup/pkg/cache"
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
@@ -93,7 +94,10 @@ func New(opts ...Option) (*Server, error) {
 	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 
 	if s.logger == nil {
-		l := backupapi.WriteLog()
+		l, err := backupapi.WriteLog()
+		if err != nil {
+			return nil, err
+		}
 		s.logger = l
 	}
 
@@ -155,11 +159,17 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
 	case broker.BackupManual:
-		go s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
-		return nil
+		var err error
+		go func() {
+			err = s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+		}()
+		return err
 	case broker.RestoreManual:
-		go s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.VolumeId, ioutil.Discard)
-		return nil
+		var err error
+		go func() {
+			err = s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.VolumeId, ioutil.Discard)
+		}()
+		return err
 	case broker.ConfigUpdate:
 		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
 	case broker.ConfigRefresh:
@@ -558,14 +568,6 @@ func (s *Server) reportStartDownload(w io.Writer) {
 	_, _ = w.Write([]byte("Start downloading ..."))
 }
 
-func (s *Server) reportDownloadCompleted(w io.Writer) {
-	_, _ = w.Write([]byte("Download completed."))
-}
-
-func (s *Server) reportStartRestore(w io.Writer) {
-	_, _ = w.Write([]byte("Start restoring ..."))
-}
-
 func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))
 }
@@ -703,6 +705,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 		default:
 			p.Start()
 			ctx, cancel := context.WithCancel(ctx)
+			_ = cancel
 			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, chunks, volume, p)
 			if err != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(err))
@@ -710,6 +713,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 				cancel()
 				return
 			}
+
 			*size += storageSize
 		}
 	}
@@ -810,6 +814,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		var errFileWorker error
 		progressUpload := s.newUploadProgress(itemTodo)
 		ctx, cancel := context.WithCancel(ctx)
+		_ = cancel
 		var wg sync.WaitGroup
 		for _, itemInfo := range index.Items {
 			if errFileWorker != nil {
@@ -879,7 +884,6 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		})
 
 		errCh <- nil
-		return
 	}
 }
 

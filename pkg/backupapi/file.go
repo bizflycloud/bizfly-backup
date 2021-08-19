@@ -367,7 +367,7 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node, chunks *cache.Chunk,
 	volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	_ = cancel
+	defer cancel()
 	select {
 	case <-ctx.Done():
 		c.logger.Info("context done ChunkFileToBackup")
@@ -447,7 +447,7 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 		default:
 			s := progress.Stat{}
 			ctx, cancel := context.WithCancel(ctx)
-			_ = cancel
+			defer cancel()
 			saveSize, err := c.backupChunk(ctx, data, chunk, chunks, volume)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
@@ -518,7 +518,7 @@ func (c *Client) RestoreDirectory(index cache.Index, destDir string, volume volu
 	}
 	sem := semaphore.NewWeighted(int64(numGoroutine))
 	ctx, cancel := context.WithCancel(context.Background())
-	_ = cancel
+	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)
 
 	for _, item := range index.Items {

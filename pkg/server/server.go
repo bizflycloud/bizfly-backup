@@ -705,7 +705,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 		default:
 			p.Start()
 			ctx, cancel := context.WithCancel(ctx)
-			_ = cancel
+			defer cancel()
 			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, chunks, volume, p)
 			if err != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(err))
@@ -814,7 +814,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		var errFileWorker error
 		progressUpload := s.newUploadProgress(itemTodo)
 		ctx, cancel := context.WithCancel(ctx)
-		_ = cancel
+		defer cancel()
 		var wg sync.WaitGroup
 		for _, itemInfo := range index.Items {
 			if errFileWorker != nil {

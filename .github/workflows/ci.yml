@@ -31,16 +31,6 @@ jobs:
       - name: Run golangci-lint
         run: $(go env GOPATH)/bin/golangci-lint run ./...
 
-  Test:
-    runs-on: ubuntu-latest
-    name: Test
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v1
-
-      - name: Run Unit tests.
-        run: make test-coverage
-
   Test-without-MQTT:
     strategy:
       matrix:

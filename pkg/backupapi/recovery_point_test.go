@@ -12,6 +12,100 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestClient_recoveryPointPath(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	backupDirectoryID := "backup-directory-id"
+	rpp := client.recoveryPointPath(backupDirectoryID)
+	assert.Equal(t, "/agent/backup-directories/backup-directory-id/recovery-points", rpp)
+}
+
+func TestClient_recoveryPointItemPath(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	backupDirectoryID := "backup-directory-id"
+	recoveryPointID := "recovery-point-id"
+
+	rpip := client.recoveryPointItemPath(backupDirectoryID, recoveryPointID)
+	assert.Equal(t, "/agent/backup-directories/backup-directory-id/recovery-points/recovery-point-id", rpip)
+}
+
+func TestClient_recoveryPointActionPath(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	recoveryPointID := "recovery-point-id"
+
+	rpap := client.recoveryPointActionPath(recoveryPointID)
+	assert.Equal(t, "/agent/recovery-points/recovery-point-id/action", rpap)
+}
+
+func TestClient_saveChunkPath(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	recoveryPointID := "recovery-point-id"
+	fileID := "file-id"
+
+	scp := client.saveChunkPath(recoveryPointID, fileID)
+	assert.Equal(t, "/agent/recovery-points/recovery-point-id/file/file-id/chunks", scp)
+}
+
+func TestClient_getListItemPath(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	recoveryPointID := "recovery-point-id"
+
+	glfp := client.getListItemPath(recoveryPointID)
+	assert.Equal(t, "/agent/recovery-points/recovery-point-id/items", glfp)
+}
+
+func TestClient_infoFile(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	recoveryPointID := "recovery-point-id"
+	itemID := "item-id"
+
+	gifd := client.infoFile(recoveryPointID, itemID)
+	assert.Equal(t, "/agent/auth/recovery-point-id/file/item-id", gifd)
+}
+
+func TestCLient_latestRecoveryPointID(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	backupDirectoryID := "backup-directory-id"
+
+	lrp := client.latestRecoveryPointID(backupDirectoryID)
+	assert.Equal(t, "/agent/backup-directories/backup-directory-id/latest-recovery-points", lrp)
+}
+
+func TestClient_GetLatestRecoveryPointID(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	backupDirectoryID := "backup-directory-id"
+	latestRecoveryPointPath := client.latestRecoveryPointID(backupDirectoryID)
+
+	mux.HandleFunc(path.Join("/api/v1/", latestRecoveryPointPath), func(w http.ResponseWriter, r *http.Request) {
+		resp := RecoveryPointResponse{
+			Name:              "backup-manual-05/26/2021",
+			RecoveryPointType: "INITIAL_REPLICA",
+			ID:                "4650cb5f-48d2-48ab-9e2b-15acc99e1323",
+			Status:            "COMPLETED",
+		}
+		assert.NoError(t, json.NewEncoder(w).Encode(resp))
+	})
+
+	lrp, err := client.GetLatestRecoveryPointID(backupDirectoryID)
+	require.NoError(t, err)
+	assert.NotEmpty(t, lrp.Name)
+}
+
 func TestClient_CreateRecoveryPoint(t *testing.T) {
 	setUp()
 	defer tearDown()
@@ -53,9 +147,9 @@ func TestClient_UpdateRecoveryPoint(t *testing.T) {
 	status := RecoveryPointStatusFAILED
 
 	mux.HandleFunc(path.Join("/api/v1/", recoveryPointPath), func(w http.ResponseWriter, r *http.Request) {
-		var urcr UpdateRecoveryPointRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&urcr))
-		assert.Equal(t, status, urcr.Status)
+		var urpr UpdateRecoveryPointRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&urpr))
+		assert.Equal(t, status, urpr.Status)
 	})
 
 	err := client.UpdateRecoveryPoint(context.Background(), backupDirectoryID, recoveryPointID, &UpdateRecoveryPointRequest{Status: RecoveryPointStatusFAILED})
@@ -80,4 +174,27 @@ func TestClient_ListRecoveryPoints(t *testing.T) {
 	rps, err := client.ListRecoveryPoints(context.Background(), backupDirectoryID)
 	require.NoError(t, err)
 	assert.Len(t, rps, 2)
+}
+
+func TestClient_RequestRestore(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	recoveryPointID := "recovery-point-id"
+	recoveryPointActionPath := client.recoveryPointActionPath(recoveryPointID)
+	machine_id := "machine-id"
+	path_restore := "path"
+
+	mux.HandleFunc(path.Join("/api/v1/", recoveryPointActionPath), func(w http.ResponseWriter, r *http.Request) {
+		var crr CreateRestoreRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&crr))
+		assert.Equal(t, machine_id, crr.MachineID)
+		assert.Equal(t, path_restore, crr.Path)
+	})
+
+	err := client.RequestRestore(recoveryPointID, &CreateRestoreRequest{
+		MachineID: machine_id,
+		Path:      path_restore,
+	})
+	require.NoError(t, err)
 }

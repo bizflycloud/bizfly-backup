@@ -1,87 +1,99 @@
 package backupapi
 
 import (
-	"bytes"
-	"encoding/json"
-	"io"
-	"io/ioutil"
-	"net/http"
-	"strconv"
-	"strings"
-	"sync"
+	"io/fs"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestClient_uploadFile(t *testing.T) {
+func TestClient_saveFileInfoPath(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	fn := "test-upload-file-1"
-	content := "foo\n"
-	buf := strings.NewReader(content)
-
-	mux.HandleFunc("/api/v1"+client.uploadFilePath(fn), func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, http.MethodPost, r.Method)
-		require.NotEmpty(t, r.Header.Get("User-Agent"))
-		require.NotEmpty(t, r.Header.Get("Date"))
-		require.NotEmpty(t, r.Header.Get("Authorization"))
-		require.True(t, strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data; "))
-		require.NoError(t, r.ParseMultipartForm(64))
-		file, handler, err := r.FormFile("data")
-		require.NoError(t, err)
-		defer file.Close()
-		assert.Equal(t, fn, handler.Filename)
-		var data []byte
-		buf := bytes.NewBuffer(data)
-		_, err = io.Copy(buf, file)
-		assert.NoError(t, err)
-		assert.Equal(t, content, buf.String())
-	})
-
-	pw := NewProgressWriter(ioutil.Discard)
-	assert.NoError(t, client.UploadFile(fn, buf, pw, false))
+	recoveryPointID := "recovery-point-id"
+	sfip := client.saveFileInfoPath(recoveryPointID)
+	assert.Equal(t, "/agent/recovery-points/recovery-point-id/file", sfip)
 }
 
-func TestClient_uploadMultipart(t *testing.T) {
+func TestClient_getItemLatestPath(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	fn := "test-upload-file-2"
-	content := strings.Repeat("a", 20*1000*1000) + "\n"
-	buf := strings.NewReader(content)
+	latestRecoveryPointID := "latest-recovery-point-id"
+	gilp := client.getItemLatestPath(latestRecoveryPointID)
+	assert.Equal(t, "/agent/recovery-points/latest-recovery-point-id/path", gilp)
+}
 
-	mux.HandleFunc("/api/v1"+client.initMultipartPath(fn), func(w http.ResponseWriter, r *http.Request) {
-		m := Multipart{
-			UploadID: "foo",
-			FileName: "bar",
-		}
-		_ = json.NewEncoder(w).Encode(&m)
-	})
+func Test_createDir(t *testing.T) {
+	type args struct {
+		path  string
+		mode  fs.FileMode
+		uid   int
+		gid   int
+		atime time.Time
+		mtime time.Time
+	}
+	tests := []struct {
+		name    string
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "test create directory",
+			args: args{
+				path:  "/tmp/restore",
+				mode:  0775,
+				uid:   1000,
+				gid:   1000,
+				atime: time.Now(),
+				mtime: time.Now(),
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := client.createDir(tt.args.path, tt.args.mode, tt.args.uid, tt.args.gid, tt.args.atime, tt.args.mtime); (err != nil) != tt.wantErr {
+				t.Errorf("createDir() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
 
-	expectedNum := 0
-	var mu sync.Mutex
-	mux.HandleFunc("/api/v1"+client.uploadPartPath(fn), func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		expectedNum++
-		mu.Unlock()
-
-		assert.Equal(t, http.MethodPut, r.Method)
-		assert.Equal(t, "foo", r.URL.Query().Get("upload_id"))
-		partNumStr := r.URL.Query().Get("part_number")
-		partNum, _ := strconv.ParseInt(partNumStr, 10, 64)
-		assert.Greater(t, partNum, int64(0))
-	})
-
-	mux.HandleFunc("/api/v1"+client.completeMultipartPath(fn), func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, http.MethodPost, r.Method)
-		assert.Equal(t, "foo", r.URL.Query().Get("upload_id"))
-		assert.Equal(t, 2, expectedNum)
-	})
-
-	pw := NewProgressWriter(ioutil.Discard)
-	assert.NoError(t, client.UploadFile(fn, buf, pw, true))
-
+func Test_createFile(t *testing.T) {
+	type args struct {
+		path string
+		mode fs.FileMode
+		uid  int
+		gid  int
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    *os.File
+		wantErr bool
+	}{
+		{
+			name: "test create file",
+			args: args{
+				path: "/tmp/file.txt",
+				mode: 0775,
+				uid:  1000,
+				gid:  1000,
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := client.createFile(tt.args.path, tt.args.mode, tt.args.uid, tt.args.gid)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("createFile() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+		})
+	}
 }

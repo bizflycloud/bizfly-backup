@@ -6,11 +6,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/cenkalti/backoff"
+	"go.uber.org/zap"
 )
 
 const (
@@ -28,6 +34,8 @@ type Client struct {
 	secretKey string
 
 	userAgent string
+
+	logger *zap.Logger
 }
 
 // NewClient creates a Client with given options.
@@ -41,10 +49,10 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 					KeepAlive: 30 * time.Second,
 				}).DialContext,
 				TLSHandshakeTimeout:   10 * time.Second,
-				ResponseHeaderTimeout: 10 * time.Second,
+				ResponseHeaderTimeout: 2 * time.Minute,
 				ExpectContinueTimeout: 1 * time.Second,
 			},
-			Timeout: 10 * time.Second,
+			Timeout: 2 * time.Minute,
 		},
 		ServerURL: serverUrl,
 		userAgent: userAgent,
@@ -54,6 +62,14 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 		if err := opt(c); err != nil {
 			return nil, err
 		}
+	}
+
+	if c.logger == nil {
+		l, err := WriteLog()
+		if err != nil {
+			return nil, err
+		}
+		c.logger = l
 	}
 
 	return c, nil
@@ -132,10 +148,56 @@ func (c *Client) NewRequest(method, relPath string, body interface{}) (*http.Req
 
 // Do makes an http request.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
-	return c.do(c.client, req, "application/json")
+	var err error
+	var resp *http.Response
+
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = 3 * time.Minute
+
+	body, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	for {
+		req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+		resp, err = c.do(c.client, req, "application/json")
+		if err == nil {
+			if resp.StatusCode < 400 || resp.StatusCode == 404 {
+				return resp, nil
+			}
+			c.logger.Error("Request StatusCode ", zap.Int("StatusCode", resp.StatusCode))
+		} else {
+			c.logger.Error("Request error ", zap.Error(err))
+		}
+		c.logger.Debug("BackOff retry")
+		d := bo.NextBackOff()
+		if d == backoff.Stop {
+			c.logger.Debug("Retry time out")
+			break
+		}
+		c.logger.Sugar().Info("Retry in ", d)
+		time.Sleep(d)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode >= 400 {
+		var b bytes.Buffer
+		_, _ = io.Copy(&b, resp.Body)
+		c.logger.Error("Request error ", zap.Int("StatusCode", resp.StatusCode), zap.String("Body Response", b.String()))
+		return nil, fmt.Errorf(fmt.Sprintf("StatusCode %d Body response %s", resp.StatusCode, b.String()))
+	}
+
+	return resp, nil
 }
 
 func (c *Client) do(httpClient *http.Client, req *http.Request, contentType string) (*http.Response, error) {
+	req.Header.Del("Date")
+	req.Header.Del("Authorization")
+	req.Header.Del("Content-Type")
 	req.Header.Add("User-Agent", c.userAgent)
 	now := time.Now().UTC().Format(http.TimeFormat)
 	req.Header.Add("Date", now)

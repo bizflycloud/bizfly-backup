@@ -1,11 +1,8 @@
 package server
 
 import (
-	"archive/zip"
-	"bytes"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -119,55 +116,6 @@ func TestServerEventHandler(t *testing.T) {
 	assert.NoError(t, pub.Publish(topic, `{"event_type": ""`))
 	<-stop
 	assert.Equal(t, 2, count)
-}
-
-func Test_compressDir(t *testing.T) {
-	fi, err := ioutil.TempFile("", "bizfly-backup-agent-test-compress-*")
-	require.NoError(t, err)
-	defer os.Remove(fi.Name())
-
-	var buf bytes.Buffer
-	assert.NoError(t, compressDir("./testdata/test_compress_dir", &buf))
-
-	zipReader, err := zip.NewReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
-	require.NoError(t, err)
-
-	count := 0
-	for _, zipFile := range zipReader.File {
-		assert.NotContains(t, zipFile.Name, "testdata/test_compress_dir")
-		assert.False(t, filepath.IsAbs(zipFile.Name))
-		count++
-	}
-	assert.Equal(t, 4, count)
-}
-
-func Test_unzip(t *testing.T) {
-	fi, err := ioutil.TempFile("", "bizfly-backup-agent-test-unzip-*")
-	require.NoError(t, err)
-	defer os.Remove(fi.Name())
-
-	assert.NoError(t, compressDir("./testdata/test_compress_dir", fi))
-	require.NoError(t, fi.Close())
-
-	tempDir, err := ioutil.TempDir("", "bizfly-backup-agent-test-unzip-dir-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-	assert.NoError(t, unzip(fi.Name(), tempDir))
-
-	count := 0
-	walker := func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() || (info.Mode()&os.ModeSymlink != 0) {
-			return nil
-		}
-		count++
-		return nil
-	}
-
-	assert.NoError(t, filepath.Walk(filepath.Join(tempDir, ""), walker))
-	assert.Equal(t, 4, count)
 }
 
 func TestServerCron(t *testing.T) {

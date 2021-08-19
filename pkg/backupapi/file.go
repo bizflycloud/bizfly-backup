@@ -3,47 +3,255 @@ package backupapi
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
-	"mime/multipart"
+	"math"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
+	"github.com/bizflycloud/bizfly-backup/pkg/progress"
+	"github.com/bizflycloud/bizfly-backup/pkg/volume"
+
+	"go.uber.org/zap"
+	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
+
+	"github.com/panjf2000/ants/v2"
+	"github.com/restic/chunker"
 )
 
-const MultipartUploadLowerBound = 15 * 1000 * 1000
+const ChunkUploadLowerBound = 8 * 1000 * 1000
+
+// ItemInfo ...
+type ItemInfo struct {
+	ItemType       string     `json:"item_type"`
+	ParentItemID   string     `json:"parent_item_id,omitempty"`
+	ChunkReference bool       `json:"chunk_reference"`
+	Attributes     *Attribute `json:"attributes,omitempty"`
+}
+
+type ChunkInfo struct {
+	Start  uint
+	Length uint
+	Cut    uint64
+	Data   []byte
+}
+
+// Attribute ...
+type Attribute struct {
+	ID          string      `json:"id"`
+	ItemName    string      `json:"item_name"`
+	SymlinkPath string      `json:"symlink_path,omitempty"`
+	Size        int64       `json:"size"`
+	ItemType    string      `json:"item_type"`
+	IsDir       bool        `json:"is_dir"`
+	ChangeTime  time.Time   `json:"change_time"`
+	ModifyTime  time.Time   `json:"modify_time"`
+	AccessTime  time.Time   `json:"access_time"`
+	Mode        string      `json:"mode"`
+	AccessMode  os.FileMode `json:"access_mode"`
+	GID         uint32      `json:"gid"`
+	UID         uint32      `json:"uid"`
+}
+
+// FileInfoRequest ...
+type FileInfoRequest struct {
+	Files []ItemInfo `json:"files"`
+}
 
 // File ...
 type File struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Size        int    `json:"size"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
-	ContentType string `json:"content_type"`
-	Etag        string `json:"eTag"`
+	ContentType string      `json:"content_type"`
+	CreatedAt   string      `json:"created_at"`
+	Etag        string      `json:"etag"`
+	ID          string      `json:"id"`
+	ItemName    string      `json:"item_name"`
+	ItemType    string      `json:"item_type"`
+	Mode        string      `json:"mode"`
+	AccessMode  os.FileMode `json:"access_mode"`
+	RealName    string      `json:"real_name"`
+	SymlinkPath string      `json:"symlink_path"`
+	Size        int         `json:"size"`
+	Status      string      `json:"status"`
+	UpdatedAt   string      `json:"updated_at"`
+	ChangeTime  time.Time   `json:"change_time"`
+	ModifyTime  time.Time   `json:"modify_time"`
+	AccessTime  time.Time   `json:"access_time"`
+	Gid         uint32      `json:"gid"`
+	UID         uint32      `json:"uid"`
 }
 
-// Multipart ...
-type Multipart struct {
-	UploadID string `json:"upload_id"`
-	FileName string `json:"file_name"`
+// FilesResponse ...
+type FilesResponse []File
+
+// ItemsResponse ...
+type FileInfoResponse struct {
+	Files []File `json:"files"`
+	Total int    `json:"total"`
 }
 
-// Part ...
-type Part struct {
-	PartNumber int    `json:"part_number"`
-	Size       int    `json:"size"`
-	Etag       string `json:"etag"`
+// Item ...
+type Item struct {
+	Mode        string      `json:"mode"`
+	AccessMode  os.FileMode `json:"access_mode"`
+	AccessTime  time.Time   `json:"access_time"`
+	ChangeTime  time.Time   `json:"change_time"`
+	ModifyTime  time.Time   `json:"modify_time"`
+	ContentType string      `json:"content_type"`
+	CreatedAt   string      `json:"created_at"`
+	GID         uint32      `json:"gid"`
+	UID         uint32      `json:"uid"`
+	ID          string      `json:"id"`
+	IsDir       bool        `json:"is_dir"`
+	ItemName    string      `json:"item_name"`
+	RealName    string      `json:"real_name"`
+	SymlinkPath string      `json:"symlink_path"`
+	ItemType    string      `json:"item_type"`
+	Size        int         `json:"size"`
+	Status      string      `json:"status"`
+	UpdatedAt   string      `json:"updated_at"`
 }
 
-func (c *Client) uploadFilePath(recoveryPointID string) string {
+// ItemsResponse ...
+type ItemsResponse struct {
+	Items []Item `json:"items"`
+	Total int    `json:"total"`
+}
+
+// ChunkRequest ...
+type ChunkRequest struct {
+	Length int    `json:"length"`
+	Offset int    `json:"offset"`
+	Etag   string `json:"etag"`
+}
+
+// ChunkResponse ...
+type ChunkResponse struct {
+	ID           string       `json:"id"`
+	Offset       int          `json:"offset"`
+	Length       int          `json:"length"`
+	Etag         string       `json:"etag"`
+	Uri          string       `json:"uri"`
+	DeletedAt    string       `json:"deleted_at"`
+	Deleted      bool         `json:"deleted"`
+	PresignedURL PresignedURL `json:"presigned_url"`
+}
+
+type ChunksResponse struct {
+	Chunks []ChunkResponse `json:"chunks"`
+	Total  uint64          `json:"total"`
+}
+
+// PresignedURL ...
+type PresignedURL struct {
+	Head string `json:"head"`
+	Put  string `json:"put"`
+}
+
+// InfoDownload ...
+type InfoDownload struct {
+	Get    string `json:"get"`
+	Offset int    `json:"offset"`
+}
+
+// FileDownloadResponse ...
+type FileDownloadResponse struct {
+	Info []InfoDownload `json:"info"`
+}
+
+// InfoPresignUrl ...
+type InfoPresignUrl struct {
+	ActionID string `json:"action_id"`
+	Etag     string `json:"etag"`
+}
+
+// ItemInfoLatest ...
+type ItemInfoLatest struct {
+	ID          string      `json:"id"`
+	ItemType    string      `json:"item_type"`
+	Mode        string      `json:"mode"`
+	AccessMode  os.FileMode `json:"access_mode"`
+	RealName    string      `json:"real_name"`
+	Size        int         `json:"size"`
+	ContentType string      `json:"content_type"`
+	IsDir       bool        `json:"is_dir"`
+	Status      string      `json:"status"`
+	ItemName    string      `json:"item_name"`
+	CreatedAt   string      `json:"created_at"`
+	UpdatedAt   string      `json:"updated_at"`
+	AccessTime  time.Time   `json:"access_time"`
+	ChangeTime  time.Time   `json:"change_time"`
+	ModifyTime  time.Time   `json:"modify_time"`
+	Gid         int         `json:"gid"`
+	UID         int         `json:"uid"`
+}
+
+func (c *Client) saveFileInfoPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
+}
+
+func (c *Client) getItemLatestPath(latestRecoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/path", latestRecoveryPointID)
+}
+
+func (c *Client) getChunksInItem(recoveryPointID string, itemID string, page int) (int, *ChunksResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.saveChunkPath(recoveryPointID, itemID))
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return 0, nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return 0, nil, err
+	}
+
+	itemsPerPage := 50
+	q := req.URL.Query()
+	q.Add("items_per_page", strconv.Itoa(itemsPerPage))
+	q.Add("page", strconv.Itoa(page))
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.Do(req)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return 0, nil, err
+	}
+
+	var b bytes.Buffer
+	_, err = io.Copy(&b, resp.Body)
+	if err != nil {
+		c.logger.Error("Err write to buf ", zap.Error(err))
+	} else {
+		c.logger.Debug("Body Response", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
+	}
+
+	defer resp.Body.Close()
+	var chunkResp ChunksResponse
+	if err := json.NewDecoder(&b).Decode(&chunkResp); err != nil {
+		c.logger.Error("Err ", zap.Error(err), zap.String("Body Response", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
+		return 0, nil, err
+	}
+
+	totalItem := chunkResp.Total
+	totalPage := int(math.Ceil(float64(totalItem) / float64(itemsPerPage)))
+
+	return totalPage, &chunkResp, nil
 }
 
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
@@ -52,6 +260,7 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	}
 	relURL, err := url.Parse(relPath)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return "", err
 	}
 
@@ -59,148 +268,756 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	return u.String(), nil
 }
 
-func (c *Client) uploadFile(fn string, r io.Reader, pw io.Writer) error {
-	bodyBuf := &bytes.Buffer{}
-	bodyWriter := multipart.NewWriter(bodyBuf)
-	fileWriter, err := bodyWriter.CreateFormFile("data", fn)
+func (c *Client) SaveFileInfo(recoveryPointID string, itemInfo *ItemInfo) (*File, error) {
+	reqURL, err := c.urlStringFromRelPath(c.saveFileInfoPath(recoveryPointID))
 	if err != nil {
-		return fmt.Errorf("bodyWriter.CreateFormFile: %w", err)
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
 	}
 
-	_, err = io.Copy(fileWriter, r)
+	req, err := c.NewRequest(http.MethodPost, reqURL, itemInfo)
 	if err != nil {
-		return err
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
 	}
 
-	contentType := bodyWriter.FormDataContentType()
-	if err := bodyWriter.Close(); err != nil {
-		return err
+	resp, err := c.Do(req)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
 	}
 
-	reqURL, err := c.urlStringFromRelPath(c.uploadFilePath(fn))
+	var b bytes.Buffer
+	_, err = io.Copy(&b, resp.Body)
 	if err != nil {
-		return err
-	}
-	req, err := http.NewRequest(http.MethodPost, reqURL, io.TeeReader(bodyBuf, pw))
-	if err != nil {
-		return err
+		c.logger.Error("Err write to buf ", zap.Error(err))
+	} else {
+		c.logger.Debug("Body", zap.String("Body Response", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
 	}
 
-	retryClient := retryablehttp.NewClient()
-	retryClient.RetryMax = 50 // Should configurable this?
-	resp, err := c.do(retryClient.StandardClient(), req, contentType)
-	if err != nil {
-		return err
-	}
 	defer resp.Body.Close()
 
-	_, err = io.Copy(ioutil.Discard, resp.Body)
-	return err
+	var file File
+
+	if err = json.NewDecoder(&b).Decode(&file); err != nil {
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			c.logger.Error("Err write to buf ", zap.Error(err))
+		}
+		sb := string(body)
+		c.logger.Error("Err ", zap.Error(err), zap.String("Body Response", b.String()), zap.String("Body Request", sb), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
+		return nil, err
+	}
+
+	return &file, nil
 }
 
-func (c *Client) uploadMultipart(recoveryPointID string, r io.Reader, pw io.Writer) error {
-	ctx := context.Background()
-	m, err := c.InitMultipart(ctx, recoveryPointID)
+func (c *Client) saveChunk(recoveryPointID string, itemID string, chunk *ChunkRequest) (*ChunkResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.saveChunkPath(recoveryPointID, itemID))
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodPost, reqURL, chunk)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+
+	resp, err := c.Do(req)
+	if err != nil {
+		c.logger.Error("Err ", zap.Error(err))
+		return nil, err
+	}
+
+	var b bytes.Buffer
+	_, err = io.Copy(&b, resp.Body)
+	if err != nil {
+		c.logger.Error("Err write to buf ", zap.Error(err))
+	} else {
+		c.logger.Debug("Body", zap.String("Body Response", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
+	}
+
+	defer resp.Body.Close()
+	var chunkResp ChunkResponse
+	if err := json.NewDecoder(&b).Decode(&chunkResp); err != nil {
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			c.logger.Error("Err write to buf ", zap.Error(err))
+		}
+		sb := string(body)
+		c.logger.Error("Err ", zap.Error(err), zap.String("Body Response", b.String()), zap.String("Body Request", sb), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
+		return nil, err
+	}
+
+	return &chunkResp, nil
+}
+
+func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*ItemInfoLatest, error) {
+	if len(latestRecoveryPointID) == 0 {
+		return &ItemInfoLatest{
+			ID:         "",
+			ChangeTime: time.Time{},
+			ModifyTime: time.Time{},
+		}, nil
+	}
+
+	reqURL, err := c.urlStringFromRelPath(c.getItemLatestPath(latestRecoveryPointID))
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Add("path", filePath)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.Do(req)
+	if err != nil {
+		c.logger.Error("err ", zap.String("Request", req.URL.String()), zap.Error(err))
+		return nil, err
+	}
+
+	var b bytes.Buffer
+	_, err = io.Copy(&b, resp.Body)
+	if err != nil {
+		c.logger.Error("Err write to buf ", zap.Error(err))
+	} else {
+		c.logger.Debug("Body Response", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
+	}
+
+	var itemInfoLatest ItemInfoLatest
+	if err := json.NewDecoder(&b).Decode(&itemInfoLatest); err != nil {
+		c.logger.Error("Err ", zap.Error(err), zap.String("Body Response", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
+		return nil, err
+	}
+	return &itemInfoLatest, nil
+}
+
+func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume) (uint64, error) {
+	select {
+	case <-ctx.Done():
+		c.logger.Debug("context backupChunk done")
+		return 0, errors.New("backupChunk done")
+	default:
+		var stat uint64
+
+		hash := md5.Sum(chunk.Data)
+		key := hex.EncodeToString(hash[:])
+		chunkReq := ChunkRequest{
+			Length: int(chunk.Length),
+			Offset: int(chunk.Start),
+			Etag:   key,
+		}
+
+		_, err := c.saveChunk(recoveryPointID, itemInfo.Attributes.ID, &chunkReq)
+		if err != nil {
+			c.logger.Error("err ", zap.Error(err))
+			return stat, err
+		}
+
+		isExist, etag, err := c.HeadObject(volume, key)
+		if err != nil {
+			c.logger.Sugar().Errorf("backup chunk head object error: ", zap.Error(err))
+			return 0, err
+		}
+		c.logger.Sugar().Info("Backup chunk ", key)
+		if isExist {
+			integrity := strings.Contains(etag, key)
+			if !integrity {
+				err := c.PutObject(volume, key, chunk.Data)
+				if err != nil {
+					c.logger.Error("err ", zap.Error(err))
+					return stat, err
+				}
+				stat += uint64(chunk.Length)
+			} else {
+				c.logger.Info("exists ", zap.String("etag", etag), zap.String("key", key))
+			}
+		} else {
+			err = c.PutObject(volume, key, chunk.Data)
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return stat, err
+			}
+			stat += uint64(chunk.Length)
+		}
+		c.logger.Sugar().Info("Finished backup chunk ", key)
+		return stat, nil
+	}
+
+}
+
+func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	_ = cancel
+	select {
+	case <-ctx.Done():
+		c.logger.Info("context done ChunkFileToBackup")
+		cancel()
+		return 0, nil
+	default:
+		p.Start()
+		s := progress.Stat{}
+		var errBackupChunk error
+
+		file, err := os.Open(itemInfo.Attributes.ItemName)
+		if err != nil {
+			if os.IsNotExist(err) {
+				c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
+				s.ItemName = append(s.ItemName, itemInfo.Attributes.ItemName)
+				s.Errors = true
+				p.Report(s)
+				return 0, nil
+			} else {
+				c.logger.Error("err ", zap.Error(err))
+				return 0, err
+			}
+		}
+		chk := chunker.New(file, 0x3dea92648f6e83)
+		buf := make([]byte, ChunkUploadLowerBound)
+		var stat uint64
+
+		var wg sync.WaitGroup
+		for {
+			chunk, err := chk.Next(buf)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return 0, err
+			}
+
+			temp := make([]byte, chunk.Length)
+			length := copy(temp, chunk.Data)
+			if uint(length) != chunk.Length {
+				return 0, errors.New("copy chunk data error")
+			}
+			chunkToBackup := ChunkInfo{
+				Start:  chunk.Start,
+				Length: chunk.Length,
+				Cut:    chunk.Cut,
+				Data:   temp,
+			}
+			wg.Add(1)
+			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, chunkToBackup, itemInfo, recoveryPointID, actionID, volume, p))
+		}
+		wg.Wait()
+
+		if errBackupChunk != nil {
+			c.logger.Error("err backup chunk ", zap.Error(err))
+			return 0, errBackupChunk
+		}
+		s.Items = 1
+		p.Report(s)
+		return stat, nil
+	}
+}
+
+type chunkJob func()
+
+func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *error, size *uint64,
+	chunk ChunkInfo, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) chunkJob {
+	return func() {
+		p.Start()
+		defer func() {
+			c.logger.Sugar().Info("Done task ", chunk.Start)
+			wg.Done()
+		}()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			s := progress.Stat{}
+			ctx, cancel := context.WithCancel(ctx)
+			_ = cancel
+			saveSize, err := c.backupChunk(ctx, chunk, itemInfo, recoveryPointID, actionID, volume)
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				*chErr = err
+				s.Errors = true
+				p.Report(s)
+				cancel()
+				return
+			}
+			s.Storage = saveSize
+			s.Bytes = uint64(chunk.Length)
+			p.Report(s)
+			*size += saveSize
+		}
+	}
+}
+
+func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, recoveryPointID string, actionID string, latestRecoveryPointID string, itemInfo ItemInfo, volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
+
+	select {
+	case <-ctx.Done():
+		c.logger.Debug("Context backup done")
+		return 0, errors.New("context backup done")
+	default:
+		itemInfoLatest, err := c.GetItemLatest(latestRecoveryPointID, itemInfo.Attributes.ItemName)
+		if err != nil {
+			c.logger.Error("err ", zap.Error(err))
+			return 0, err
+		}
+
+		s := progress.Stat{
+			Items:  1,
+			Errors: false,
+		}
+		_, err = os.Stat(itemInfo.Attributes.ItemName)
+		if err != nil {
+			c.logger.Error("err ", zap.Error(err))
+			if os.IsNotExist(err) {
+				c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
+				s.ItemName = append(s.ItemName, itemInfo.Attributes.ItemName)
+				s.Errors = true
+				p.Report(s)
+			}
+		} else {
+			// backup item with item change ctime
+			if !strings.EqualFold(timeToString(itemInfoLatest.ChangeTime), timeToString(itemInfo.Attributes.ChangeTime)) {
+				// backup item with item change mtime
+				if !strings.EqualFold(timeToString(itemInfoLatest.ModifyTime), timeToString(itemInfo.Attributes.ModifyTime)) {
+					c.logger.Info("backup item with item change mtime, ctime")
+					c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
+					itemInfo.ChunkReference = false
+					_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+					if err != nil {
+						c.logger.Error("c.SaveFileInfo ", zap.Error(err))
+						s.Errors = true
+						p.Report(s)
+						return 0, err
+					}
+					if itemInfo.ItemType == "FILE" {
+						c.logger.Sugar().Info("Continue chunk file to backup ", itemInfo.Attributes.ItemName)
+						storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, recoveryPointID, actionID, volume, p)
+						if err != nil {
+							c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
+							s.Errors = true
+							p.Report(s)
+							return 0, err
+						}
+						return storageSize, nil
+					}
+					p.Report(s)
+					return 0, nil
+				} else {
+					// save info va reference chunk neu la file
+					c.logger.Info("backup item with item change ctime and mtime not change")
+					c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
+					itemInfo.ParentItemID = itemInfoLatest.ID
+					_, err = c.SaveFileInfo(recoveryPointID, &itemInfo)
+					if err != nil {
+						c.logger.Error("err ", zap.Error(err))
+						s.Errors = true
+						p.Report(s)
+						return 0, err
+					}
+					s.Bytes = uint64(itemInfo.Attributes.Size)
+					p.Report(s)
+					return 0, nil
+				}
+
+			} else {
+				c.logger.Info("backup item with item no change time")
+				c.logger.Sugar().Info("Save file info ", itemInfo.Attributes.ItemName)
+				_, err = c.SaveFileInfo(recoveryPointID, &ItemInfo{
+					ItemType:       itemInfo.ItemType,
+					ParentItemID:   itemInfoLatest.ID,
+					ChunkReference: itemInfo.ChunkReference,
+				})
+
+				if err != nil {
+					c.logger.Error("err ", zap.Error(err))
+					s.Errors = true
+					p.Report(s)
+					return 0, err
+				}
+				s.Bytes = uint64(itemInfo.Attributes.Size)
+			}
+		}
+		p.Report(s)
+		return 0, nil
+	}
+}
+
+func (c *Client) RestoreDirectory(recoveryPointID string, destDir string, volume volume.StorageVolume, restoreKey *AuthRestore) error {
+	numGoroutine := int(float64(runtime.NumCPU()) * 0.2)
+	if numGoroutine <= 1 {
+		numGoroutine = 2
+	}
+	sem := semaphore.NewWeighted(int64(numGoroutine))
+	ctx, cancel := context.WithCancel(context.Background())
+	_ = cancel
+	group, ctx := errgroup.WithContext(ctx)
+	totalPage, _, err := c.GetListItemPath(recoveryPointID, 1)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 
-	bufCh := make(chan []byte, 30)
-	go func() {
-		defer close(bufCh)
-		b := make([]byte, MultipartUploadLowerBound)
-		for {
-			n, err := r.Read(b)
-			if err != nil {
-				return
-			}
-			bufCh <- b[:n]
+	for page := 1; page <= totalPage; page++ {
+		p := page
+		_, rp, err := c.GetListItemPath(recoveryPointID, p)
+		if err != nil {
+			c.logger.Error("err ", zap.Error(err))
+			return err
 		}
-	}()
-
-	partNum := 0
-	var wg sync.WaitGroup
-	var errs []error
-	var mu sync.Mutex
-	sem := make(chan struct{}, 15)
-	rc := retryablehttp.NewClient()
-	rc.RetryMax = 50 // TODO: configurable?
-	rcStd := rc.StandardClient()
-	for buf := range bufCh {
-		sem <- struct{}{}
-		buf := buf
-		partNum++
-		wg.Add(1)
-		go func(buf []byte, partNum int) {
-			defer func() {
-				<-sem
-				wg.Done()
-			}()
-			b := new(bytes.Buffer)
-			bodyWriter := multipart.NewWriter(b)
-			fileWriter, err := bodyWriter.CreateFormFile("data", recoveryPointID+"-"+strconv.Itoa(partNum))
+		for _, item := range rp.Items {
+			item := item
+			err := sem.Acquire(ctx, 1)
 			if err != nil {
-				return
+				c.logger.Error("err ", zap.Error(err))
+				continue
 			}
-			_, _ = fileWriter.Write(buf)
-			contentType := bodyWriter.FormDataContentType()
-			if err := bodyWriter.Close(); err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				return
-			}
-
-			reqURL, err := c.urlStringFromRelPath(c.uploadPartPath(recoveryPointID))
-			if err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				return
-			}
-			req, err := http.NewRequest(http.MethodPut, reqURL, io.TeeReader(b, pw))
-			if err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				return
-			}
-			q := req.URL.Query()
-			q.Add("part_number", strconv.Itoa(partNum))
-			q.Add("upload_id", m.UploadID)
-			req.URL.RawQuery = q.Encode()
-
-			resp, err := c.do(rcStd, req, contentType)
-			if err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				return
-			}
-			defer resp.Body.Close()
-
-			if _, err := io.Copy(ioutil.Discard, resp.Body); err != nil {
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-			}
-		}(buf, partNum)
+			group.Go(func() error {
+				defer sem.Release(1)
+				err := c.RestoreItem(ctx, recoveryPointID, destDir, item, volume, restoreKey)
+				if err != nil {
+					c.logger.Error("Restore file error ", zap.Error(err), zap.String("item name", item.ItemName))
+					return err
+				}
+				return nil
+			})
+		}
 	}
-	wg.Wait()
-
-	if len(errs) > 0 {
-		return fmt.Errorf("upload multiparts fails: %v", errs)
+	if err := group.Wait(); err != nil {
+		c.logger.Error("Has a goroutine error ", zap.Error(err))
+		cancel()
+		return err
 	}
-	rc.HTTPClient.CloseIdleConnections()
-
-	return c.CompleteMultipart(ctx, recoveryPointID, m.UploadID)
+	return nil
 }
 
-// UploadFile uploads given file to server.
-func (c *Client) UploadFile(fn string, r io.Reader, pw io.Writer, batch bool) error {
-	if batch {
-		return c.uploadMultipart(fn, r, pw)
-
+func (c *Client) RestoreItem(ctx context.Context, recoveryPointID string, destDir string, item Item, volume volume.StorageVolume, restoreKey *AuthRestore) error {
+	select {
+	case <-ctx.Done():
+		return errors.New("context restore item done")
+	default:
+		pathItem := filepath.Join(destDir, item.RealName)
+		switch item.ItemType {
+		case "SYMLINK":
+			err := c.restoreSymlink(pathItem, item)
+			if err != nil {
+				c.logger.Error("Error restore symlink ", zap.Error(err))
+				return err
+			}
+		case "DIRECTORY":
+			err := c.restoreDirectory(pathItem, item)
+			if err != nil {
+				c.logger.Error("Error restore directory ", zap.Error(err))
+				return err
+			}
+		case "FILE":
+			err := c.restoreFile(recoveryPointID, pathItem, item, volume, restoreKey)
+			if err != nil {
+				c.logger.Error("Error restore file ", zap.Error(err))
+				return err
+			}
+		}
+		return nil
 	}
-	return c.uploadFile(fn, r, pw)
+}
+
+func (c *Client) restoreSymlink(target string, item Item) error {
+	fi, err := os.Stat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.logger.Sugar().Info("symlink not exist, create ", target)
+			err := c.createSymlink(item.SymlinkPath, target, item.AccessMode, int(item.UID), int(item.GID))
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return err
+			}
+			return nil
+		} else {
+			c.logger.Error("err ", zap.Error(err))
+			return err
+		}
+	}
+	_, ctimeLocal, _, _, _ := ItemLocal(fi)
+	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
+		c.logger.Sugar().Info("symlink change ctime. update mode, uid, gid ", item.RealName)
+		err = os.Chmod(target, item.AccessMode)
+		if err != nil {
+			c.logger.Error("err ", zap.Error(err))
+			return err
+		}
+		_ = SetChownItem(target, int(item.UID), int(item.GID))
+	}
+	return nil
+}
+
+func (c *Client) restoreDirectory(target string, item Item) error {
+	fi, err := os.Stat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.logger.Sugar().Info("directory not exist, create ", target)
+			err := c.createDir(target, item.AccessMode, int(item.UID), int(item.GID), item.AccessTime, item.ModifyTime)
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return err
+			}
+			return nil
+		} else {
+			c.logger.Error("err ", zap.Error(err))
+			return err
+		}
+	}
+	_, ctimeLocal, _, _, _ := ItemLocal(fi)
+	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
+		c.logger.Sugar().Info("dir change ctime. update mode, uid, gid ", item.RealName)
+		err = os.Chmod(target, item.AccessMode)
+		if err != nil {
+			c.logger.Error("err ", zap.Error(err))
+			return err
+		}
+		_ = SetChownItem(target, int(item.UID), int(item.GID))
+	}
+	return nil
+}
+
+func (c *Client) restoreFile(recoveryPointID string, target string, item Item, volume volume.StorageVolume, restoreKey *AuthRestore) error {
+	fi, err := os.Stat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			c.logger.Sugar().Info("file not exist. create ", target)
+			file, err := c.createFile(target, item.AccessMode, int(item.UID), int(item.GID))
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return err
+			}
+
+			err = c.downloadFile(file, recoveryPointID, item, volume, restoreKey)
+			if err != nil {
+				c.logger.Error("downloadFile error ", zap.Error(err))
+				return err
+			}
+			return nil
+		} else {
+			c.logger.Error("err ", zap.Error(err))
+			return err
+		}
+	}
+	c.logger.Sugar().Info("file exist ", target)
+	_, ctimeLocal, mtimeLocal, _, _ := ItemLocal(fi)
+	if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
+		if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModifyTime)) {
+			c.logger.Sugar().Info("file change mtime, ctime ", target)
+			if err = os.Remove(target); err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return err
+			}
+
+			file, err := c.createFile(target, item.AccessMode, int(item.UID), int(item.GID))
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return err
+			}
+
+			err = c.downloadFile(file, recoveryPointID, item, volume, restoreKey)
+			if err != nil {
+				c.logger.Error("downloadFile error ", zap.Error(err))
+				return err
+			}
+			return nil
+		} else {
+			c.logger.Sugar().Info("file change ctime. update mode, uid, gid ", target)
+			err = os.Chmod(target, item.AccessMode)
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return err
+			}
+			_ = SetChownItem(target, int(item.UID), int(item.GID))
+			err = os.Chtimes(target, item.AccessTime, item.ModifyTime)
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return err
+			}
+		}
+	} else {
+		c.logger.Sugar().Info("file not change. not restore", target)
+	}
+
+	return nil
+}
+
+func (c *Client) downloadFile(file *os.File, recoveryPointID string, item Item, volume volume.StorageVolume, restoreKey *AuthRestore) error {
+	totalPage, infos, err := c.getChunksInItem(recoveryPointID, item.ID, 1)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+	if len(infos.Chunks) == 0 {
+		return nil
+	}
+
+	for page := 1; page <= totalPage; page++ {
+		_, infos, err := c.getChunksInItem(recoveryPointID, item.ID, page)
+		if err != nil {
+			c.logger.Error("err ", zap.Error(err))
+			return err
+		}
+		for _, info := range infos.Chunks {
+			offset, err := strconv.ParseInt(strconv.Itoa(info.Offset), 10, 64)
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return err
+			}
+			key := info.Etag
+
+			data, err := c.GetObject(volume, key, restoreKey)
+			if err != nil {
+				c.logger.Error("err ", zap.Error(err))
+				return err
+			}
+			_, errWriteFile := file.WriteAt(data, offset)
+			if errWriteFile != nil {
+				c.logger.Error("err write file ", zap.Error(errWriteFile))
+				return errWriteFile
+			}
+		}
+	}
+
+	err = os.Chmod(file.Name(), item.AccessMode)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+	_ = SetChownItem(file.Name(), int(item.UID), int(item.GID))
+	err = os.Chtimes(file.Name(), item.AccessTime, item.ModifyTime)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+	return nil
+}
+
+func (c *Client) GetListItemPath(recoveryPointID string, page int) (int, *ItemsResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.getListItemPath(recoveryPointID))
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return 0, nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return 0, nil, err
+	}
+
+	itemsPerPage := 50
+	q := req.URL.Query()
+	q.Add("items_per_page", strconv.Itoa(itemsPerPage))
+	q.Add("page", strconv.Itoa(page))
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.Do(req)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return 0, nil, err
+	}
+
+	var b bytes.Buffer
+	_, err = io.Copy(&b, resp.Body)
+	if err != nil {
+		c.logger.Error("Err write to buf ", zap.Error(err))
+	} else {
+		c.logger.Debug("Body Response", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
+	}
+
+	var items ItemsResponse
+	if err := json.NewDecoder(&b).Decode(&items); err != nil {
+		c.logger.Error("Err ", zap.Error(err))
+		c.logger.Error("Body ", zap.String("Body", b.String()))
+		return 0, nil, err
+	}
+
+	totalItem := items.Total
+	totalPage := int(math.Ceil(float64(totalItem) / float64(itemsPerPage)))
+
+	return totalPage, &items, nil
+}
+
+func (c *Client) createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, gid int) error {
+	dirName := filepath.Dir(path)
+	if _, err := os.Stat(dirName); os.IsNotExist(err) {
+		if err := os.MkdirAll(dirName, os.ModePerm); err != nil {
+			c.logger.Error("err ", zap.Error(err))
+			return err
+		}
+	}
+
+	err := os.Symlink(symlinkPath, path)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+	}
+
+	err = os.Chmod(path, mode)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+	}
+	_ = SetChownItem(path, uid, gid)
+	return nil
+}
+
+func (c *Client) createDir(path string, mode fs.FileMode, uid int, gid int, atime time.Time, mtime time.Time) error {
+	err := os.MkdirAll(path, os.ModePerm)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+
+	err = os.Chmod(path, mode)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+
+	_ = SetChownItem(path, uid, gid)
+	err = os.Chtimes(path, atime, mtime)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+
+	return nil
+}
+
+func (c *Client) createFile(path string, mode fs.FileMode, uid int, gid int) (*os.File, error) {
+	dirName := filepath.Dir(path)
+	if _, err := os.Stat(dirName); os.IsNotExist(err) {
+		c.logger.Sugar().Info("file not exist ", dirName)
+		if err := os.MkdirAll(dirName, 0700); err != nil {
+			c.logger.Error("err ", zap.Error(err))
+			return nil, err
+		}
+	}
+	var file *os.File
+	file, err := os.Create(path)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+
+	err = os.Chmod(path, mode)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+
+	_ = SetChownItem(path, uid, gid)
+	return file, nil
+}
+
+func timeToString(time time.Time) string {
+	return time.Format("2006-01-02 15:04:05.000000")
 }

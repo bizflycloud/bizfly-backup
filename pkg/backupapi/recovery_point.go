@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
+
 	"io/ioutil"
 	"net/http"
+
+	"go.uber.org/zap"
 )
 
 const (
@@ -40,6 +42,7 @@ type CreateRecoveryPointResponse struct {
 	RecoveryPoint *RecoveryPoint `json:"recovery_point"`
 	Action        string         `json:"action"`
 	Status        string         `json:"status"`
+	Volume        *Volume        `json:"volume"`
 }
 
 // CreateRecoveryPointRequest represents a request to create a recovery point.
@@ -60,50 +63,89 @@ type UpdateRecoveryPointRequest struct {
 	Status string `json:"status"`
 }
 
+// LatestRecoveryPointID get a id latest recovery point of backup directory id.
+type RecoveryPointResponse struct {
+	Name              string `json:"name"`
+	RecoveryPointType string `json:"recovery_point_type"`
+	ID                string `json:"id"`
+	Status            string `json:"status"`
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
+}
+
 func (c *Client) recoveryPointPath(backupDirectoryID string) string {
-	return "/agent/backup-directories/" + backupDirectoryID + "/recovery-points"
+	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points", backupDirectoryID)
 }
 
 func (c *Client) recoveryPointItemPath(backupDirectoryID string, recoveryPointID string) string {
 	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points/%s", backupDirectoryID, recoveryPointID)
 }
 
-func (c *Client) downloadFileContentPath(recoveryPointID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/file/download", recoveryPointID)
-}
-
 func (c *Client) recoveryPointActionPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/action", recoveryPointID)
 }
 
-func (c *Client) initMultipartPath(recoveryPointID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/file/multipart/init", recoveryPointID)
+func (c *Client) saveChunkPath(recoveryPointID string, itemID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/file/%s/chunks", recoveryPointID, itemID)
 }
 
-func (c *Client) uploadPartPath(recoveryPointID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/file/multipart/put", recoveryPointID)
+func (c *Client) getListItemPath(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/items", recoveryPointID)
 }
 
-func (c *Client) completeMultipartPath(recoveryPointID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/file/multipart/complete", recoveryPointID)
+func (c *Client) infoFile(recoveryPointID string, itemID string) string {
+	return fmt.Sprintf("/agent/auth/%s/file/%s", recoveryPointID, itemID)
+}
+
+func (c *Client) latestRecoveryPointID(backupDirectoryID string) string {
+	return fmt.Sprintf("/agent/backup-directories/%s/latest-recovery-points", backupDirectoryID)
+}
+
+func (c *Client) GetLatestRecoveryPointID(backupDirectoryID string) (*RecoveryPointResponse, error) {
+	req, err := c.NewRequest(http.MethodGet, c.latestRecoveryPointID(backupDirectoryID), nil)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var lrp RecoveryPointResponse
+	if err := json.NewDecoder(resp.Body).Decode(&lrp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	return &lrp, nil
 }
 
 func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID string, crpr *CreateRecoveryPointRequest) (*CreateRecoveryPointResponse, error) {
 	req, err := c.NewRequest(http.MethodPost, c.recoveryPointPath(backupDirectoryID), crpr)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
 	resp, err := c.Do(req.WithContext(ctx))
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 	var crp CreateRecoveryPointResponse
 	if err := json.NewDecoder(resp.Body).Decode(&crp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
@@ -113,19 +155,23 @@ func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID string, recoveryPointID string, urpr *UpdateRecoveryPointRequest) error {
 	req, err := c.NewRequest(http.MethodPatch, c.recoveryPointItemPath(backupDirectoryID, recoveryPointID), urpr)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 
 	resp, err := c.Do(req.WithContext(ctx))
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	defer resp.Body.Close()
 	buf, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	if resp.StatusCode != http.StatusOK {
@@ -134,113 +180,91 @@ func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 	return nil
 }
 
-// DownloadFileContent downloads file content at given recovery point id, write the content to writer.
-func (c *Client) DownloadFileContent(ctx context.Context, createdAt string, restoreSessionKey string, recoveryPointID string, w io.Writer) error {
-	req, err := c.NewRequest(http.MethodGet, c.downloadFileContentPath(recoveryPointID), nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Add("X-Session-Created-At", createdAt)
-	req.Header.Add("X-Restore-Session-Key", restoreSessionKey)
-	q := req.URL.Query()
-	q.Set("name", recoveryPointID+".zip")
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := c.Do(req.WithContext(ctx))
-	if err != nil {
-		return err
-	}
-	if err := checkResponse(resp); err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	_, err = io.Copy(w, resp.Body)
-	return err
-}
-
 // ListRecoveryPoints list all recovery points of given backup directory.
 func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID string) ([]RecoveryPoint, error) {
 	req, err := c.NewRequest(http.MethodGet, c.recoveryPointPath(backupDirectoryID), nil)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
 	resp, err := c.Do(req.WithContext(ctx))
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var rps []RecoveryPoint
 	if err := json.NewDecoder(resp.Body).Decode(&rps); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	return rps, nil
-}
-
-func (c *Client) InitMultipart(ctx context.Context, recoveryPointID string) (*Multipart, error) {
-	req, err := c.NewRequest(http.MethodPost, c.initMultipartPath(recoveryPointID), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.Do(req.WithContext(ctx))
-	if err != nil {
-		return nil, err
-	}
-	if err := checkResponse(resp); err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var m Multipart
-	if err := json.NewDecoder(resp.Body).Decode(&m); err != nil {
-		return nil, err
-	}
-	return &m, nil
-}
-
-func (c *Client) CompleteMultipart(ctx context.Context, recoveryPointID, uploadID string) error {
-	req, err := c.NewRequest(http.MethodPost, c.completeMultipartPath(recoveryPointID), nil)
-	if err != nil {
-		return err
-	}
-	q := req.URL.Query()
-	q.Add("upload_id", uploadID)
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := c.Do(req.WithContext(ctx))
-	if err != nil {
-		return err
-	}
-	if err := checkResponse(resp); err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	_, err = io.Copy(ioutil.Discard, resp.Body)
-	return err
 }
 
 // RequestRestore requests restore
 func (c *Client) RequestRestore(recoveryPointID string, crr *CreateRestoreRequest) error {
 	req, err := c.NewRequest(http.MethodPost, c.recoveryPointActionPath(recoveryPointID), crr)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	resp, err := c.Do(req)
-
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	defer resp.Body.Close()
 	return nil
+}
+
+func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, createdAt string) (*RestoreResponse, error) {
+	reqURL, err := c.urlStringFromRelPath(c.getRestoreSessionKey(recoveryPointID))
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+
+	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Add("action_id", actionID)
+	q.Add("created_at", createdAt)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := c.Do(req)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+
+	var restoreRsp RestoreResponse
+	if err := json.NewDecoder(resp.Body).Decode(&restoreRsp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	return &restoreRsp, nil
+}
+
+func (c *Client) getRestoreSessionKey(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s/restore-key", recoveryPointID)
+}
+
+type RestoreResponse struct {
+	ActionID          string `json:"action_id"`
+	CreatedAt         string `json:"created_at"`
+	RestoreSessionKey string `json:"restore_session_key"`
 }

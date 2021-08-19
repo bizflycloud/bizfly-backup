@@ -1,7 +1,6 @@
 package server
 
 import (
-	"archive/zip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,25 +21,32 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
+	"github.com/google/uuid"
 	"github.com/inconshreveable/go-update"
 	"github.com/jpillora/backoff"
+	"github.com/panjf2000/ants/v2"
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
 	"golang.org/x/mod/semver"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
+	"github.com/bizflycloud/bizfly-backup/pkg/progress"
+	"github.com/bizflycloud/bizfly-backup/pkg/volume"
+	"github.com/bizflycloud/bizfly-backup/pkg/volume/s3"
 )
 
 var Version = "dev"
 
 const (
-	statusZipFile     = "ZIP_FILE"
 	statusUploadFile  = "UPLOADING"
 	statusComplete    = "COMPLETED"
 	statusDownloading = "DOWNLOADING"
-	statusRestoring   = "RESTORING"
 	statusFailed      = "FAILED"
+)
+
+const (
+	PERCENT_PROCESS = 0.2
 )
 
 // Server defines parameters for running BizFly Backup HTTP server.
@@ -60,6 +67,11 @@ type Server struct {
 	// signal chan use for testing.
 	testSignalCh chan os.Signal
 
+	// Goroutines pool
+	poolDir   *ants.Pool
+	pool      *ants.Pool
+	chunkPool *ants.Pool
+
 	logger *zap.Logger
 }
 
@@ -79,7 +91,7 @@ func New(opts ...Option) (*Server, error) {
 	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 
 	if s.logger == nil {
-		l, err := zap.NewDevelopment()
+		l, err := backupapi.WriteLog()
 		if err != nil {
 			return nil, err
 		}
@@ -90,6 +102,27 @@ func New(opts ...Option) (*Server, error) {
 	s.useUnixSock = strings.HasPrefix(s.Addr, "unix://")
 	s.Addr = strings.TrimPrefix(s.Addr, "unix://")
 
+	var err error
+	numGoroutine := int(float64(runtime.NumCPU()) * PERCENT_PROCESS)
+	if numGoroutine <= 1 {
+		numGoroutine = 2
+	}
+	s.poolDir, err = ants.NewPool(numGoroutine)
+	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+
+	s.pool, err = ants.NewPool(numGoroutine)
+	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	s.chunkPool, err = ants.NewPool(numGoroutine)
+	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
 	return s, nil
 }
 
@@ -102,7 +135,6 @@ func (s *Server) setupRoutes() {
 	})
 
 	s.router.Route("/recovery-points", func(r chi.Router) {
-		r.Get("/{recoveryPointID}/download", s.DownloadRecoveryPoint)
 		r.Post("/{recoveryPointID}/restore", s.RequestRestore)
 	})
 
@@ -124,9 +156,17 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
 	case broker.BackupManual:
-		return s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+		var err error
+		go func() {
+			err = s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+		}()
+		return err
 	case broker.RestoreManual:
-		return s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, ioutil.Discard)
+		var err error
+		go func() {
+			err = s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.VolumeId, ioutil.Discard)
+		}()
+		return err
 	case broker.ConfigUpdate:
 		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
 	case broker.ConfigRefresh:
@@ -235,6 +275,7 @@ func (s *Server) RequestBackup(w http.ResponseWriter, r *http.Request) {
 func (s *Server) ListBackup(w http.ResponseWriter, r *http.Request) {
 	c, err := s.backupClient.GetConfig(r.Context())
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
@@ -246,22 +287,12 @@ func (s *Server) ListRecoveryPoints(w http.ResponseWriter, r *http.Request) {
 	backupID := chi.URLParam(r, "backupID")
 	rps, err := s.backupClient.ListRecoveryPoints(r.Context(), backupID)
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
 	}
 	_ = json.NewEncoder(w).Encode(rps)
-}
-
-func (s *Server) DownloadRecoveryPoint(w http.ResponseWriter, r *http.Request) {
-	recoveryPointID := chi.URLParam(r, "recoveryPointID")
-	createdAt := r.Header.Get("X-Session-Created-At")
-	restoreSessionKey := r.Header.Get("X-Restore-Session-Key")
-	if err := s.backupClient.DownloadFileContent(r.Context(), createdAt, restoreSessionKey, recoveryPointID, w); err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(err.Error()))
-		return
-	}
 }
 
 func (s *Server) RequestRestore(w http.ResponseWriter, r *http.Request) {
@@ -287,6 +318,7 @@ func (s *Server) RequestRestore(w http.ResponseWriter, r *http.Request) {
 func (s *Server) SyncConfig(w http.ResponseWriter, r *http.Request) {
 	c, err := s.backupClient.GetConfig(r.Context())
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		w.WriteHeader(http.StatusInternalServerError)
 		_, _ = w.Write([]byte(err.Error()))
 		return
@@ -318,6 +350,7 @@ func (s *Server) doUpgrade() error {
 	}
 	lv, err := s.backupClient.LatestVersion()
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	latestVer := "v" + lv.Ver
@@ -344,11 +377,12 @@ func (s *Server) doUpgrade() error {
 	s.logger.Info("Detect new version, downloading...", fields...)
 	resp, err := http.Get(binURL)
 	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	defer resp.Body.Close()
 	s.logger.Info("Finish downloading, perform upgrading...")
-	err = update.Apply(resp.Body, update.Options{})
+	_ = update.Apply(resp.Body, update.Options{})
 	s.logger.Info("Upgrading done! TODO: self restart? For now, call os.Exit so service manager will restart us!")
 	if s.useUnixSock {
 		//	Remove socket and exit
@@ -479,6 +513,7 @@ func (s *Server) Run() error {
 	if s.useUnixSock {
 		unixListener, err := net.Listen("unix", s.Addr)
 		if err != nil {
+			s.logger.Error("err ", zap.Error(err))
 			return err
 		}
 		return srv.Serve(unixListener)
@@ -486,18 +521,6 @@ func (s *Server) Run() error {
 
 	srv.Addr = s.Addr
 	return srv.ListenAndServe()
-}
-
-func (s *Server) reportStartCompress(w io.Writer) {
-	_, _ = w.Write([]byte("Start compressing ..."))
-}
-
-func (s *Server) reportCompressDone(w io.Writer) {
-	_, _ = w.Write([]byte("Compressing done ..."))
-}
-
-func (s *Server) reportStartUpload(w io.Writer) {
-	_, _ = w.Write([]byte("Start uploading ..."))
 }
 
 func (s *Server) reportUploadCompleted(w io.Writer) {
@@ -521,83 +544,9 @@ func (s *Server) notifyStatusFailed(recoveryPointID, reason string) {
 
 // backup performs backup flow.
 func (s *Server) backup(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer) error {
-	ctx := context.Background()
-	// Create recovery point
-	rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
-		PolicyID:          policyID,
-		Name:              name,
-		RecoveryPointType: recoveryPointType,
-	})
-	if err != nil {
-		return err
-	}
-
-	// Get BackupDirectory
-	bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-
-	s.notifyMsg(map[string]string{
-		"action_id": rp.ID,
-		"status":    statusZipFile,
-	})
-	wd := filepath.Dir(bd.Path)
-	backupDir := filepath.Base(bd.Path)
-
-	if err := os.Chdir(wd); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-
-	// Compress directory
-	s.reportStartCompress(progressOutput)
-	fi, err := ioutil.TempFile("", "bizfly-backup-agent-backup-*")
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	defer os.Remove(fi.Name())
-	if err := compressDir(backupDir, fi); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	if err := fi.Close(); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	s.reportCompressDone(progressOutput)
-	fi, err = os.Open(fi.Name())
-	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	defer fi.Close()
-	batch := false
-	if f, err := fi.Stat(); err == nil {
-		batch = f.Size() > backupapi.MultipartUploadLowerBound
-	}
-
-	s.notifyMsg(map[string]string{
-		"action_id": rp.ID,
-		"status":    statusUploadFile,
-	})
-	// Upload file to server
-	s.reportStartUpload(progressOutput)
-	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.UploadFile(rp.RecoveryPoint.ID, fi, pw, batch); err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
-		return err
-	}
-	s.reportUploadCompleted(progressOutput)
-
-	s.notifyMsg(map[string]string{
-		"action_id": rp.ID,
-		"status":    statusComplete,
-	})
-
-	return nil
+	chErr := make(chan error, 1)
+	_ = s.poolDir.Submit(s.backupWorker(backupDirectoryID, policyID, name, recoveryPointType, progressOutput, chErr))
+	return <-chErr
 }
 
 // requestBackup performs a request backup flow.
@@ -628,15 +577,22 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))
 }
 
-func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, progressOutput io.Writer) error {
-	ctx := context.Background()
+func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, volumeId string, progressOutput io.Writer) error {
+	// Get storage volume
 
-	fi, err := ioutil.TempFile("", "bizfly-backup-agent-restore*")
+	restoreKey := &backupapi.AuthRestore{
+		RecoveryPointID:   recoveryPointID,
+		ActionID:          actionID,
+		CreatedAt:         createdAt,
+		RestoreSessionKey: restoreSessionKey,
+	}
+
+	vol, err := s.backupClient.GetCredentialVolume(volumeId, actionID, restoreKey)
 	if err != nil {
-		s.notifyStatusFailed(actionID, err.Error())
+		s.logger.Error("Get credential volume error", zap.Error(err))
 		return err
 	}
-	defer os.Remove(fi.Name())
+	storageVolume, _ := NewStorageVolume(*vol, actionID)
 
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
@@ -644,34 +600,20 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	})
 
 	s.reportStartDownload(progressOutput)
-	pw := backupapi.NewProgressWriter(progressOutput)
-	if err := s.backupClient.DownloadFileContent(ctx, createdAt, restoreSessionKey, recoveryPointID, io.MultiWriter(fi, pw)); err != nil {
-		s.logger.Error("failed to download file content", zap.Error(err))
-		s.notifyStatusFailed(actionID, err.Error())
-		return err
-	}
-	s.reportDownloadCompleted(progressOutput)
-	if err := fi.Close(); err != nil {
-		s.logger.Error("failed to save to temporary file", zap.Error(err))
+
+	if err := s.backupClient.RestoreDirectory(recoveryPointID, destDir, storageVolume, restoreKey); err != nil {
+		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 
-	s.notifyMsg(map[string]string{
-		"action_id": actionID,
-		"status":    statusRestoring,
-	})
+	s.reportDownloadCompleted(progressOutput)
 	s.reportStartRestore(progressOutput)
-	if err := unzip(fi.Name(), destDir); err != nil {
-		s.notifyStatusFailed(actionID, err.Error())
-		return err
-	}
 	s.reportRestoreCompleted(progressOutput)
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
 		"status":    statusComplete,
 	})
-
 	return nil
 }
 
@@ -686,115 +628,307 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 	return nil
 }
 
-func compressDir(src string, w io.Writer) error {
-	srcAbs, err := filepath.Abs(src)
-	if err != nil {
-		return err
+func NewStorageVolume(vol backupapi.Volume, actionID string) (volume.StorageVolume, error) {
+	switch vol.VolumeType {
+	case "S3":
+		return s3.NewS3Default(vol, actionID), nil
+	default:
+		return nil, fmt.Errorf(fmt.Sprintf("volume type not supported %s", vol.VolumeType))
 	}
-
-	// zip > buf
-	zw := zip.NewWriter(w)
-	defer zw.Close()
-
-	walker := func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		isSymlink := info.Mode()&os.ModeSymlink != 0
-		fi, err := os.Open(path)
-		if os.IsNotExist(err) && isSymlink {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		defer fi.Close()
-
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-
-		header.Name = strings.TrimPrefix(path, srcAbs+string(os.PathSeparator))
-		header.Method = zip.Deflate
-		header.SetMode(info.Mode())
-
-		fw, err := zw.CreateHeader(header)
-		if err != nil {
-			return err
-		}
-
-		if isSymlink {
-			return nil
-		}
-
-		_, err = io.Copy(fw, fi)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	// walk through every file in the folder and add to zip writer.
-	if err := filepath.Walk(srcAbs, walker); err != nil {
-		return err
-	}
-
-	if err := zw.Close(); err != nil {
-		return err
-	}
-
-	return nil
 }
 
-func unzip(zipFile, dest string) error {
-	r, err := zip.OpenReader(zipFile)
-	if err != nil {
-		return fmt.Errorf("zip.OpenReader: %w", err)
-	}
-	defer r.Close()
+func WalkerDir(dir string, p *progress.Progress) (progress.Stat, *backupapi.FileInfoRequest, error) {
+	//func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
+	p.Start()
+	defer p.Done()
 
-	if err := os.MkdirAll(dest, 0755); err != nil && !os.IsExist(err) {
-		return err
-	}
-
-	extractAndWriteFile := func(f *zip.File) error {
-		rc, err := f.Open()
+	var fileInfoRequest backupapi.FileInfoRequest
+	//var total uint64
+	var st progress.Stat
+	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
-			return fmt.Errorf("extractAndWriteFile: f.Open: %w", err)
-		}
-		defer rc.Close()
-		path := filepath.Join(dest, f.Name)
-
-		if f.FileInfo().IsDir() {
-			_ = os.MkdirAll(path, f.Mode())
-		} else {
-			_ = os.MkdirAll(filepath.Dir(path), 0755)
-			f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-			if err != nil {
-				return fmt.Errorf("extractAndWriteFile: os.OpenFile: %w", err)
-			}
-			defer f.Close()
-
-			if _, err := io.Copy(f, rc); err != nil {
-				return fmt.Errorf("extractAndWriteFile: io.Copy: %w", err)
-			}
-			if err := f.Close(); err != nil {
-				return fmt.Errorf("extractAndWriteFile: f.Close: %w", err)
-			}
-		}
-		return nil
-	}
-
-	for _, f := range r.File {
-		if err := extractAndWriteFile(f); err != nil {
 			return err
 		}
+
+		s := progress.Stat{
+			Items: 1,
+			Bytes: uint64(fi.Size()),
+		}
+
+		singleFile := backupapi.ItemInfo{
+			ParentItemID:   "",
+			ChunkReference: false,
+			Attributes: &backupapi.Attribute{
+				ID:          uuid.New().String(),
+				ItemName:    path,
+				ModifyTime:  fi.ModTime().UTC(),
+				Mode:        fi.Mode().String(),
+				AccessMode:  fi.Mode(),
+				Size:        fi.Size(),
+				SymlinkPath: "",
+			},
+		}
+
+		atimeLocal, ctimeLocal, _, uid, gid := backupapi.ItemLocal(fi)
+		singleFile.Attributes.AccessTime = atimeLocal
+		singleFile.Attributes.ChangeTime = ctimeLocal
+		singleFile.Attributes.UID = uid
+		singleFile.Attributes.GID = gid
+
+		if fi.IsDir() {
+			singleFile.ItemType = "DIRECTORY"
+			singleFile.Attributes.ItemType = "DIRECTORY"
+			singleFile.Attributes.IsDir = true
+			singleFile.ChunkReference = false
+		} else if fi.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path)
+			if err != nil {
+				return err
+			}
+			singleFile.ItemType = "SYMLINK"
+			singleFile.Attributes.ItemType = "SYMLINK"
+			singleFile.Attributes.SymlinkPath = link
+			singleFile.ChunkReference = false
+		} else {
+			singleFile.ItemType = "FILE"
+			singleFile.Attributes.ItemType = "FILE"
+			singleFile.Attributes.IsDir = false
+			singleFile.ChunkReference = true
+		}
+
+		fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
+		p.Report(s)
+		st.Add(s)
+		return nil
+	})
+	if err != nil {
+		return progress.Stat{}, nil, err
 	}
 
-	return nil
+	return st, &fileInfoRequest, err
+}
+
+type backupJob func()
+
+func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, actionID string, latestRecoveryPointID string,
+	itemInfo backupapi.ItemInfo, volume volume.StorageVolume, wg *sync.WaitGroup, size *uint64, errCh *error, p *progress.Progress) backupJob {
+	return func() {
+		defer wg.Done()
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			p.Start()
+			ctx, cancel := context.WithCancel(ctx)
+			_ = cancel
+			s.logger.Info("Upload file worker: ", zap.String("recoveryPointID", recoveryPointID), zap.String("actionID", actionID), zap.String("item name", itemInfo.Attributes.ItemName))
+			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, recoveryPointID, actionID, latestRecoveryPointID, itemInfo, volume, p)
+			if err != nil {
+				s.logger.Error("uploadFileWorker error", zap.Error(err))
+				*errCh = err
+				cancel()
+				return
+			}
+			*size += storageSize
+		}
+	}
+}
+
+func (s *Server) backupWorker(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer, errCh chan<- error) backupJob {
+	return func() {
+		s.logger.Info("Backup directory ID: ", zap.String("backupDirectoryID", backupDirectoryID), zap.String("policyID", policyID), zap.String("name", name), zap.String("recoveryPointType", recoveryPointType))
+
+		ctx := context.Background()
+		// Get BackupDirectory
+		bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
+		if err != nil {
+			s.logger.Error("GetBackupDirectory error", zap.Error(err))
+			errCh <- err
+			return
+		}
+
+		// Create recovery point
+		rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
+			PolicyID:          policyID,
+			Name:              name,
+			RecoveryPointType: recoveryPointType,
+		})
+		if err != nil {
+			s.logger.Error("CreateRecoveryPoint error", zap.Error(err))
+			errCh <- err
+			return
+		}
+
+		// Get latest recovery point
+		lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			s.logger.Error("GetLatestRecoveryPointID error", zap.Error(err))
+			errCh <- err
+			return
+		}
+
+		// Get storage volume
+		storageVolume, err := NewStorageVolume(*rp.Volume, rp.ID)
+		if err != nil {
+			s.logger.Error("NewStorageVolume error", zap.Error(err))
+			errCh <- err
+			return
+		}
+
+		s.notifyMsg(map[string]string{
+			"action_id": rp.ID,
+			"status":    statusUploadFile,
+		})
+		progressScan := s.newProgressScanDir()
+		itemTodo, itemsInfo, err := WalkerDir(bd.Path, progressScan)
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			s.logger.Error("WalkerDir error", zap.Error(err))
+			errCh <- err
+			return
+		}
+
+		var storageSize uint64
+		var errFileWorker error
+		progressUpload := s.newUploadProgress(itemTodo)
+		ctx, cancel := context.WithCancel(ctx)
+		_ = cancel
+		var wg sync.WaitGroup
+		for _, itemInfo := range itemsInfo.Files {
+			if errFileWorker != nil {
+				s.logger.Error("uploadFileWorker error", zap.Error(errFileWorker))
+				err = errFileWorker
+				cancel()
+				break
+			}
+			wg.Add(1)
+			_ = s.pool.Submit(s.uploadFileWorker(ctx, rp.RecoveryPoint.ID, rp.ID, lrp.ID, itemInfo, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
+		}
+		wg.Wait()
+
+		if errFileWorker != nil {
+			if err != nil {
+				s.notifyStatusFailed(rp.ID, err.Error())
+			} else {
+				s.notifyStatusFailed(rp.ID, errFileWorker.Error())
+			}
+			s.logger.Error("Error uploadFileWorker error", zap.Error(errFileWorker))
+			progressUpload.Done()
+			errCh <- errFileWorker
+			return
+		}
+
+		s.reportUploadCompleted(progressOutput)
+		progressUpload.Done()
+		s.notifyMsg(map[string]string{
+			"action_id":    rp.ID,
+			"status":       statusComplete,
+			"storage_size": strconv.FormatUint(storageSize, 10),
+			"total":        strconv.FormatUint(itemTodo.Bytes, 10),
+		})
+
+		errCh <- nil
+	}
+}
+
+func (s *Server) newProgressScanDir() *progress.Progress {
+	p := progress.NewProgress(time.Second)
+	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
+		s.notifyMsg(map[string]string{
+			"STATISTIC": stat.String(),
+		})
+	}
+	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
+		s.notifyMsg(map[string]string{
+			"SCANNED": stat.String(),
+		})
+	}
+	return p
+}
+
+func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
+	p := progress.NewProgress(time.Second * 2)
+
+	var bps, eta uint64
+	itemsTodo := todo.Items
+
+	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
+		sec := uint64(d / time.Second)
+
+		if todo.Bytes > 0 && sec > 0 && ticker {
+			bps = stat.Bytes / sec
+			if stat.Bytes >= todo.Bytes {
+				eta = 0
+			} else if bps > 0 {
+				eta = (todo.Bytes - stat.Bytes) / bps
+			}
+		}
+
+		if ticker {
+			itemsDone := stat.Items
+
+			status1 := fmt.Sprintf("[Duration %s] %s [speed:%s/s] [%s/%s (Total)] [%s put storage] [%d/%d items] %t erros ",
+				formatDuration(d), formatPercent(stat.Bytes, todo.Bytes), formatBytes(bps), formatBytes(stat.Bytes), formatBytes(todo.Bytes),
+				formatBytes(stat.Storage), itemsDone, itemsTodo, stat.Errors)
+			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
+
+			message := fmt.Sprintf("%s %s", status1, status2)
+			s.notifyMsg(map[string]string{
+				"Uploading": message,
+			})
+		}
+	}
+
+	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
+		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
+		s.notifyMsg(map[string]string{
+			"COMPLETE UPLOAD": message,
+		})
+	}
+	return p
+}
+
+func formatBytes(c uint64) string {
+	b := float64(c)
+
+	switch {
+	case c > 1<<40:
+		return fmt.Sprintf("%.3f TiB", b/(1<<40))
+	case c > 1<<30:
+		return fmt.Sprintf("%.3f GiB", b/(1<<30))
+	case c > 1<<20:
+		return fmt.Sprintf("%.3f MiB", b/(1<<20))
+	case c > 1<<10:
+		return fmt.Sprintf("%.3f KiB", b/(1<<10))
+	default:
+		return fmt.Sprintf("%dB", c)
+	}
+}
+
+func formatPercent(numerator uint64, denominator uint64) string {
+	if denominator == 0 {
+		return ""
+	}
+	percent := 100.0 * float64(numerator) / float64(denominator)
+	if percent > 100 {
+		percent = 100
+	}
+	return fmt.Sprintf("%3.2f%%", percent)
+}
+
+func formatSeconds(sec uint64) string {
+	hours := sec / 3600
+	sec -= hours * 3600
+	min := sec / 60
+	sec -= min * 60
+	if hours > 0 {
+		return fmt.Sprintf("%d:%02d:%02d", hours, min, sec)
+	}
+	return fmt.Sprintf("%d:%02d", min, sec)
+}
+
+func formatDuration(d time.Duration) string {
+	sec := uint64(d / time.Second)
+	return formatSeconds(sec)
 }

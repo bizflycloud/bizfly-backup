@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v2"
 )
 
@@ -34,20 +35,24 @@ func (c *Client) configPath() string {
 func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
 	req, err := c.NewRequest(http.MethodGet, c.configPath(), nil)
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
 	resp, err := c.Do(req.WithContext(ctx))
 	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var cfg Config
 	if err := yaml.NewDecoder(resp.Body).Decode(&cfg); err != nil {
+		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 

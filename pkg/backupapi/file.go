@@ -325,11 +325,13 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 		hash := md5.Sum(data)
 		key := hex.EncodeToString(hash[:])
 		chunk.Etag = key
+		c.mu.Lock()
 		if count, ok := chunks.Chunks[key]; ok {
 			chunks.Chunks[key] = count + 1
 		} else {
 			chunks.Chunks[key] = 1
 		}
+		c.mu.Unlock()
 		isExist, etag, err := c.HeadObject(volume, key)
 		if err != nil {
 			c.logger.Sugar().Errorf("backup chunk head object error: ", zap.Error(err))
@@ -492,12 +494,15 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 			return storageSize, nil
 		} else {
 			c.logger.Info("backup item with item no change mtime, ctime")
-			for _, c := range lastInfo.Content {
-				if count, ok := chunks.Chunks[c.Etag]; ok {
-					chunks.Chunks[c.Etag] = count + 1
+			for _, content := range lastInfo.Content {
+				c.mu.Lock()
+
+				if count, ok := chunks.Chunks[content.Etag]; ok {
+					chunks.Chunks[content.Etag] = count + 1
 				} else {
-					chunks.Chunks[c.Etag] = 1
+					chunks.Chunks[content.Etag] = 1
 				}
+				c.mu.Unlock()
 			}
 			itemInfo.Content = lastInfo.Content
 		}

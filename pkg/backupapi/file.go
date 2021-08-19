@@ -456,6 +456,7 @@ func (c *Client) backupChunk(ctx context.Context, chunk ChunkInfo, itemInfo Item
 
 func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo ItemInfo, recoveryPointID string, actionID string, volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
 	ctx, cancel := context.WithCancel(ctx)
+	_ = cancel
 	select {
 	case <-ctx.Done():
 		c.logger.Info("context done ChunkFileToBackup")
@@ -536,6 +537,7 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 		default:
 			s := progress.Stat{}
 			ctx, cancel := context.WithCancel(ctx)
+			_ = cancel
 			saveSize, err := c.backupChunk(ctx, chunk, itemInfo, recoveryPointID, actionID, volume)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
@@ -654,6 +656,7 @@ func (c *Client) RestoreDirectory(recoveryPointID string, destDir string, volume
 	}
 	sem := semaphore.NewWeighted(int64(numGoroutine))
 	ctx, cancel := context.WithCancel(context.Background())
+	_ = cancel
 	group, ctx := errgroup.WithContext(ctx)
 	totalPage, _, err := c.GetListItemPath(recoveryPointID, 1)
 	if err != nil {

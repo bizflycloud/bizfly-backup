@@ -65,7 +65,10 @@ func NewClient(opts ...ClientOption) (*Client, error) {
 	}
 
 	if c.logger == nil {
-		l := WriteLog()
+		l, err := WriteLog()
+		if err != nil {
+			return nil, err
+		}
 		c.logger = l
 	}
 
@@ -185,7 +188,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		var b bytes.Buffer
 		_, _ = io.Copy(&b, resp.Body)
 		c.logger.Error("Request error ", zap.Int("StatusCode", resp.StatusCode), zap.String("Body Response", b.String()))
-		return nil, errors.New(fmt.Sprintf("StatusCode %d Body response %s", resp.StatusCode, b.String()))
+		return nil, fmt.Errorf(fmt.Sprintf("StatusCode %d Body response %s", resp.StatusCode, b.String()))
 	}
 
 	return resp, nil

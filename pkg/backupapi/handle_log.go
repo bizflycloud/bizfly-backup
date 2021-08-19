@@ -2,6 +2,7 @@ package backupapi
 
 import (
 	"os"
+	"os/user"
 	"time"
 
 	"go.uber.org/zap"
@@ -119,11 +120,10 @@ func WriteLog() (*zap.Logger, error) {
 }
 
 func getCurrentDirectory() (string, error) {
-	//user, err := user.Current()
-	//if err != nil {
-	//	return "", err
-	//}
-	//homeDirectory := user.HomeDir
-	//return homeDirectory, nil
-	return ".", nil
+	user, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	homeDirectory := user.HomeDir
+	return homeDirectory, nil
 }

@@ -29,7 +29,6 @@ type ChunkInfo struct {
 	Start  uint   `json:"start"`
 	Length uint   `json:"length"`
 	Etag   string `json:"etag"`
-	Data   []byte `json:"-"`
 }
 
 type Node struct {

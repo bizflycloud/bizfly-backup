@@ -16,9 +16,6 @@ const (
 type Repository struct {
 	path string
 	rpID string
-
-	indexFile *os.File
-	chunkFile *os.File
 }
 
 type Type int
@@ -47,16 +44,6 @@ func NewRepository(path string, rpID string) (*Repository, error) {
 	}
 
 	err := d.create()
-	if err != nil {
-		return nil, err
-	}
-
-	d.indexFile, err = d.tempFile()
-	if err != nil {
-		return nil, err
-	}
-
-	d.chunkFile, err = d.tempFile()
 	if err != nil {
 		return nil, err
 	}
@@ -101,12 +88,15 @@ func (r *Repository) SaveIndex(index *Index) error {
 	if err != nil {
 		return err
 	}
-
-	_, err = r.indexFile.Write(buf)
+	f, err := r.tempFile()
 	if err != nil {
 		return err
 	}
-	err = r.renameFile(r.indexFile, INDEX)
+	_, err = f.Write(buf)
+	if err != nil {
+		return err
+	}
+	err = r.renameFile(f, INDEX)
 	if err != nil {
 		return err
 	}
@@ -118,12 +108,15 @@ func (r *Repository) SaveChunk(chunk *Chunk) error {
 	if err != nil {
 		return err
 	}
-
-	_, err = r.chunkFile.Write(buf)
+	f, err := r.tempFile()
 	if err != nil {
 		return err
 	}
-	err = r.renameFile(r.chunkFile, CHUNK)
+	_, err = f.Write(buf)
+	if err != nil {
+		return err
+	}
+	err = r.renameFile(f, CHUNK)
 	if err != nil {
 		return err
 	}

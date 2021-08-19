@@ -10,11 +10,20 @@ on:
 jobs:
 
   Lint:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.16.x]
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     name: Lint
     steps:
       - name: Checkout code
         uses: actions/checkout@v1
+
+      - name: Install Go
+        uses: actions/setup-go@v1
+        with:
+          go-version: ${{ matrix.go-version }}
 
       - name: Install golangci-lint
         run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.41.1

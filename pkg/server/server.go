@@ -878,7 +878,10 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		if lrp != nil {
-			os.RemoveAll(filepath.Join(CACHE_PATH, lrp.ID))
+			err := os.RemoveAll(filepath.Join(CACHE_PATH, lrp.ID))
+			if err != nil {
+				s.logger.Fatal(err.Error())
+			}
 		}
 
 		s.notifyMsg(map[string]string{

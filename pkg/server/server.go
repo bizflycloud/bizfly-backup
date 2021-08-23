@@ -602,11 +602,6 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		if os.IsNotExist(err) {
 			buf, err := storageVolume.GetObject(filepath.Join(recoveryPointID, "index.json"))
 			if err == nil {
-				hash := sha256.Sum256(buf)
-				if hex.EncodeToString(hash[:]) != rp.IndexHash {
-					s.logger.Error("index.json is corrupted", zap.Error(err))
-					return err
-				}
 				_ = os.MkdirAll(filepath.Join(CACHE_PATH, recoveryPointID), 0700)
 				if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, recoveryPointID, "index.json"), buf, 0644); err != nil {
 					s.logger.Error("Error writing index file", zap.Error(err))
@@ -630,6 +625,12 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		return err
 	} else {
 		_ = json.Unmarshal([]byte(buf), &index)
+	}
+
+	hash := sha256.Sum256(buf)
+	if hex.EncodeToString(hash[:]) != rp.IndexHash {
+		s.logger.Error("index.json is corrupted", zap.Error(err))
+		return err
 	}
 
 	s.notifyMsg(map[string]string{

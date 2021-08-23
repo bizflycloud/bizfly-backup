@@ -753,12 +753,6 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		defer func() {
-			if lrp != nil {
-				os.RemoveAll(filepath.Join(CACHE_PATH, lrp.ID))
-			}
-		}()
-
 		// Get storage volume
 		storageVolume, err := NewStorageVolume(*rp.Volume, rp.ID)
 		if err != nil {
@@ -880,6 +874,10 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			s.notifyStatusFailed(rp.ID, err.Error())
 			errCh <- err
 			return
+		}
+
+		if lrp != nil {
+			os.RemoveAll(filepath.Join(CACHE_PATH, lrp.ID))
 		}
 
 		s.notifyMsg(map[string]string{

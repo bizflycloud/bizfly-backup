@@ -69,7 +69,7 @@ func (h *Sha256Hash) UnmarshalJSON(b []byte) error {
 	if err != nil {
 		return err
 	}
-
+	*h = make([]byte, len(s)/2)
 	_, err = hex.Decode(*h, []byte(s))
 	if err != nil {
 		return err

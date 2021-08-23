@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -876,7 +878,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			errCh <- err
 			return
 		}
-
+		hash := sha256.Sum256(buf)
 		if lrp != nil {
 			err := os.RemoveAll(filepath.Join(CACHE_PATH, lrp.ID))
 			if err != nil {
@@ -887,6 +889,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		s.notifyMsg(map[string]string{
 			"action_id":    rp.ID,
 			"status":       statusComplete,
+			"index_hash":   hex.EncodeToString(hash[:]),
 			"storage_size": strconv.FormatUint(storageSize, 10),
 			"total":        strconv.FormatUint(itemTodo.Bytes, 10),
 		})

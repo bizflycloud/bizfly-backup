@@ -871,6 +871,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 		err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "index.json"), buf)
 		if err != nil {
+			os.RemoveAll(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID))
 			s.notifyStatusFailed(rp.ID, err.Error())
 			errCh <- err
 			return

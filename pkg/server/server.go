@@ -800,6 +800,15 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 				} else {
 					lrp = nil
 				}
+			} else {
+				buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
+				if err != nil {
+					lrp = nil
+				}
+				hash := sha256.Sum256(buf)
+				if hex.EncodeToString(hash[:]) != lrp.IndexHash {
+					lrp = nil
+				}
 			}
 		}
 		latestIndex := cache.Index{}

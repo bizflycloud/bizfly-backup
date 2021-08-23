@@ -71,6 +71,7 @@ type RecoveryPointResponse struct {
 	Status            string `json:"status"`
 	CreatedAt         string `json:"created_at"`
 	UpdatedAt         string `json:"updated_at"`
+	IndexHash         string `json:"index_hash"`
 }
 
 func (c *Client) recoveryPointPath(backupDirectoryID string) string {

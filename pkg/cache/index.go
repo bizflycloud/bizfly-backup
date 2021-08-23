@@ -1,6 +1,8 @@
 package cache
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/user"
@@ -34,6 +36,7 @@ type ChunkInfo struct {
 type Node struct {
 	Name         string       `json:"name"`
 	Type         string       `json:"type"`
+	Sha256Hash   Sha256Hash   `json:"sha256_hash,omitempty"`
 	Mode         os.FileMode  `json:"mode,omitempty"`
 	ModTime      time.Time    `json:"mtime,omitempty"`
 	AccessTime   time.Time    `json:"atime,omitempty"`
@@ -48,6 +51,31 @@ type Node struct {
 	AbsolutePath string       `json:"path"`
 	BasePath     string       `json:"base_path"`
 	RelativePath string       `json:"relative_path"`
+}
+
+type Sha256Hash []byte
+
+func (h Sha256Hash) String() string {
+	return hex.EncodeToString(h[:])
+}
+
+func (h Sha256Hash) MarshalJSON() ([]byte, error) {
+	return json.Marshal(h.String())
+}
+
+func (h *Sha256Hash) UnmarshalJSON(b []byte) error {
+	var s string
+	err := json.Unmarshal(b, &s)
+	if err != nil {
+		return err
+	}
+
+	_, err = hex.Decode(*h, []byte(s))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (node *Node) fill_extra(path string, fi os.FileInfo) (err error) {

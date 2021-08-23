@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -394,7 +395,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		chk := chunker.New(file, 0x3dea92648f6e83)
 		buf := make([]byte, ChunkUploadLowerBound)
 		var stat uint64
-
+		hash := sha256.New()
 		var wg sync.WaitGroup
 		for {
 			chunk, err := chk.Next(buf)
@@ -415,6 +416,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 				Start:  chunk.Start,
 				Length: chunk.Length,
 			}
+			hash.Write(temp)
 			itemInfo.Content = append(itemInfo.Content, &chunkToBackup)
 			wg.Add(1)
 			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, temp, &chunkToBackup, chunks, volume, p))
@@ -425,6 +427,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			c.logger.Error("err backup chunk ", zap.Error(err))
 			return 0, errBackupChunk
 		}
+		itemInfo.Sha256Hash = hash.Sum(nil)
 		s.Items = 1
 		p.Report(s)
 		return stat, nil
@@ -505,6 +508,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 				c.mu.Unlock()
 			}
 			itemInfo.Content = lastInfo.Content
+			itemInfo.Sha256Hash = lastInfo.Sha256Hash
 		}
 		p.Report(s)
 		return 0, nil

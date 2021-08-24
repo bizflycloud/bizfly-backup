@@ -92,11 +92,14 @@ func (r *Repository) SaveIndex(index *Index) error {
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 	_, err = f.Write(buf)
 	if err != nil {
 		return err
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
 	err = r.renameFile(f, INDEX)
 	if err != nil {
 		return err
@@ -113,11 +116,14 @@ func (r *Repository) SaveChunk(chunk *Chunk) error {
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 	_, err = f.Write(buf)
 	if err != nil {
 		return err
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		return err
+	}
 	err = r.renameFile(f, CHUNK)
 	if err != nil {
 		return err

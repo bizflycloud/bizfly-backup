@@ -591,6 +591,12 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	}
 	storageVolume, _ := NewStorageVolume(*vol, actionID)
 
+	rp, err := s.backupClient.GetRecoveryPointInfo(recoveryPointID)
+	if err != nil {
+		s.logger.Error("Error get recoveryPointInfo", zap.Error(err))
+		return err
+	}
+
 	_, err = os.Stat(filepath.Join(CACHE_PATH, recoveryPointID, "index.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -619,6 +625,12 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		return err
 	} else {
 		_ = json.Unmarshal([]byte(buf), &index)
+	}
+
+	hash := sha256.Sum256(buf)
+	if hex.EncodeToString(hash[:]) != rp.IndexHash {
+		s.logger.Error("index.json is corrupted", zap.Error(err))
+		return err
 	}
 
 	s.notifyMsg(map[string]string{
@@ -798,6 +810,15 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 						lrp = nil
 					}
 				} else {
+					lrp = nil
+				}
+			} else {
+				buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
+				if err != nil {
+					lrp = nil
+				}
+				hash := sha256.Sum256(buf)
+				if hex.EncodeToString(hash[:]) != lrp.IndexHash {
 					lrp = nil
 				}
 			}

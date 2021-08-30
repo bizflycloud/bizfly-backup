@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,9 +21,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bizflycloud/bizfly-backup/pkg/cache"
+
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
-	"github.com/google/uuid"
 	"github.com/inconshreveable/go-update"
 	"github.com/jpillora/backoff"
 	"github.com/panjf2000/ants/v2"
@@ -48,6 +51,8 @@ const (
 const (
 	PERCENT_PROCESS = 0.2
 )
+
+const CACHE_PATH = ".cache"
 
 // Server defines parameters for running BizFly Backup HTTP server.
 type Server struct {
@@ -565,14 +570,6 @@ func (s *Server) reportStartDownload(w io.Writer) {
 	_, _ = w.Write([]byte("Start downloading ..."))
 }
 
-func (s *Server) reportDownloadCompleted(w io.Writer) {
-	_, _ = w.Write([]byte("Download completed."))
-}
-
-func (s *Server) reportStartRestore(w io.Writer) {
-	_, _ = w.Write([]byte("Start restoring ..."))
-}
-
 func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))
 }
@@ -594,6 +591,48 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	}
 	storageVolume, _ := NewStorageVolume(*vol, actionID)
 
+	rp, err := s.backupClient.GetRecoveryPointInfo(recoveryPointID)
+	if err != nil {
+		s.logger.Error("Error get recoveryPointInfo", zap.Error(err))
+		return err
+	}
+
+	_, err = os.Stat(filepath.Join(CACHE_PATH, recoveryPointID, "index.json"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			buf, err := storageVolume.GetObject(filepath.Join(recoveryPointID, "index.json"))
+			if err == nil {
+				_ = os.MkdirAll(filepath.Join(CACHE_PATH, recoveryPointID), 0700)
+				if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, recoveryPointID, "index.json"), buf, 0644); err != nil {
+					s.logger.Error("Error writing index file", zap.Error(err))
+					return err
+				}
+			} else {
+				s.logger.Error("Error downloading index from storage", zap.Error(err))
+				return err
+			}
+		} else {
+			s.logger.Error("Error stat index file", zap.Error(err))
+			return err
+		}
+	}
+
+	index := cache.Index{}
+
+	buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, recoveryPointID, "index.json"))
+	if err != nil {
+		s.logger.Error("Error read index file", zap.Error(err))
+		return err
+	} else {
+		_ = json.Unmarshal([]byte(buf), &index)
+	}
+
+	hash := sha256.Sum256(buf)
+	if hex.EncodeToString(hash[:]) != rp.IndexHash {
+		s.logger.Error("index.json is corrupted", zap.Error(err))
+		return err
+	}
+
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
 		"status":    statusDownloading,
@@ -601,14 +640,12 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	s.reportStartDownload(progressOutput)
 
-	if err := s.backupClient.RestoreDirectory(recoveryPointID, destDir, storageVolume, restoreKey); err != nil {
+	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVolume, restoreKey); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 
-	s.reportDownloadCompleted(progressOutput)
-	s.reportStartRestore(progressOutput)
 	s.reportRestoreCompleted(progressOutput)
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
@@ -637,12 +674,11 @@ func NewStorageVolume(vol backupapi.Volume, actionID string) (volume.StorageVolu
 	}
 }
 
-func WalkerDir(dir string, p *progress.Progress) (progress.Stat, *backupapi.FileInfoRequest, error) {
+func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.Stat, error) {
 	//func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 	p.Start()
 	defer p.Done()
 
-	var fileInfoRequest backupapi.FileInfoRequest
 	//var total uint64
 	var st progress.Stat
 	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
@@ -655,63 +691,26 @@ func WalkerDir(dir string, p *progress.Progress) (progress.Stat, *backupapi.File
 			Bytes: uint64(fi.Size()),
 		}
 
-		singleFile := backupapi.ItemInfo{
-			ParentItemID:   "",
-			ChunkReference: false,
-			Attributes: &backupapi.Attribute{
-				ID:          uuid.New().String(),
-				ItemName:    path,
-				ModifyTime:  fi.ModTime().UTC(),
-				Mode:        fi.Mode().String(),
-				AccessMode:  fi.Mode(),
-				Size:        fi.Size(),
-				SymlinkPath: "",
-			},
+		node, err := cache.NodeFromFileInfo(dir, path, fi)
+		if err != nil {
+			return err
 		}
-
-		atimeLocal, ctimeLocal, _, uid, gid := backupapi.ItemLocal(fi)
-		singleFile.Attributes.AccessTime = atimeLocal
-		singleFile.Attributes.ChangeTime = ctimeLocal
-		singleFile.Attributes.UID = uid
-		singleFile.Attributes.GID = gid
-
-		if fi.IsDir() {
-			singleFile.ItemType = "DIRECTORY"
-			singleFile.Attributes.ItemType = "DIRECTORY"
-			singleFile.Attributes.IsDir = true
-			singleFile.ChunkReference = false
-		} else if fi.Mode()&os.ModeSymlink != 0 {
-			link, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			singleFile.ItemType = "SYMLINK"
-			singleFile.Attributes.ItemType = "SYMLINK"
-			singleFile.Attributes.SymlinkPath = link
-			singleFile.ChunkReference = false
-		} else {
-			singleFile.ItemType = "FILE"
-			singleFile.Attributes.ItemType = "FILE"
-			singleFile.Attributes.IsDir = false
-			singleFile.ChunkReference = true
-		}
-
-		fileInfoRequest.Files = append(fileInfoRequest.Files, singleFile)
+		index.Items[path] = node
 		p.Report(s)
 		st.Add(s)
 		return nil
 	})
 	if err != nil {
-		return progress.Stat{}, nil, err
+		return progress.Stat{}, err
 	}
 
-	return st, &fileInfoRequest, err
+	return st, err
 }
 
 type backupJob func()
 
-func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, actionID string, latestRecoveryPointID string,
-	itemInfo backupapi.ItemInfo, volume volume.StorageVolume, wg *sync.WaitGroup, size *uint64, errCh *error, p *progress.Progress) backupJob {
+func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, chunks *cache.Chunk, volume volume.StorageVolume,
+	wg *sync.WaitGroup, size *uint64, errCh *error, p *progress.Progress) backupJob {
 	return func() {
 		defer wg.Done()
 		select {
@@ -720,15 +719,15 @@ func (s *Server) uploadFileWorker(ctx context.Context, recoveryPointID string, a
 		default:
 			p.Start()
 			ctx, cancel := context.WithCancel(ctx)
-			_ = cancel
-			s.logger.Info("Upload file worker: ", zap.String("recoveryPointID", recoveryPointID), zap.String("actionID", actionID), zap.String("item name", itemInfo.Attributes.ItemName))
-			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, recoveryPointID, actionID, latestRecoveryPointID, itemInfo, volume, p)
+			defer cancel()
+			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, chunks, volume, p)
 			if err != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(err))
 				*errCh = err
 				cancel()
 				return
 			}
+
 			*size += storageSize
 		}
 	}
@@ -781,32 +780,91 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			"status":    statusUploadFile,
 		})
 		progressScan := s.newProgressScanDir()
-		itemTodo, itemsInfo, err := WalkerDir(bd.Path, progressScan)
+
+		index := cache.NewIndex(bd.ID, rp.RecoveryPoint.ID)
+		chunks := cache.NewChunk(bd.ID, rp.RecoveryPoint.ID)
+		itemTodo, err := WalkerDir(bd.Path, index, progressScan)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
 			s.logger.Error("WalkerDir error", zap.Error(err))
 			errCh <- err
 			return
 		}
+		cacheWriter, err := cache.NewRepository(".cache", rp.RecoveryPoint.ID)
+		if err != nil {
+			errCh <- err
+			return
+		}
+
+		if lrp != nil {
+			_, err = os.Stat(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
+			if err != nil {
+				if os.IsNotExist(err) {
+					buf, err := storageVolume.GetObject(filepath.Join(lrp.ID, "index.json"))
+					if err == nil {
+						_ = os.MkdirAll(filepath.Join(CACHE_PATH, lrp.ID), 0700)
+						if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"), buf, 0644); err != nil {
+							lrp = nil
+						}
+					} else {
+						lrp = nil
+					}
+				} else {
+					lrp = nil
+				}
+			} else {
+				buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
+				if err != nil {
+					lrp = nil
+				}
+				hash := sha256.Sum256(buf)
+				if hex.EncodeToString(hash[:]) != lrp.IndexHash {
+					lrp = nil
+				}
+			}
+		}
+		latestIndex := cache.Index{}
+		if lrp != nil {
+			buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
+			if err != nil {
+				lrp = nil
+			} else {
+				_ = json.Unmarshal([]byte(buf), &latestIndex)
+			}
+		}
 
 		var storageSize uint64
 		var errFileWorker error
 		progressUpload := s.newUploadProgress(itemTodo)
 		ctx, cancel := context.WithCancel(ctx)
-		_ = cancel
+		defer cancel()
 		var wg sync.WaitGroup
-		for _, itemInfo := range itemsInfo.Files {
+		for _, itemInfo := range index.Items {
 			if errFileWorker != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(errFileWorker))
 				err = errFileWorker
 				cancel()
 				break
 			}
-			wg.Add(1)
-			_ = s.pool.Submit(s.uploadFileWorker(ctx, rp.RecoveryPoint.ID, rp.ID, lrp.ID, itemInfo, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
+			if itemInfo.Type == "file" {
+				lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
+				wg.Add(1)
+				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, chunks, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
+			}
 		}
 		wg.Wait()
-
+		errCache := cacheWriter.SaveChunk(chunks)
+		if errCache != nil {
+			s.logger.Error("Write list chunks error", zap.Error(errCache))
+		}
+		buf, errCache := ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "chunk.json"))
+		if errCache != nil {
+			s.logger.Error("Read list chunks error", zap.Error(errCache))
+		}
+		errCache = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "chunk.json"), buf)
+		if errCache != nil {
+			s.logger.Error("Put list chunks to storage error", zap.Error(errCache))
+		}
 		if errFileWorker != nil {
 			if err != nil {
 				s.notifyStatusFailed(rp.ID, err.Error())
@@ -821,9 +879,38 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		s.reportUploadCompleted(progressOutput)
 		progressUpload.Done()
+		err = cacheWriter.SaveIndex(index)
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			errCh <- err
+			return
+		}
+
+		buf, err = ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "index.json"))
+		if err != nil {
+			s.notifyStatusFailed(rp.ID, err.Error())
+			errCh <- err
+			return
+		}
+		err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "index.json"), buf)
+		if err != nil {
+			os.RemoveAll(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID))
+			s.notifyStatusFailed(rp.ID, err.Error())
+			errCh <- err
+			return
+		}
+		hash := sha256.Sum256(buf)
+		if lrp != nil {
+			err := os.RemoveAll(filepath.Join(CACHE_PATH, lrp.ID))
+			if err != nil {
+				s.logger.Fatal(err.Error())
+			}
+		}
+
 		s.notifyMsg(map[string]string{
 			"action_id":    rp.ID,
 			"status":       statusComplete,
+			"index_hash":   hex.EncodeToString(hash[:]),
 			"storage_size": strconv.FormatUint(storageSize, 10),
 			"total":        strconv.FormatUint(itemTodo.Bytes, 10),
 		})

@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	storage "github.com/aws/aws-sdk-go/service/s3"
-	log "github.com/sirupsen/logrus"
+	"github.com/cenkalti/backoff"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/volume"
@@ -94,16 +94,16 @@ var (
 	HttpClient = HTTPClient{}
 )
 
-var backoffSchedule = []time.Duration{
-	1 * time.Second,
-	3 * time.Second,
-	5 * time.Second,
-}
+const (
+	maxRetry = 3 * time.Minute
+)
 
 func (s3 *S3) PutObject(key string, data []byte) error {
 	var err error
 	var once bool
-	for _, backoff := range backoffSchedule {
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = maxRetry
+	for {
 		_, err = s3.S3Session.PutObject(&storage.PutObjectInput{
 			Bucket: aws.String(s3.StorageBucket),
 			Key:    aws.String(key),
@@ -126,7 +126,14 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 				time.Sleep(time.Duration(n) * time.Second)
 			}
 		}
-		time.Sleep(backoff)
+		s3.logger.Debug("BackOff retry")
+		d := bo.NextBackOff()
+		if d == backoff.Stop {
+			s3.logger.Debug("Retry time out")
+			break
+		}
+		s3.logger.Sugar().Info("Retry in ", d)
+		time.Sleep(d)
 	}
 
 	return err
@@ -135,8 +142,10 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 func (s3 *S3) GetObject(key string) ([]byte, error) {
 	var err error
 	var once bool
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = maxRetry
 	var obj *storage.GetObjectOutput
-	for _, backoff := range backoffSchedule {
+	for {
 		obj, err = s3.S3Session.GetObject(&storage.GetObjectInput{
 			Bucket: aws.String(s3.StorageBucket),
 			Key:    aws.String(key),
@@ -160,8 +169,14 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 				return nil, err
 			}
 		}
-		log.Error(err)
-		time.Sleep(backoff)
+		s3.logger.Debug("BackOff retry")
+		d := bo.NextBackOff()
+		if d == backoff.Stop {
+			s3.logger.Debug("Retry time out")
+			break
+		}
+		s3.logger.Sugar().Info("Retry in ", d)
+		time.Sleep(d)
 	}
 
 	body, err := ioutil.ReadAll(obj.Body)
@@ -173,7 +188,9 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 	var err error
 	var headObject *storage.HeadObjectOutput
 	var once bool
-	for _, backoff := range backoffSchedule {
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = maxRetry
+	for {
 		headObject, err = s3.S3Session.HeadObject(&storage.HeadObjectInput{
 			Bucket: aws.String(s3.StorageBucket),
 			Key:    aws.String(key),
@@ -200,7 +217,14 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 				time.Sleep(time.Duration(n) * time.Second)
 			}
 		}
-		time.Sleep(backoff)
+		s3.logger.Debug("BackOff retry")
+		d := bo.NextBackOff()
+		if d == backoff.Stop {
+			s3.logger.Debug("Retry time out")
+			break
+		}
+		s3.logger.Sugar().Info("Retry in ", d)
+		time.Sleep(d)
 
 	}
 	return false, "", err

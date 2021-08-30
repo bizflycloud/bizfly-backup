@@ -71,10 +71,15 @@ type RecoveryPointResponse struct {
 	Status            string `json:"status"`
 	CreatedAt         string `json:"created_at"`
 	UpdatedAt         string `json:"updated_at"`
+	IndexHash         string `json:"index_hash"`
 }
 
 func (c *Client) recoveryPointPath(backupDirectoryID string) string {
 	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points", backupDirectoryID)
+}
+
+func (c *Client) recoveryPointInfo(recoveryPointID string) string {
+	return fmt.Sprintf("/agent/recovery-points/%s", recoveryPointID)
 }
 
 func (c *Client) recoveryPointItemPath(backupDirectoryID string, recoveryPointID string) string {
@@ -99,6 +104,30 @@ func (c *Client) infoFile(recoveryPointID string, itemID string) string {
 
 func (c *Client) latestRecoveryPointID(backupDirectoryID string) string {
 	return fmt.Sprintf("/agent/backup-directories/%s/latest-recovery-points", backupDirectoryID)
+}
+
+func (c *Client) GetRecoveryPointInfo(recoveryPointID string) (*RecoveryPointResponse, error) {
+	req, err := c.NewRequest(http.MethodGet, c.recoveryPointInfo(recoveryPointID), nil)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var lrp RecoveryPointResponse
+	if err := json.NewDecoder(resp.Body).Decode(&lrp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return nil, err
+	}
+	return &lrp, nil
 }
 
 func (c *Client) GetLatestRecoveryPointID(backupDirectoryID string) (*RecoveryPointResponse, error) {

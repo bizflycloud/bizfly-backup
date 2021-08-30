@@ -17,6 +17,7 @@ type Index struct {
 	BackupDirectoryID string           `json:"backup_directory_id"`
 	RecoveryPointID   string           `json:"recovery_point_id"`
 	Items             map[string]*Node `json:"items"`
+	TotalFiles        int64            `json:"total_files"`
 }
 
 func NewIndex(bdID string, rpID string) *Index {

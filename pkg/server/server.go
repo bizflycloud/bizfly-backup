@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -675,7 +676,6 @@ func NewStorageVolume(vol backupapi.Volume, actionID string) (volume.StorageVolu
 }
 
 func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.Stat, error) {
-	//func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 	p.Start()
 	defer p.Done()
 
@@ -696,6 +696,11 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.S
 			return err
 		}
 		index.Items[path] = node
+
+		if !fi.IsDir() {
+			index.TotalFiles++
+		}
+
 		p.Report(s)
 		st.Add(s)
 		return nil
@@ -904,6 +909,44 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			err := os.RemoveAll(filepath.Join(CACHE_PATH, lrp.ID))
 			if err != nil {
 				s.logger.Fatal(err.Error())
+			}
+		}
+
+		// Writer info file backup to file.csv
+		if lrp != nil {
+			if _, err := os.Stat(filepath.Dir(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID, "file.csv"))); os.IsNotExist(err) {
+				if err := os.MkdirAll(filepath.Dir(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID, "file.csv")), 0700); err != nil {
+					s.logger.Error("Err MkdirAll dir file.csv", zap.Error(err))
+				}
+			}
+			file, err := os.Create(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID, "file.csv"))
+			if err != nil {
+				s.logger.Error("Err Create file.csv", zap.Error(err))
+			}
+			defer file.Close()
+			writerCSV := csv.NewWriter(file)
+			defer writerCSV.Flush()
+
+			for _, itemInfo := range index.Items {
+				if itemInfo.Type == "file" {
+					err := writerCSV.Write([]string{itemInfo.Name, itemInfo.Sha256Hash.String(), itemInfo.AbsolutePath})
+					if err != nil {
+						s.logger.Error("Err writer file.csv", zap.Error(err))
+					}
+				}
+			}
+			buf, err = ioutil.ReadFile(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID, "file.csv"))
+			if err != nil {
+				s.notifyStatusFailed(rp.ID, err.Error())
+				errCh <- err
+				return
+			}
+			err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "file.csv"), buf)
+			if err != nil {
+				os.RemoveAll(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID))
+				s.notifyStatusFailed(rp.ID, err.Error())
+				errCh <- err
+				return
 			}
 		}
 

@@ -231,7 +231,7 @@ func TestServerCron(t *testing.T) {
 	}
 }
 
-func TestServer_writeFileCSV(t *testing.T) {
+func TestServer_storeFiles(t *testing.T) {
 	type fields struct {
 		Addr                 string
 		router               *chi.Mux
@@ -293,7 +293,7 @@ func TestServer_writeFileCSV(t *testing.T) {
 				chunkPool:            tt.fields.chunkPool,
 				logger:               tt.fields.logger,
 			}
-			if err := s.writeFileCSV(tt.args.rpID, tt.args.index, tt.args.storageVolume); (err != nil) != tt.wantErr {
+			if err := s.storeFiles(tt.args.rpID, tt.args.index, tt.args.storageVolume); (err != nil) != tt.wantErr {
 				t.Errorf("Server.writeFileCSV() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

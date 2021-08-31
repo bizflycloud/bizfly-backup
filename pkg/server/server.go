@@ -802,8 +802,13 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		if lrp != nil {
-			// Writer index
-			s.writeIndex(lrp, storageVolume)
+			// Store index
+			errStoreIndexs := s.storeIndexs(lrp, storageVolume)
+			if errStoreIndexs != nil {
+				s.notifyStatusFailed(rp.ID, errStoreIndexs.Error())
+				errCh <- errStoreIndexs
+				return
+			}
 		}
 
 		latestIndex := cache.Index{}
@@ -836,33 +841,21 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 		wg.Wait()
-		errCache := cacheWriter.SaveChunk(chunks)
-		if errCache != nil {
-			s.logger.Error("Write list chunks error", zap.Error(errCache))
-		}
-		buf, errCache := ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "chunk.json"))
-		if errCache != nil {
-			s.logger.Error("Read list chunks error", zap.Error(errCache))
-		}
-		errCache = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "chunk.json"), buf)
-		if errCache != nil {
-			s.logger.Error("Put list chunks to storage error", zap.Error(errCache))
+
+		// Store chunks
+		errStoreChunks := s.storeChunks(cacheWriter, chunks, rp.RecoveryPoint.ID, storageVolume)
+		if errStoreChunks != nil {
+			s.notifyStatusFailed(rp.ID, errStoreChunks.Error())
+			errCh <- errStoreChunks
+			return
 		}
 
-		// Writer info file backup to file.csv
-		errWriterCSV := s.writeFileCSV(rp.RecoveryPoint.ID, index, storageVolume)
+		// Store files
+		errWriterCSV := s.storeFiles(rp.RecoveryPoint.ID, index, storageVolume)
 		if errWriterCSV != nil {
 			s.notifyStatusFailed(rp.ID, errWriterCSV.Error())
 			errCh <- errWriterCSV
 			return
-		}
-		buf, err = ioutil.ReadFile(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID, "file.csv"))
-		if err != nil {
-			s.logger.Error("Read file csv error", zap.Error(err))
-		}
-		err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "file.csv"), buf)
-		if err != nil {
-			s.logger.Error("Put file csv error", zap.Error(err))
 		}
 
 		if errFileWorker != nil {
@@ -886,20 +879,13 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		buf, err = ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "index.json"))
-		if err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
-			errCh <- err
+		// Put indexs
+		indexHash, errPutIndexs := s.putIndexs(storageVolume, latestIndex, rp.RecoveryPoint.ID)
+		if errPutIndexs != nil {
+			s.notifyStatusFailed(rp.ID, errPutIndexs.Error())
+			errCh <- errPutIndexs
 			return
 		}
-		err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "index.json"), buf)
-		if err != nil {
-			os.RemoveAll(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID))
-			s.notifyStatusFailed(rp.ID, err.Error())
-			errCh <- err
-			return
-		}
-		hash := sha256.Sum256(buf)
 		if lrp != nil {
 			err := os.RemoveAll(filepath.Join(CACHE_PATH, lrp.ID))
 			if err != nil {
@@ -910,7 +896,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		s.notifyMsg(map[string]string{
 			"action_id":    rp.ID,
 			"status":       statusComplete,
-			"index_hash":   hex.EncodeToString(hash[:]),
+			"index_hash":   indexHash,
 			"storage_size": strconv.FormatUint(storageSize, 10),
 			"total":        strconv.FormatUint(itemTodo.Bytes, 10),
 		})
@@ -919,7 +905,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 	}
 }
 
-func (s *Server) writeIndex(lrp *backupapi.RecoveryPointResponse, storageVolume volume.StorageVolume) {
+func (s *Server) storeIndexs(lrp *backupapi.RecoveryPointResponse, storageVolume volume.StorageVolume) error {
 	_, err := os.Stat(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -945,9 +931,47 @@ func (s *Server) writeIndex(lrp *backupapi.RecoveryPointResponse, storageVolume 
 			lrp = nil
 		}
 	}
+	return nil
 }
 
-func (s *Server) writeFileCSV(rpID string, index *cache.Index, storageVolume volume.StorageVolume) error {
+func (s *Server) putIndexs(storageVolume volume.StorageVolume, latestIndex cache.Index, rpID string) (string, error) {
+	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "index.json"))
+	if err != nil {
+		s.notifyStatusFailed(rpID, err.Error())
+		return "", nil
+	}
+	err = storageVolume.PutObject(filepath.Join(rpID, "index.json"), buf)
+	if err != nil {
+		os.RemoveAll(filepath.Join(CACHE_PATH, rpID))
+		s.notifyStatusFailed(rpID, err.Error())
+		return "", nil
+	}
+	hash := sha256.Sum256(buf)
+	indexHash := hex.EncodeToString(hash[:])
+
+	return indexHash, nil
+}
+
+func (s *Server) storeChunks(cacheWriter *cache.Repository, chunks *cache.Chunk, rpID string, storageVolume volume.StorageVolume) error {
+	err := cacheWriter.SaveChunk(chunks)
+	if err != nil {
+		s.logger.Error("Write list chunks error", zap.Error(err))
+		return err
+	}
+	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "chunk.json"))
+	if err != nil {
+		s.logger.Error("Read list chunks error", zap.Error(err))
+		return err
+	}
+	err = storageVolume.PutObject(filepath.Join(rpID, "chunk.json"), buf)
+	if err != nil {
+		s.logger.Error("Put list chunks to storage error", zap.Error(err))
+		return err
+	}
+	return nil
+}
+
+func (s *Server) storeFiles(rpID string, index *cache.Index, storageVolume volume.StorageVolume) error {
 	if _, err := os.Stat(filepath.Dir(filepath.Join(CACHE_PATH, rpID, "file.csv"))); os.IsNotExist(err) {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(CACHE_PATH, rpID, "file.csv")), 0700); err != nil {
 			s.logger.Error("Err MkdirAll dir file.csv", zap.Error(err))
@@ -962,7 +986,6 @@ func (s *Server) writeFileCSV(rpID string, index *cache.Index, storageVolume vol
 	defer file.Close()
 	writerCSV := csv.NewWriter(file)
 	defer writerCSV.Flush()
-
 	for _, itemInfo := range index.Items {
 		if itemInfo.Type == "file" {
 			err := writerCSV.Write([]string{itemInfo.Name, itemInfo.Sha256Hash.String(), itemInfo.AbsolutePath})
@@ -971,6 +994,14 @@ func (s *Server) writeFileCSV(rpID string, index *cache.Index, storageVolume vol
 				return err
 			}
 		}
+	}
+	buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, rpID, "file.csv"))
+	if err != nil {
+		s.logger.Error("Read file csv error", zap.Error(err))
+	}
+	err = storageVolume.PutObject(filepath.Join(rpID, "file.csv"), buf)
+	if err != nil {
+		s.logger.Error("Put file csv error", zap.Error(err))
 	}
 	return nil
 }

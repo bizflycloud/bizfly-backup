@@ -12,14 +12,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ory/dockertest/v3"
-	"github.com/robfig/cron/v3"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker/mqtt"
+	"github.com/bizflycloud/bizfly-backup/pkg/cache"
+	"github.com/bizflycloud/bizfly-backup/pkg/volume"
+	"github.com/go-chi/chi"
+	"github.com/ory/dockertest/v3"
+	"github.com/panjf2000/ants/v2"
+	"github.com/robfig/cron/v3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 var (
@@ -223,6 +227,75 @@ func TestServerCron(t *testing.T) {
 			assert.Len(t, s.mappingToCronEntryID, tc.expectedNumEntries)
 			s.removeFromCronManager(tc.bdc)
 			assert.Equal(t, map[string]cron.EntryID{}, s.mappingToCronEntryID)
+		})
+	}
+}
+
+func TestServer_writeFileCSV(t *testing.T) {
+	type fields struct {
+		Addr                 string
+		router               *chi.Mux
+		b                    broker.Broker
+		subscribeTopics      []string
+		publishTopic         string
+		useUnixSock          bool
+		backupClient         *backupapi.Client
+		cronManager          *cron.Cron
+		mappingToCronEntryID map[string]cron.EntryID
+		testSignalCh         chan os.Signal
+		poolDir              *ants.Pool
+		pool                 *ants.Pool
+		chunkPool            *ants.Pool
+		logger               *zap.Logger
+	}
+	type args struct {
+		rpID          string
+		index         *cache.Index
+		storageVolume volume.StorageVolume
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		wantErr bool
+	}{
+		{
+			name: "test witer file csv",
+			fields: fields{
+				Addr: "unix://" + filepath.Join(os.TempDir(), "bizfly-backup-test-server.sock"),
+			},
+			args: args{
+				rpID: "1",
+				index: &cache.Index{
+					BackupDirectoryID: "1",
+					RecoveryPointID:   "1",
+					TotalFiles:        1,
+				},
+			},
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Server{
+				Addr:                 tt.fields.Addr,
+				router:               tt.fields.router,
+				b:                    tt.fields.b,
+				subscribeTopics:      tt.fields.subscribeTopics,
+				publishTopic:         tt.fields.publishTopic,
+				useUnixSock:          tt.fields.useUnixSock,
+				backupClient:         tt.fields.backupClient,
+				cronManager:          tt.fields.cronManager,
+				mappingToCronEntryID: tt.fields.mappingToCronEntryID,
+				testSignalCh:         tt.fields.testSignalCh,
+				poolDir:              tt.fields.poolDir,
+				pool:                 tt.fields.pool,
+				chunkPool:            tt.fields.chunkPool,
+				logger:               tt.fields.logger,
+			}
+			if err := s.writeFileCSV(tt.args.rpID, tt.args.index, tt.args.storageVolume); (err != nil) != tt.wantErr {
+				t.Errorf("Server.writeFileCSV() error = %v, wantErr %v", err, tt.wantErr)
+			}
 		})
 	}
 }

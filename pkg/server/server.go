@@ -802,32 +802,10 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		if lrp != nil {
-			_, err = os.Stat(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
-			if err != nil {
-				if os.IsNotExist(err) {
-					buf, err := storageVolume.GetObject(filepath.Join(lrp.ID, "index.json"))
-					if err == nil {
-						_ = os.MkdirAll(filepath.Join(CACHE_PATH, lrp.ID), 0700)
-						if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"), buf, 0644); err != nil {
-							lrp = nil
-						}
-					} else {
-						lrp = nil
-					}
-				} else {
-					lrp = nil
-				}
-			} else {
-				buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
-				if err != nil {
-					lrp = nil
-				}
-				hash := sha256.Sum256(buf)
-				if hex.EncodeToString(hash[:]) != lrp.IndexHash {
-					lrp = nil
-				}
-			}
+			// Writer index
+			s.writeIndex(lrp, storageVolume)
 		}
+
 		latestIndex := cache.Index{}
 		if lrp != nil {
 			buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
@@ -870,6 +848,23 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		if errCache != nil {
 			s.logger.Error("Put list chunks to storage error", zap.Error(errCache))
 		}
+
+		// Writer info file backup to file.csv
+		errWriterCSV := s.writeFileCSV(rp.RecoveryPoint.ID, index, storageVolume)
+		if errWriterCSV != nil {
+			s.notifyStatusFailed(rp.ID, errWriterCSV.Error())
+			errCh <- errWriterCSV
+			return
+		}
+		buf, err = ioutil.ReadFile(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID, "file.csv"))
+		if err != nil {
+			s.logger.Error("Read file csv error", zap.Error(err))
+		}
+		err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "file.csv"), buf)
+		if err != nil {
+			s.logger.Error("Put file csv error", zap.Error(err))
+		}
+
 		if errFileWorker != nil {
 			if err != nil {
 				s.notifyStatusFailed(rp.ID, err.Error())
@@ -912,44 +907,6 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 
-		// Writer info file backup to file.csv
-		if lrp != nil {
-			if _, err := os.Stat(filepath.Dir(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID, "file.csv"))); os.IsNotExist(err) {
-				if err := os.MkdirAll(filepath.Dir(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID, "file.csv")), 0700); err != nil {
-					s.logger.Error("Err MkdirAll dir file.csv", zap.Error(err))
-				}
-			}
-			file, err := os.Create(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID, "file.csv"))
-			if err != nil {
-				s.logger.Error("Err Create file.csv", zap.Error(err))
-			}
-			defer file.Close()
-			writerCSV := csv.NewWriter(file)
-			defer writerCSV.Flush()
-
-			for _, itemInfo := range index.Items {
-				if itemInfo.Type == "file" {
-					err := writerCSV.Write([]string{itemInfo.Name, itemInfo.Sha256Hash.String(), itemInfo.AbsolutePath})
-					if err != nil {
-						s.logger.Error("Err writer file.csv", zap.Error(err))
-					}
-				}
-			}
-			buf, err = ioutil.ReadFile(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID, "file.csv"))
-			if err != nil {
-				s.notifyStatusFailed(rp.ID, err.Error())
-				errCh <- err
-				return
-			}
-			err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "file.csv"), buf)
-			if err != nil {
-				os.RemoveAll(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID))
-				s.notifyStatusFailed(rp.ID, err.Error())
-				errCh <- err
-				return
-			}
-		}
-
 		s.notifyMsg(map[string]string{
 			"action_id":    rp.ID,
 			"status":       statusComplete,
@@ -960,6 +917,62 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		errCh <- nil
 	}
+}
+
+func (s *Server) writeIndex(lrp *backupapi.RecoveryPointResponse, storageVolume volume.StorageVolume) {
+	_, err := os.Stat(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			buf, err := storageVolume.GetObject(filepath.Join(lrp.ID, "index.json"))
+			if err == nil {
+				_ = os.MkdirAll(filepath.Join(CACHE_PATH, lrp.ID), 0700)
+				if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"), buf, 0644); err != nil {
+					lrp = nil
+				}
+			} else {
+				lrp = nil
+			}
+		} else {
+			lrp = nil
+		}
+	} else {
+		buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
+		if err != nil {
+			lrp = nil
+		}
+		hash := sha256.Sum256(buf)
+		if hex.EncodeToString(hash[:]) != lrp.IndexHash {
+			lrp = nil
+		}
+	}
+}
+
+func (s *Server) writeFileCSV(rpID string, index *cache.Index, storageVolume volume.StorageVolume) error {
+	if _, err := os.Stat(filepath.Dir(filepath.Join(CACHE_PATH, rpID, "file.csv"))); os.IsNotExist(err) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(CACHE_PATH, rpID, "file.csv")), 0700); err != nil {
+			s.logger.Error("Err MkdirAll dir file.csv", zap.Error(err))
+			return err
+		}
+	}
+	file, err := os.Create(filepath.Join(CACHE_PATH, rpID, "file.csv"))
+	if err != nil {
+		s.logger.Error("Err Create file.csv", zap.Error(err))
+		return err
+	}
+	defer file.Close()
+	writerCSV := csv.NewWriter(file)
+	defer writerCSV.Flush()
+
+	for _, itemInfo := range index.Items {
+		if itemInfo.Type == "file" {
+			err := writerCSV.Write([]string{itemInfo.Name, itemInfo.Sha256Hash.String(), itemInfo.AbsolutePath})
+			if err != nil {
+				s.logger.Error("Err writer file.csv", zap.Error(err))
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Server) newProgressScanDir() *progress.Progress {

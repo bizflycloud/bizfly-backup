@@ -679,7 +679,6 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.S
 	p.Start()
 	defer p.Done()
 
-	//var total uint64
 	var st progress.Stat
 	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
@@ -914,9 +913,11 @@ func (s *Server) storeIndexs(lrp *backupapi.RecoveryPointResponse, storageVolume
 				_ = os.MkdirAll(filepath.Join(CACHE_PATH, lrp.ID), 0700)
 				if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"), buf, 0644); err != nil {
 					lrp = nil
+					return err
 				}
 			} else {
 				lrp = nil
+				return err
 			}
 		} else {
 			lrp = nil
@@ -925,6 +926,7 @@ func (s *Server) storeIndexs(lrp *backupapi.RecoveryPointResponse, storageVolume
 		buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
 		if err != nil {
 			lrp = nil
+			return err
 		}
 		hash := sha256.Sum256(buf)
 		if hex.EncodeToString(hash[:]) != lrp.IndexHash {
@@ -998,10 +1000,12 @@ func (s *Server) storeFiles(rpID string, index *cache.Index, storageVolume volum
 	buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, rpID, "file.csv"))
 	if err != nil {
 		s.logger.Error("Read file csv error", zap.Error(err))
+		return err
 	}
 	err = storageVolume.PutObject(filepath.Join(rpID, "file.csv"), buf)
 	if err != nil {
 		s.logger.Error("Put file csv error", zap.Error(err))
+		return err
 	}
 	return nil
 }

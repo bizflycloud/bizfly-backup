@@ -856,6 +856,13 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			errCh <- errWriterCSV
 			return
 		}
+		// Put file.csv
+		errPutFiles := s.putFiles(storageVolume, rp.RecoveryPoint.ID)
+		if errPutFiles != nil {
+			s.notifyStatusFailed(rp.ID, errPutFiles.Error())
+			errCh <- errPutFiles
+			return
+		}
 
 		if errFileWorker != nil {
 			if err != nil {
@@ -888,7 +895,8 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		if lrp != nil {
 			err := os.RemoveAll(filepath.Join(CACHE_PATH, lrp.ID))
 			if err != nil {
-				s.logger.Fatal(err.Error())
+				errCh <- err
+				return
 			}
 		}
 
@@ -912,20 +920,17 @@ func (s *Server) storeIndexs(lrp *backupapi.RecoveryPointResponse, storageVolume
 			if err == nil {
 				_ = os.MkdirAll(filepath.Join(CACHE_PATH, lrp.ID), 0700)
 				if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"), buf, 0644); err != nil {
-					lrp = nil
 					return err
 				}
 			} else {
 				lrp = nil
-				return err
 			}
 		} else {
-			lrp = nil
+			return err
 		}
 	} else {
 		buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
 		if err != nil {
-			lrp = nil
 			return err
 		}
 		hash := sha256.Sum256(buf)
@@ -939,19 +944,19 @@ func (s *Server) storeIndexs(lrp *backupapi.RecoveryPointResponse, storageVolume
 func (s *Server) putIndexs(storageVolume volume.StorageVolume, latestIndex cache.Index, rpID string) (string, error) {
 	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "index.json"))
 	if err != nil {
-		s.notifyStatusFailed(rpID, err.Error())
-		return "", nil
+		s.logger.Error("Read indexs error", zap.Error(err))
+		return "", err
 	}
 	err = storageVolume.PutObject(filepath.Join(rpID, "index.json"), buf)
 	if err != nil {
+		s.logger.Error("Put indexs to storage error", zap.Error(err))
 		os.RemoveAll(filepath.Join(CACHE_PATH, rpID))
-		s.notifyStatusFailed(rpID, err.Error())
-		return "", nil
+		return "", err
 	}
 	hash := sha256.Sum256(buf)
 	indexHash := hex.EncodeToString(hash[:])
 
-	return indexHash, nil
+	return indexHash, err
 }
 
 func (s *Server) storeChunks(cacheWriter *cache.Repository, chunks *cache.Chunk, rpID string, storageVolume volume.StorageVolume) error {
@@ -976,7 +981,7 @@ func (s *Server) storeChunks(cacheWriter *cache.Repository, chunks *cache.Chunk,
 func (s *Server) storeFiles(rpID string, index *cache.Index, storageVolume volume.StorageVolume) error {
 	if _, err := os.Stat(filepath.Dir(filepath.Join(CACHE_PATH, rpID, "file.csv"))); os.IsNotExist(err) {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(CACHE_PATH, rpID, "file.csv")), 0700); err != nil {
-			s.logger.Error("Err MkdirAll dir file.csv", zap.Error(err))
+			s.logger.Error("Err make dir dir file.csv", zap.Error(err))
 			return err
 		}
 	}
@@ -997,7 +1002,11 @@ func (s *Server) storeFiles(rpID string, index *cache.Index, storageVolume volum
 			}
 		}
 	}
-	buf, err := ioutil.ReadFile(file.Name())
+	return nil
+}
+
+func (s *Server) putFiles(storageVolume volume.StorageVolume, rpID string) error {
+	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "file.csv"))
 	if err != nil {
 		s.logger.Error("Read file csv error", zap.Error(err))
 		return err

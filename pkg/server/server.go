@@ -997,7 +997,7 @@ func (s *Server) storeFiles(rpID string, index *cache.Index, storageVolume volum
 			}
 		}
 	}
-	buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, rpID, "file.csv"))
+	buf, err := ioutil.ReadFile(file.Name())
 	if err != nil {
 		s.logger.Error("Read file csv error", zap.Error(err))
 		return err

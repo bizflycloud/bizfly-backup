@@ -956,7 +956,7 @@ func (s *Server) putIndexs(storageVolume volume.StorageVolume, latestIndex cache
 	hash := sha256.Sum256(buf)
 	indexHash := hex.EncodeToString(hash[:])
 
-	return indexHash, err
+	return indexHash, nil
 }
 
 func (s *Server) storeChunks(cacheWriter *cache.Repository, chunks *cache.Chunk, rpID string, storageVolume volume.StorageVolume) error {

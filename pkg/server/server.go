@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -675,11 +676,9 @@ func NewStorageVolume(vol backupapi.Volume, actionID string) (volume.StorageVolu
 }
 
 func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.Stat, error) {
-	//func WalkerDir(dir string) (uint64, *backupapi.FileInfoRequest, error) {
 	p.Start()
 	defer p.Done()
 
-	//var total uint64
 	var st progress.Stat
 	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
@@ -696,6 +695,11 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.S
 			return err
 		}
 		index.Items[path] = node
+
+		if !fi.IsDir() {
+			index.TotalFiles++
+		}
+
 		p.Report(s)
 		st.Add(s)
 		return nil
@@ -797,32 +801,15 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		if lrp != nil {
-			_, err = os.Stat(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
-			if err != nil {
-				if os.IsNotExist(err) {
-					buf, err := storageVolume.GetObject(filepath.Join(lrp.ID, "index.json"))
-					if err == nil {
-						_ = os.MkdirAll(filepath.Join(CACHE_PATH, lrp.ID), 0700)
-						if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"), buf, 0644); err != nil {
-							lrp = nil
-						}
-					} else {
-						lrp = nil
-					}
-				} else {
-					lrp = nil
-				}
-			} else {
-				buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
-				if err != nil {
-					lrp = nil
-				}
-				hash := sha256.Sum256(buf)
-				if hex.EncodeToString(hash[:]) != lrp.IndexHash {
-					lrp = nil
-				}
+			// Store index
+			errStoreIndexs := s.storeIndexs(lrp, storageVolume)
+			if errStoreIndexs != nil {
+				s.notifyStatusFailed(rp.ID, errStoreIndexs.Error())
+				errCh <- errStoreIndexs
+				return
 			}
 		}
+
 		latestIndex := cache.Index{}
 		if lrp != nil {
 			buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
@@ -853,18 +840,30 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 		wg.Wait()
-		errCache := cacheWriter.SaveChunk(chunks)
-		if errCache != nil {
-			s.logger.Error("Write list chunks error", zap.Error(errCache))
+
+		// Store chunks
+		errStoreChunks := s.storeChunks(cacheWriter, chunks, rp.RecoveryPoint.ID, storageVolume)
+		if errStoreChunks != nil {
+			s.notifyStatusFailed(rp.ID, errStoreChunks.Error())
+			errCh <- errStoreChunks
+			return
 		}
-		buf, errCache := ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "chunk.json"))
-		if errCache != nil {
-			s.logger.Error("Read list chunks error", zap.Error(errCache))
+
+		// Store files
+		errWriterCSV := s.storeFiles(rp.RecoveryPoint.ID, index, storageVolume)
+		if errWriterCSV != nil {
+			s.notifyStatusFailed(rp.ID, errWriterCSV.Error())
+			errCh <- errWriterCSV
+			return
 		}
-		errCache = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "chunk.json"), buf)
-		if errCache != nil {
-			s.logger.Error("Put list chunks to storage error", zap.Error(errCache))
+		// Put file.csv
+		errPutFiles := s.putFiles(storageVolume, rp.RecoveryPoint.ID)
+		if errPutFiles != nil {
+			s.notifyStatusFailed(rp.ID, errPutFiles.Error())
+			errCh <- errPutFiles
+			return
 		}
+
 		if errFileWorker != nil {
 			if err != nil {
 				s.notifyStatusFailed(rp.ID, err.Error())
@@ -886,37 +885,138 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		buf, err = ioutil.ReadFile(filepath.Join(".cache", rp.RecoveryPoint.ID, "index.json"))
-		if err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
-			errCh <- err
+		// Put indexs
+		indexHash, errPutIndexs := s.putIndexs(storageVolume, latestIndex, rp.RecoveryPoint.ID)
+		if errPutIndexs != nil {
+			s.notifyStatusFailed(rp.ID, errPutIndexs.Error())
+			errCh <- errPutIndexs
 			return
 		}
-		err = storageVolume.PutObject(filepath.Join(rp.RecoveryPoint.ID, "index.json"), buf)
-		if err != nil {
-			os.RemoveAll(filepath.Join(CACHE_PATH, rp.RecoveryPoint.ID))
-			s.notifyStatusFailed(rp.ID, err.Error())
-			errCh <- err
-			return
-		}
-		hash := sha256.Sum256(buf)
 		if lrp != nil {
 			err := os.RemoveAll(filepath.Join(CACHE_PATH, lrp.ID))
 			if err != nil {
-				s.logger.Fatal(err.Error())
+				errCh <- err
+				return
 			}
 		}
 
 		s.notifyMsg(map[string]string{
 			"action_id":    rp.ID,
 			"status":       statusComplete,
-			"index_hash":   hex.EncodeToString(hash[:]),
+			"index_hash":   indexHash,
 			"storage_size": strconv.FormatUint(storageSize, 10),
 			"total":        strconv.FormatUint(itemTodo.Bytes, 10),
 		})
 
 		errCh <- nil
 	}
+}
+
+func (s *Server) storeIndexs(lrp *backupapi.RecoveryPointResponse, storageVolume volume.StorageVolume) error {
+	_, err := os.Stat(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			buf, err := storageVolume.GetObject(filepath.Join(lrp.ID, "index.json"))
+			if err == nil {
+				_ = os.MkdirAll(filepath.Join(CACHE_PATH, lrp.ID), 0700)
+				if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"), buf, 0644); err != nil {
+					return err
+				}
+			} else {
+				lrp = nil
+			}
+		} else {
+			return err
+		}
+	} else {
+		buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
+		if err != nil {
+			return err
+		}
+		hash := sha256.Sum256(buf)
+		if hex.EncodeToString(hash[:]) != lrp.IndexHash {
+			lrp = nil
+		}
+	}
+	return nil
+}
+
+func (s *Server) putIndexs(storageVolume volume.StorageVolume, latestIndex cache.Index, rpID string) (string, error) {
+	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "index.json"))
+	if err != nil {
+		s.logger.Error("Read indexs error", zap.Error(err))
+		return "", err
+	}
+	err = storageVolume.PutObject(filepath.Join(rpID, "index.json"), buf)
+	if err != nil {
+		s.logger.Error("Put indexs to storage error", zap.Error(err))
+		os.RemoveAll(filepath.Join(CACHE_PATH, rpID))
+		return "", err
+	}
+	hash := sha256.Sum256(buf)
+	indexHash := hex.EncodeToString(hash[:])
+
+	return indexHash, nil
+}
+
+func (s *Server) storeChunks(cacheWriter *cache.Repository, chunks *cache.Chunk, rpID string, storageVolume volume.StorageVolume) error {
+	err := cacheWriter.SaveChunk(chunks)
+	if err != nil {
+		s.logger.Error("Write list chunks error", zap.Error(err))
+		return err
+	}
+	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "chunk.json"))
+	if err != nil {
+		s.logger.Error("Read list chunks error", zap.Error(err))
+		return err
+	}
+	err = storageVolume.PutObject(filepath.Join(rpID, "chunk.json"), buf)
+	if err != nil {
+		s.logger.Error("Put list chunks to storage error", zap.Error(err))
+		return err
+	}
+	return nil
+}
+
+func (s *Server) storeFiles(rpID string, index *cache.Index, storageVolume volume.StorageVolume) error {
+	if _, err := os.Stat(filepath.Dir(filepath.Join(CACHE_PATH, rpID, "file.csv"))); os.IsNotExist(err) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(CACHE_PATH, rpID, "file.csv")), 0700); err != nil {
+			s.logger.Error("Err make dir dir file.csv", zap.Error(err))
+			return err
+		}
+	}
+	file, err := os.Create(filepath.Join(CACHE_PATH, rpID, "file.csv"))
+	if err != nil {
+		s.logger.Error("Err Create file.csv", zap.Error(err))
+		return err
+	}
+	defer file.Close()
+	writerCSV := csv.NewWriter(file)
+	defer writerCSV.Flush()
+	for _, itemInfo := range index.Items {
+		if itemInfo.Type == "file" {
+			err := writerCSV.Write([]string{itemInfo.Name, itemInfo.Sha256Hash.String(), itemInfo.AbsolutePath})
+			if err != nil {
+				s.logger.Error("Err writer file.csv", zap.Error(err))
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Server) putFiles(storageVolume volume.StorageVolume, rpID string) error {
+	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "file.csv"))
+	if err != nil {
+		s.logger.Error("Read file csv error", zap.Error(err))
+		return err
+	}
+	err = storageVolume.PutObject(filepath.Join(rpID, "file.csv"), buf)
+	if err != nil {
+		s.logger.Error("Put file csv error", zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 func (s *Server) newProgressScanDir() *progress.Progress {

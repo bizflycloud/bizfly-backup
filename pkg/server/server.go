@@ -675,7 +675,7 @@ func NewStorageVolume(vol backupapi.Volume, actionID string) (volume.StorageVolu
 	}
 }
 
-func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.Stat, error) {
+func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.Stat, int64, error) {
 	p.Start()
 	defer p.Done()
 
@@ -705,10 +705,9 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.S
 		return nil
 	})
 	if err != nil {
-		return progress.Stat{}, err
+		return progress.Stat{}, 0, err
 	}
-
-	return st, err
+	return st, index.TotalFiles, nil
 }
 
 type backupJob func()
@@ -787,7 +786,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		index := cache.NewIndex(bd.ID, rp.RecoveryPoint.ID)
 		chunks := cache.NewChunk(bd.ID, rp.RecoveryPoint.ID)
-		itemTodo, err := WalkerDir(bd.Path, index, progressScan)
+		itemTodo, totalFiles, err := WalkerDir(bd.Path, index, progressScan)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
 			s.logger.Error("WalkerDir error", zap.Error(err))
@@ -906,6 +905,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			"index_hash":   indexHash,
 			"storage_size": strconv.FormatUint(storageSize, 10),
 			"total":        strconv.FormatUint(itemTodo.Bytes, 10),
+			"total_files":  strconv.Itoa(int(totalFiles)),
 		})
 
 		errCh <- nil

@@ -471,52 +471,6 @@ func (c *Client) downloadFile(file *os.File, item cache.Node, storageVault stora
 	return nil
 }
 
-// func (c *Client) GetListItemPath(recoveryPointID string, page int) (int, *ItemsResponse, error) {
-// 	reqURL, err := c.urlStringFromRelPath(c.getListItemPath(recoveryPointID))
-// 	if err != nil {
-// 		c.logger.Error("err ", zap.Error(err))
-// 		return 0, nil, err
-// 	}
-
-// 	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
-// 	if err != nil {
-// 		c.logger.Error("err ", zap.Error(err))
-// 		return 0, nil, err
-// 	}
-
-// 	itemsPerPage := 50
-// 	q := req.URL.Query()
-// 	q.Add("items_per_page", strconv.Itoa(itemsPerPage))
-// 	q.Add("page", strconv.Itoa(page))
-// 	req.URL.RawQuery = q.Encode()
-
-// 	resp, err := c.Do(req)
-// 	if err != nil {
-// 		c.logger.Error("err ", zap.Error(err))
-// 		return 0, nil, err
-// 	}
-
-// 	var b bytes.Buffer
-// 	_, err = io.Copy(&b, resp.Body)
-// 	if err != nil {
-// 		c.logger.Error("Err write to buf ", zap.Error(err))
-// 	} else {
-// 		c.logger.Debug("Body Response", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
-// 	}
-
-// 	var items ItemsResponse
-// 	if err := json.NewDecoder(&b).Decode(&items); err != nil {
-// 		c.logger.Error("Err ", zap.Error(err))
-// 		c.logger.Error("Body ", zap.String("Body", b.String()))
-// 		return 0, nil, err
-// 	}
-
-// 	totalItem := items.Total
-// 	totalPage := int(math.Ceil(float64(totalItem) / float64(itemsPerPage)))
-
-// 	return totalPage, &items, nil
-// }
-
 func (c *Client) createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, gid int) error {
 	dirName := filepath.Dir(path)
 	if _, err := os.Stat(dirName); os.IsNotExist(err) {

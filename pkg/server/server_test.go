@@ -16,7 +16,7 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker/mqtt"
 	"github.com/bizflycloud/bizfly-backup/pkg/cache"
-	"github.com/bizflycloud/bizfly-backup/pkg/volume"
+	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 	"github.com/go-chi/chi"
 	"github.com/ory/dockertest/v3"
 	"github.com/panjf2000/ants/v2"
@@ -249,9 +249,9 @@ func TestServer_storeFiles(t *testing.T) {
 		logger               *zap.Logger
 	}
 	type args struct {
-		rpID          string
-		index         *cache.Index
-		storageVolume volume.StorageVolume
+		rpID         string
+		index        *cache.Index
+		storageVault storage_vault.StorageVault
 	}
 	tests := []struct {
 		name    string
@@ -293,7 +293,7 @@ func TestServer_storeFiles(t *testing.T) {
 				chunkPool:            tt.fields.chunkPool,
 				logger:               tt.fields.logger,
 			}
-			if err := s.storeFiles(tt.args.rpID, tt.args.index, tt.args.storageVolume); (err != nil) != tt.wantErr {
+			if err := s.storeFiles(tt.args.rpID, tt.args.index, tt.args.storageVault); (err != nil) != tt.wantErr {
 				t.Errorf("Server.writeFileCSV() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

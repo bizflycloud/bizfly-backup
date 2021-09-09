@@ -21,17 +21,6 @@ func TestClient_recoveryPointPath(t *testing.T) {
 	assert.Equal(t, "/agent/backup-directories/backup-directory-id/recovery-points", rpp)
 }
 
-func TestClient_recoveryPointItemPath(t *testing.T) {
-	setUp()
-	defer tearDown()
-
-	backupDirectoryID := "backup-directory-id"
-	recoveryPointID := "recovery-point-id"
-
-	rpip := client.recoveryPointItemPath(backupDirectoryID, recoveryPointID)
-	assert.Equal(t, "/agent/backup-directories/backup-directory-id/recovery-points/recovery-point-id", rpip)
-}
-
 func TestClient_recoveryPointActionPath(t *testing.T) {
 	setUp()
 	defer tearDown()
@@ -40,38 +29,6 @@ func TestClient_recoveryPointActionPath(t *testing.T) {
 
 	rpap := client.recoveryPointActionPath(recoveryPointID)
 	assert.Equal(t, "/agent/recovery-points/recovery-point-id/action", rpap)
-}
-
-func TestClient_saveChunkPath(t *testing.T) {
-	setUp()
-	defer tearDown()
-
-	recoveryPointID := "recovery-point-id"
-	fileID := "file-id"
-
-	scp := client.saveChunkPath(recoveryPointID, fileID)
-	assert.Equal(t, "/agent/recovery-points/recovery-point-id/file/file-id/chunks", scp)
-}
-
-func TestClient_getListItemPath(t *testing.T) {
-	setUp()
-	defer tearDown()
-
-	recoveryPointID := "recovery-point-id"
-
-	glfp := client.getListItemPath(recoveryPointID)
-	assert.Equal(t, "/agent/recovery-points/recovery-point-id/items", glfp)
-}
-
-func TestClient_infoFile(t *testing.T) {
-	setUp()
-	defer tearDown()
-
-	recoveryPointID := "recovery-point-id"
-	itemID := "item-id"
-
-	gifd := client.infoFile(recoveryPointID, itemID)
-	assert.Equal(t, "/agent/auth/recovery-point-id/file/item-id", gifd)
 }
 
 func TestCLient_latestRecoveryPointID(t *testing.T) {
@@ -135,25 +92,6 @@ func TestClient_CreateRecoveryPoint(t *testing.T) {
 	assert.NotEmpty(t, crp.RecoveryPoint.ID)
 	assert.Equal(t, RecoveryPointStatusCreated, crp.RecoveryPoint.Status)
 	assert.Equal(t, RecoveryPointTypePoint, crp.RecoveryPoint.RecoveryPointType)
-}
-
-func TestClient_UpdateRecoveryPoint(t *testing.T) {
-	setUp()
-	defer tearDown()
-
-	backupDirectoryID := "1"
-	recoveryPointID := "recovery-point-id"
-	recoveryPointPath := client.recoveryPointItemPath(backupDirectoryID, recoveryPointID)
-	status := RecoveryPointStatusFAILED
-
-	mux.HandleFunc(path.Join("/api/v1/", recoveryPointPath), func(w http.ResponseWriter, r *http.Request) {
-		var urpr UpdateRecoveryPointRequest
-		require.NoError(t, json.NewDecoder(r.Body).Decode(&urpr))
-		assert.Equal(t, status, urpr.Status)
-	})
-
-	err := client.UpdateRecoveryPoint(context.Background(), backupDirectoryID, recoveryPointID, &UpdateRecoveryPointRequest{Status: RecoveryPointStatusFAILED})
-	require.NoError(t, err)
 }
 
 func TestClient_ListRecoveryPoints(t *testing.T) {

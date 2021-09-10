@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 
-	"io/ioutil"
 	"net/http"
 
 	"go.uber.org/zap"
@@ -82,24 +81,8 @@ func (c *Client) recoveryPointInfo(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s", recoveryPointID)
 }
 
-func (c *Client) recoveryPointItemPath(backupDirectoryID string, recoveryPointID string) string {
-	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points/%s", backupDirectoryID, recoveryPointID)
-}
-
 func (c *Client) recoveryPointActionPath(recoveryPointID string) string {
 	return fmt.Sprintf("/agent/recovery-points/%s/action", recoveryPointID)
-}
-
-func (c *Client) saveChunkPath(recoveryPointID string, itemID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/file/%s/chunks", recoveryPointID, itemID)
-}
-
-func (c *Client) getListItemPath(recoveryPointID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/items", recoveryPointID)
-}
-
-func (c *Client) infoFile(recoveryPointID string, itemID string) string {
-	return fmt.Sprintf("/agent/auth/%s/file/%s", recoveryPointID, itemID)
 }
 
 func (c *Client) latestRecoveryPointID(backupDirectoryID string) string {
@@ -179,34 +162,6 @@ func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 	}
 
 	return &crp, nil
-}
-
-func (c *Client) UpdateRecoveryPoint(ctx context.Context, backupDirectoryID string, recoveryPointID string, urpr *UpdateRecoveryPointRequest) error {
-	req, err := c.NewRequest(http.MethodPatch, c.recoveryPointItemPath(backupDirectoryID, recoveryPointID), urpr)
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return err
-	}
-
-	resp, err := c.Do(req.WithContext(ctx))
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return err
-	}
-	if err := checkResponse(resp); err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return err
-	}
-	defer resp.Body.Close()
-	buf, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%s: %w", string(buf), ErrUpdateRecoveryPoint)
-	}
-	return nil
 }
 
 // ListRecoveryPoints list all recovery points of given backup directory.

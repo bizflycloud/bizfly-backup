@@ -201,7 +201,6 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == "NotFound" {
-				s3.logger.Debug("err ", zap.Error(err))
 				return false, "", err
 			}
 

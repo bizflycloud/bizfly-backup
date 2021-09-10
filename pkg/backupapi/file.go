@@ -1,25 +1,18 @@
 package backupapi
 
 import (
-	"bytes"
 	"context"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
-	"io/ioutil"
-	"math"
-	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -39,178 +32,6 @@ import (
 
 const ChunkUploadLowerBound = 8 * 1000 * 1000
 
-// ItemInfo ...
-type ItemInfo struct {
-	ItemType       string     `json:"item_type"`
-	ParentItemID   string     `json:"parent_item_id,omitempty"`
-	ChunkReference bool       `json:"chunk_reference"`
-	Attributes     *Attribute `json:"attributes,omitempty"`
-}
-
-type ChunkInfo struct {
-	Start  uint
-	Length uint
-	Cut    uint64
-	Data   []byte
-}
-
-// Attribute ...
-type Attribute struct {
-	ID          string      `json:"id"`
-	ItemName    string      `json:"item_name"`
-	SymlinkPath string      `json:"symlink_path,omitempty"`
-	Size        int64       `json:"size"`
-	ItemType    string      `json:"item_type"`
-	IsDir       bool        `json:"is_dir"`
-	ChangeTime  time.Time   `json:"change_time"`
-	ModifyTime  time.Time   `json:"modify_time"`
-	AccessTime  time.Time   `json:"access_time"`
-	Mode        string      `json:"mode"`
-	AccessMode  os.FileMode `json:"access_mode"`
-	GID         uint32      `json:"gid"`
-	UID         uint32      `json:"uid"`
-}
-
-// FileInfoRequest ...
-type FileInfoRequest struct {
-	Files []ItemInfo `json:"files"`
-}
-
-// File ...
-type File struct {
-	ContentType string      `json:"content_type"`
-	CreatedAt   string      `json:"created_at"`
-	Etag        string      `json:"etag"`
-	ID          string      `json:"id"`
-	ItemName    string      `json:"item_name"`
-	ItemType    string      `json:"item_type"`
-	Mode        string      `json:"mode"`
-	AccessMode  os.FileMode `json:"access_mode"`
-	RealName    string      `json:"real_name"`
-	SymlinkPath string      `json:"symlink_path"`
-	Size        int         `json:"size"`
-	Status      string      `json:"status"`
-	UpdatedAt   string      `json:"updated_at"`
-	ChangeTime  time.Time   `json:"change_time"`
-	ModifyTime  time.Time   `json:"modify_time"`
-	AccessTime  time.Time   `json:"access_time"`
-	Gid         uint32      `json:"gid"`
-	UID         uint32      `json:"uid"`
-}
-
-// FilesResponse ...
-type FilesResponse []File
-
-// ItemsResponse ...
-type FileInfoResponse struct {
-	Files []File `json:"files"`
-	Total int    `json:"total"`
-}
-
-// Item ...
-type Item struct {
-	Mode        string      `json:"mode"`
-	AccessMode  os.FileMode `json:"access_mode"`
-	AccessTime  time.Time   `json:"access_time"`
-	ChangeTime  time.Time   `json:"change_time"`
-	ModifyTime  time.Time   `json:"modify_time"`
-	ContentType string      `json:"content_type"`
-	CreatedAt   string      `json:"created_at"`
-	GID         uint32      `json:"gid"`
-	UID         uint32      `json:"uid"`
-	ID          string      `json:"id"`
-	IsDir       bool        `json:"is_dir"`
-	ItemName    string      `json:"item_name"`
-	RealName    string      `json:"real_name"`
-	SymlinkPath string      `json:"symlink_path"`
-	ItemType    string      `json:"item_type"`
-	Size        int         `json:"size"`
-	Status      string      `json:"status"`
-	UpdatedAt   string      `json:"updated_at"`
-}
-
-// ItemsResponse ...
-type ItemsResponse struct {
-	Items []Item `json:"items"`
-	Total int    `json:"total"`
-}
-
-// ChunkRequest ...
-type ChunkRequest struct {
-	Length int    `json:"length"`
-	Offset int    `json:"offset"`
-	Etag   string `json:"etag"`
-}
-
-// ChunkResponse ...
-type ChunkResponse struct {
-	ID           string       `json:"id"`
-	Offset       int          `json:"offset"`
-	Length       int          `json:"length"`
-	Etag         string       `json:"etag"`
-	Uri          string       `json:"uri"`
-	DeletedAt    string       `json:"deleted_at"`
-	Deleted      bool         `json:"deleted"`
-	PresignedURL PresignedURL `json:"presigned_url"`
-}
-
-type ChunksResponse struct {
-	Chunks []ChunkResponse `json:"chunks"`
-	Total  uint64          `json:"total"`
-}
-
-// PresignedURL ...
-type PresignedURL struct {
-	Head string `json:"head"`
-	Put  string `json:"put"`
-}
-
-// InfoDownload ...
-type InfoDownload struct {
-	Get    string `json:"get"`
-	Offset int    `json:"offset"`
-}
-
-// FileDownloadResponse ...
-type FileDownloadResponse struct {
-	Info []InfoDownload `json:"info"`
-}
-
-// InfoPresignUrl ...
-type InfoPresignUrl struct {
-	ActionID string `json:"action_id"`
-	Etag     string `json:"etag"`
-}
-
-// ItemInfoLatest ...
-type ItemInfoLatest struct {
-	ID          string      `json:"id"`
-	ItemType    string      `json:"item_type"`
-	Mode        string      `json:"mode"`
-	AccessMode  os.FileMode `json:"access_mode"`
-	RealName    string      `json:"real_name"`
-	Size        int         `json:"size"`
-	ContentType string      `json:"content_type"`
-	IsDir       bool        `json:"is_dir"`
-	Status      string      `json:"status"`
-	ItemName    string      `json:"item_name"`
-	CreatedAt   string      `json:"created_at"`
-	UpdatedAt   string      `json:"updated_at"`
-	AccessTime  time.Time   `json:"access_time"`
-	ChangeTime  time.Time   `json:"change_time"`
-	ModifyTime  time.Time   `json:"modify_time"`
-	Gid         int         `json:"gid"`
-	UID         int         `json:"uid"`
-}
-
-func (c *Client) saveFileInfoPath(recoveryPointID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/file", recoveryPointID)
-}
-
-func (c *Client) getItemLatestPath(latestRecoveryPointID string) string {
-	return fmt.Sprintf("/agent/recovery-points/%s/path", latestRecoveryPointID)
-}
-
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	if c.ServerURL.Path != "" && c.ServerURL.Path != "/" {
 		relPath = path.Join(c.ServerURL.Path, relPath)
@@ -223,96 +44,6 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 
 	u := c.ServerURL.ResolveReference(relURL)
 	return u.String(), nil
-}
-
-func (c *Client) SaveFileInfo(recoveryPointID string, itemInfo *ItemInfo) (*File, error) {
-	reqURL, err := c.urlStringFromRelPath(c.saveFileInfoPath(recoveryPointID))
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodPost, reqURL, itemInfo)
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return nil, err
-	}
-
-	resp, err := c.Do(req)
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return nil, err
-	}
-
-	var b bytes.Buffer
-	_, err = io.Copy(&b, resp.Body)
-	if err != nil {
-		c.logger.Error("Err write to buf ", zap.Error(err))
-	} else {
-		c.logger.Debug("Body", zap.String("Body Response", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
-	}
-
-	defer resp.Body.Close()
-
-	var file File
-
-	if err = json.NewDecoder(&b).Decode(&file); err != nil {
-		body, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			c.logger.Error("Err write to buf ", zap.Error(err))
-		}
-		sb := string(body)
-		c.logger.Error("Err ", zap.Error(err), zap.String("Body Response", b.String()), zap.String("Body Request", sb), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
-		return nil, err
-	}
-
-	return &file, nil
-}
-
-func (c *Client) GetItemLatest(latestRecoveryPointID string, filePath string) (*ItemInfoLatest, error) {
-	if len(latestRecoveryPointID) == 0 {
-		return &ItemInfoLatest{
-			ID:         "",
-			ChangeTime: time.Time{},
-			ModifyTime: time.Time{},
-		}, nil
-	}
-
-	reqURL, err := c.urlStringFromRelPath(c.getItemLatestPath(latestRecoveryPointID))
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return nil, err
-	}
-	q := req.URL.Query()
-	q.Add("path", filePath)
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := c.Do(req)
-	if err != nil {
-		c.logger.Error("err ", zap.String("Request", req.URL.String()), zap.Error(err))
-		return nil, err
-	}
-
-	var b bytes.Buffer
-	_, err = io.Copy(&b, resp.Body)
-	if err != nil {
-		c.logger.Error("Err write to buf ", zap.Error(err))
-	} else {
-		c.logger.Debug("Body Response", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
-	}
-
-	var itemInfoLatest ItemInfoLatest
-	if err := json.NewDecoder(&b).Decode(&itemInfoLatest); err != nil {
-		c.logger.Error("Err ", zap.Error(err), zap.String("Body Response", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
-		return nil, err
-	}
-	return &itemInfoLatest, nil
 }
 
 func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.ChunkInfo, chunks *cache.Chunk, volume volume.StorageVolume) (uint64, error) {
@@ -382,7 +113,6 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		file, err := os.Open(itemInfo.AbsolutePath)
 		if err != nil {
 			if os.IsNotExist(err) {
-				//c.logger.Sugar().Info("item not exist ", itemInfo.Attributes.ItemName)
 				s.ItemName = append(s.ItemName, itemInfo.AbsolutePath)
 				s.Errors = true
 				p.Report(s)
@@ -739,52 +469,6 @@ func (c *Client) downloadFile(file *os.File, item cache.Node, volume volume.Stor
 		return err
 	}
 	return nil
-}
-
-func (c *Client) GetListItemPath(recoveryPointID string, page int) (int, *ItemsResponse, error) {
-	reqURL, err := c.urlStringFromRelPath(c.getListItemPath(recoveryPointID))
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return 0, nil, err
-	}
-
-	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return 0, nil, err
-	}
-
-	itemsPerPage := 50
-	q := req.URL.Query()
-	q.Add("items_per_page", strconv.Itoa(itemsPerPage))
-	q.Add("page", strconv.Itoa(page))
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := c.Do(req)
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return 0, nil, err
-	}
-
-	var b bytes.Buffer
-	_, err = io.Copy(&b, resp.Body)
-	if err != nil {
-		c.logger.Error("Err write to buf ", zap.Error(err))
-	} else {
-		c.logger.Debug("Body Response", zap.String("Body", b.String()), zap.String("Request", req.URL.String()), zap.Int("StatusCode", resp.StatusCode))
-	}
-
-	var items ItemsResponse
-	if err := json.NewDecoder(&b).Decode(&items); err != nil {
-		c.logger.Error("Err ", zap.Error(err))
-		c.logger.Error("Body ", zap.String("Body", b.String()))
-		return 0, nil, err
-	}
-
-	totalItem := items.Total
-	totalPage := int(math.Ceil(float64(totalItem) / float64(itemsPerPage)))
-
-	return totalPage, &items, nil
 }
 
 func (c *Client) createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, gid int) error {

@@ -26,7 +26,7 @@ var backoffSchedule = []time.Duration{
 type StorageVault struct {
 	ID               string                   `json:"id"`
 	Name             string                   `json:"name"`
-	UserType         string                   `json:"user_type"`
+	CredentialType   string                   `json:"credential_type"`
 	StorageBucket    string                   `json:"storage_bucket"`
 	StorageVaultType string                   `json:"storage_vault_type"`
 	SecretRef        string                   `json:"secret_ref"`
@@ -123,7 +123,7 @@ func (c *Client) HeadObject(storageVault storage_vault.StorageVault, key string)
 			break
 		}
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() == "Forbidden" && storageVault.Type().UserType == "DEFAULT" {
+			if aerr.Code() == "Forbidden" && storageVault.Type().CredentialType == "DEFAULT" {
 				c.logger.Sugar().Info("GetCredential in head object ", key)
 				storageVaultID, actID := storageVault.ID()
 				vault, err := c.GetCredentialStorageVault(storageVaultID, actID, nil)
@@ -158,7 +158,7 @@ func (c *Client) PutObject(storageVault storage_vault.StorageVault, key string, 
 			break
 		}
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() == "Forbidden" && storageVault.Type().UserType == "DEFAULT" {
+			if aerr.Code() == "Forbidden" && storageVault.Type().CredentialType == "DEFAULT" {
 				c.logger.Sugar().Info("GetCredential for refreshing session s3")
 				storageVaultID, actID := storageVault.ID()
 				vault, err := c.GetCredentialStorageVault(storageVaultID, actID, nil)
@@ -188,7 +188,7 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 			return data, nil
 		}
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() != "" && storageVault.Type().UserType == "DEFAULT" {
+			if aerr.Code() != "" && storageVault.Type().CredentialType == "DEFAULT" {
 				storageVaultID, actID := storageVault.ID()
 				vault, err := c.GetCredentialStorageVault(storageVaultID, actID, restoreKey)
 				if err != nil {

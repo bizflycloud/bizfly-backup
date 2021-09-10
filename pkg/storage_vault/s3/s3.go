@@ -26,7 +26,7 @@ type S3 struct {
 	StorageBucket    string
 	SecretRef        string
 	PresignURL       string
-	UserType         string
+	CredentialType   string
 	StorageVaultType string
 	Location         string
 	Region           string
@@ -38,7 +38,7 @@ type S3 struct {
 func (s3 *S3) Type() storage_vault.Type {
 	tpe := storage_vault.Type{
 		StorageVaultType: s3.StorageVaultType,
-		UserType:         s3.UserType,
+		CredentialType:   s3.CredentialType,
 	}
 	return tpe
 }
@@ -57,7 +57,7 @@ func NewS3Default(vault backupapi.StorageVault, actionID string) *S3 {
 		Name:             vault.Name,
 		StorageBucket:    vault.StorageBucket,
 		SecretRef:        vault.SecretRef,
-		UserType:         vault.UserType,
+		CredentialType:   vault.CredentialType,
 		StorageVaultType: vault.StorageVaultType,
 		Location:         vault.Credential.AwsLocation,
 		Region:           vault.Credential.Region,

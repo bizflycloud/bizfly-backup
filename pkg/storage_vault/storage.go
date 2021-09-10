@@ -23,7 +23,7 @@ type StorageVault interface {
 
 type Type struct {
 	StorageVaultType string
-	UserType         string
+	CredentialType   string
 }
 
 type Credential struct {

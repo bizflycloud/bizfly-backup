@@ -19,8 +19,8 @@ import (
 
 	"github.com/bizflycloud/bizfly-backup/pkg/cache"
 	"github.com/bizflycloud/bizfly-backup/pkg/progress"
+	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 	"github.com/bizflycloud/bizfly-backup/pkg/support"
-	"github.com/bizflycloud/bizfly-backup/pkg/volume"
 
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -46,7 +46,7 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	return u.String(), nil
 }
 
-func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.ChunkInfo, chunks *cache.Chunk, volume volume.StorageVolume) (uint64, error) {
+func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.ChunkInfo, chunks *cache.Chunk, storageVault storage_vault.StorageVault) (uint64, error) {
 	select {
 	case <-ctx.Done():
 		c.logger.Debug("context backupChunk done")
@@ -64,7 +64,7 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 			chunks.Chunks[key] = 1
 		}
 		c.mu.Unlock()
-		isExist, etag, err := c.HeadObject(volume, key)
+		isExist, etag, err := c.HeadObject(storageVault, key)
 		if err != nil {
 			c.logger.Sugar().Errorf("backup chunk head object error: ", zap.Error(err))
 			return 0, err
@@ -73,7 +73,7 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 		if isExist {
 			integrity := strings.Contains(etag, key)
 			if !integrity {
-				err := c.PutObject(volume, key, data)
+				err := c.PutObject(storageVault, key, data)
 				if err != nil {
 					c.logger.Error("err ", zap.Error(err))
 					return stat, err
@@ -83,7 +83,7 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 				c.logger.Info("exists ", zap.String("etag", etag), zap.String("key", key))
 			}
 		} else {
-			err = c.PutObject(volume, key, data)
+			err = c.PutObject(storageVault, key, data)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
 				return stat, err
@@ -97,7 +97,7 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 }
 
 func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node, chunks *cache.Chunk,
-	volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
+	storageVault storage_vault.StorageVault, p *progress.Progress) (uint64, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	select {
@@ -149,7 +149,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			hash.Write(temp)
 			itemInfo.Content = append(itemInfo.Content, &chunkToBackup)
 			wg.Add(1)
-			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, temp, &chunkToBackup, chunks, volume, p))
+			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, temp, &chunkToBackup, chunks, storageVault, p))
 		}
 		wg.Wait()
 
@@ -167,7 +167,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 type chunkJob func()
 
 func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *error, size *uint64,
-	data []byte, chunk *cache.ChunkInfo, chunks *cache.Chunk, volume volume.StorageVolume, p *progress.Progress) chunkJob {
+	data []byte, chunk *cache.ChunkInfo, chunks *cache.Chunk, storageVault storage_vault.StorageVault, p *progress.Progress) chunkJob {
 	return func() {
 		p.Start()
 		defer func() {
@@ -181,7 +181,7 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 			s := progress.Stat{}
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			saveSize, err := c.backupChunk(ctx, data, chunk, chunks, volume)
+			saveSize, err := c.backupChunk(ctx, data, chunk, chunks, storageVault)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
 				*chErr = err
@@ -199,7 +199,7 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 }
 
 func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cache.Node, itemInfo *cache.Node, chunks *cache.Chunk,
-	volume volume.StorageVolume, p *progress.Progress) (uint64, error) {
+	storageVault storage_vault.StorageVault, p *progress.Progress) (uint64, error) {
 
 	select {
 	case <-ctx.Done():
@@ -216,7 +216,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 		if lastInfo == nil || !strings.EqualFold(timeToString(lastInfo.ModTime), timeToString(itemInfo.ModTime)) {
 			c.logger.Info("backup item with item change mtime, ctime")
 
-			storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, chunks, volume, p)
+			storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, chunks, storageVault, p)
 			if err != nil {
 				c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
 				s.Errors = true
@@ -245,7 +245,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 	}
 }
 
-func (c *Client) RestoreDirectory(index cache.Index, destDir string, volume volume.StorageVolume, restoreKey *AuthRestore) error {
+func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVault storage_vault.StorageVault, restoreKey *AuthRestore) error {
 	numGoroutine := int(float64(runtime.NumCPU()) * 0.2)
 	if numGoroutine <= 1 {
 		numGoroutine = 2
@@ -264,7 +264,7 @@ func (c *Client) RestoreDirectory(index cache.Index, destDir string, volume volu
 		}
 		group.Go(func() error {
 			defer sem.Release(1)
-			err := c.RestoreItem(ctx, destDir, *item, volume, restoreKey)
+			err := c.RestoreItem(ctx, destDir, *item, storageVault, restoreKey)
 			if err != nil {
 				c.logger.Error("Restore file error ", zap.Error(err), zap.String("item name", item.AbsolutePath))
 				return err
@@ -281,7 +281,7 @@ func (c *Client) RestoreDirectory(index cache.Index, destDir string, volume volu
 	return nil
 }
 
-func (c *Client) RestoreItem(ctx context.Context, destDir string, item cache.Node, volume volume.StorageVolume, restoreKey *AuthRestore) error {
+func (c *Client) RestoreItem(ctx context.Context, destDir string, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore) error {
 	select {
 	case <-ctx.Done():
 		return errors.New("context restore item done")
@@ -306,7 +306,7 @@ func (c *Client) RestoreItem(ctx context.Context, destDir string, item cache.Nod
 				return err
 			}
 		case "file":
-			err := c.restoreFile(pathItem, item, volume, restoreKey)
+			err := c.restoreFile(pathItem, item, storageVault, restoreKey)
 			if err != nil {
 				c.logger.Error("Error restore file ", zap.Error(err))
 				return err
@@ -374,7 +374,7 @@ func (c *Client) restoreDirectory(target string, item cache.Node) error {
 	return nil
 }
 
-func (c *Client) restoreFile(target string, item cache.Node, volume volume.StorageVolume, restoreKey *AuthRestore) error {
+func (c *Client) restoreFile(target string, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore) error {
 	fi, err := os.Stat(target)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -385,7 +385,7 @@ func (c *Client) restoreFile(target string, item cache.Node, volume volume.Stora
 				return err
 			}
 
-			err = c.downloadFile(file, item, volume, restoreKey)
+			err = c.downloadFile(file, item, storageVault, restoreKey)
 			if err != nil {
 				c.logger.Error("downloadFile error ", zap.Error(err))
 				return err
@@ -412,7 +412,7 @@ func (c *Client) restoreFile(target string, item cache.Node, volume volume.Stora
 				return err
 			}
 
-			err = c.downloadFile(file, item, volume, restoreKey)
+			err = c.downloadFile(file, item, storageVault, restoreKey)
 			if err != nil {
 				c.logger.Error("downloadFile error ", zap.Error(err))
 				return err
@@ -439,13 +439,12 @@ func (c *Client) restoreFile(target string, item cache.Node, volume volume.Stora
 	return nil
 }
 
-func (c *Client) downloadFile(file *os.File, item cache.Node, volume volume.StorageVolume, restoreKey *AuthRestore) error {
-
+func (c *Client) downloadFile(file *os.File, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore) error {
 	for _, info := range item.Content {
 		offset := info.Start
 		key := info.Etag
 
-		data, err := c.GetObject(volume, key, restoreKey)
+		data, err := c.GetObject(storageVault, key, restoreKey)
 		if err != nil {
 			c.logger.Error("err ", zap.Error(err))
 			return err

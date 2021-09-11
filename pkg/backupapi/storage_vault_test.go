@@ -8,7 +8,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestClient_credentialVolumePath(t *testing.T) {
+func TestClient_credentialStorageVaultPath(t *testing.T) {
 	type fields struct {
 		client    *http.Client
 		ServerURL *url.URL
@@ -19,8 +19,8 @@ func TestClient_credentialVolumePath(t *testing.T) {
 		logger    *zap.Logger
 	}
 	type args struct {
-		volumeID string
-		actionID string
+		storageVaultID string
+		actionID       string
 	}
 	tests := []struct {
 		name   string
@@ -29,12 +29,12 @@ func TestClient_credentialVolumePath(t *testing.T) {
 		want   string
 	}{
 		{
-			name: "test credential volume path",
+			name: "test credential storage vault path",
 			args: args{
-				volumeID: "1",
-				actionID: "1",
+				storageVaultID: "1",
+				actionID:       "1",
 			},
-			want: "/agent/volumes/1/credential?action_id=1",
+			want: "/agent/storage_vaults/1/credential?action_id=1",
 		},
 	}
 	for _, tt := range tests {
@@ -48,8 +48,8 @@ func TestClient_credentialVolumePath(t *testing.T) {
 				userAgent: tt.fields.userAgent,
 				logger:    tt.fields.logger,
 			}
-			if got := c.credentialVolumePath(tt.args.volumeID, tt.args.actionID); got != tt.want {
-				t.Errorf("Client.credentialVolumePath() = %v, want %v", got, tt.want)
+			if got := c.credentialStorageVaultPath(tt.args.storageVaultID, tt.args.actionID); got != tt.want {
+				t.Errorf("Client.credentialStorageVaultPath() = %v, want %v", got, tt.want)
 			}
 		})
 	}

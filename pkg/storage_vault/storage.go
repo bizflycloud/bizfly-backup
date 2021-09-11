@@ -1,7 +1,7 @@
-package volume
+package storage_vault
 
-// StorageVolume ...
-type StorageVolume interface {
+// storageVault ...
+type StorageVault interface {
 	// HeadObject a boolean value whether object name existing in storage.
 	HeadObject(key string) (bool, string, error)
 
@@ -14,7 +14,7 @@ type StorageVolume interface {
 	// SetCredential sets a new credential with backend credential not constant.
 	RefreshCredential(credential Credential) error
 
-	// ID return id of volume
+	// ID return id of storage vault
 	ID() (string, string)
 
 	// Type
@@ -22,8 +22,8 @@ type StorageVolume interface {
 }
 
 type Type struct {
-	VolumeType  string
-	StorageType string
+	StorageVaultType string
+	CredentialType   string
 }
 
 type Credential struct {

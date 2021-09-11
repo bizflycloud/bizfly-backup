@@ -22,8 +22,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bizflycloud/bizfly-backup/pkg/cache"
-
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
 	"github.com/inconshreveable/go-update"
@@ -35,9 +33,10 @@ import (
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
+	"github.com/bizflycloud/bizfly-backup/pkg/cache"
 	"github.com/bizflycloud/bizfly-backup/pkg/progress"
-	"github.com/bizflycloud/bizfly-backup/pkg/volume"
-	"github.com/bizflycloud/bizfly-backup/pkg/volume/s3"
+	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
+	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault/s3"
 )
 
 var Version = "dev"
@@ -170,7 +169,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	case broker.RestoreManual:
 		var err error
 		go func() {
-			err = s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.VolumeId, ioutil.Discard)
+			err = s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.StorageVaultId, ioutil.Discard)
 		}()
 		return err
 	case broker.ConfigUpdate:
@@ -575,9 +574,8 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))
 }
 
-func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, volumeId string, progressOutput io.Writer) error {
+func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, storageVaultID string, progressOutput io.Writer) error {
 	// Get storage volume
-
 	restoreKey := &backupapi.AuthRestore{
 		RecoveryPointID:   recoveryPointID,
 		ActionID:          actionID,
@@ -585,12 +583,12 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		RestoreSessionKey: restoreSessionKey,
 	}
 
-	vol, err := s.backupClient.GetCredentialVolume(volumeId, actionID, restoreKey)
+	vault, err := s.backupClient.GetCredentialStorageVault(storageVaultID, actionID, restoreKey)
 	if err != nil {
-		s.logger.Error("Get credential volume error", zap.Error(err))
+		s.logger.Error("Get credential storage vault error", zap.Error(err))
 		return err
 	}
-	storageVolume, _ := NewStorageVolume(*vol, actionID)
+	storageVault, _ := NewStorageVault(*vault, actionID)
 
 	rp, err := s.backupClient.GetRecoveryPointInfo(recoveryPointID)
 	if err != nil {
@@ -601,7 +599,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	_, err = os.Stat(filepath.Join(CACHE_PATH, recoveryPointID, "index.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			buf, err := storageVolume.GetObject(filepath.Join(recoveryPointID, "index.json"))
+			buf, err := storageVault.GetObject(filepath.Join(recoveryPointID, "index.json"))
 			if err == nil {
 				_ = os.MkdirAll(filepath.Join(CACHE_PATH, recoveryPointID), 0700)
 				if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, recoveryPointID, "index.json"), buf, 0644); err != nil {
@@ -641,7 +639,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	s.reportStartDownload(progressOutput)
 
-	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVolume, restoreKey); err != nil {
+	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVault, restoreKey); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
@@ -666,12 +664,12 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 	return nil
 }
 
-func NewStorageVolume(vol backupapi.Volume, actionID string) (volume.StorageVolume, error) {
-	switch vol.VolumeType {
+func NewStorageVault(storageVault backupapi.StorageVault, actionID string) (storage_vault.StorageVault, error) {
+	switch storageVault.StorageVaultType {
 	case "S3":
-		return s3.NewS3Default(vol, actionID), nil
+		return s3.NewS3Default(storageVault, actionID), nil
 	default:
-		return nil, fmt.Errorf(fmt.Sprintf("volume type not supported %s", vol.VolumeType))
+		return nil, fmt.Errorf(fmt.Sprintf("storage vault type not supported %s", storageVault.StorageVaultType))
 	}
 }
 
@@ -712,7 +710,7 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.S
 
 type backupJob func()
 
-func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, chunks *cache.Chunk, volume volume.StorageVolume,
+func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, chunks *cache.Chunk, storageVault storage_vault.StorageVault,
 	wg *sync.WaitGroup, size *uint64, errCh *error, p *progress.Progress) backupJob {
 	return func() {
 		defer wg.Done()
@@ -723,7 +721,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 			p.Start()
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, chunks, volume, p)
+			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, chunks, storageVault, p)
 			if err != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(err))
 				*errCh = err
@@ -770,10 +768,10 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		// Get storage volume
-		storageVolume, err := NewStorageVolume(*rp.Volume, rp.ID)
+		// Get storage vault
+		storageVault, err := NewStorageVault(*rp.StorageVault, rp.ID)
 		if err != nil {
-			s.logger.Error("NewStorageVolume error", zap.Error(err))
+			s.logger.Error("NewStorageVault error", zap.Error(err))
 			errCh <- err
 			return
 		}
@@ -801,7 +799,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		if lrp != nil {
 			// Store index
-			errStoreIndexs := s.storeIndexs(lrp, storageVolume)
+			errStoreIndexs := s.storeIndexs(lrp, storageVault)
 			if errStoreIndexs != nil {
 				s.notifyStatusFailed(rp.ID, errStoreIndexs.Error())
 				errCh <- errStoreIndexs
@@ -835,13 +833,13 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			if itemInfo.Type == "file" {
 				lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
 				wg.Add(1)
-				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, chunks, storageVolume, &wg, &storageSize, &errFileWorker, progressUpload))
+				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, chunks, storageVault, &wg, &storageSize, &errFileWorker, progressUpload))
 			}
 		}
 		wg.Wait()
 
 		// Store chunks
-		errStoreChunks := s.storeChunks(cacheWriter, chunks, rp.RecoveryPoint.ID, storageVolume)
+		errStoreChunks := s.storeChunks(cacheWriter, chunks, rp.RecoveryPoint.ID, storageVault)
 		if errStoreChunks != nil {
 			s.notifyStatusFailed(rp.ID, errStoreChunks.Error())
 			errCh <- errStoreChunks
@@ -849,14 +847,14 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Store files
-		errWriterCSV := s.storeFiles(rp.RecoveryPoint.ID, index, storageVolume)
+		errWriterCSV := s.storeFiles(rp.RecoveryPoint.ID, index, storageVault)
 		if errWriterCSV != nil {
 			s.notifyStatusFailed(rp.ID, errWriterCSV.Error())
 			errCh <- errWriterCSV
 			return
 		}
 		// Put file.csv
-		errPutFiles := s.putFiles(storageVolume, rp.RecoveryPoint.ID)
+		errPutFiles := s.putFiles(storageVault, rp.RecoveryPoint.ID)
 		if errPutFiles != nil {
 			s.notifyStatusFailed(rp.ID, errPutFiles.Error())
 			errCh <- errPutFiles
@@ -885,7 +883,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Put indexs
-		indexHash, errPutIndexs := s.putIndexs(storageVolume, latestIndex, rp.RecoveryPoint.ID)
+		indexHash, errPutIndexs := s.putIndexs(storageVault, latestIndex, rp.RecoveryPoint.ID)
 		if errPutIndexs != nil {
 			s.notifyStatusFailed(rp.ID, errPutIndexs.Error())
 			errCh <- errPutIndexs
@@ -912,11 +910,11 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 	}
 }
 
-func (s *Server) storeIndexs(lrp *backupapi.RecoveryPointResponse, storageVolume volume.StorageVolume) error {
+func (s *Server) storeIndexs(lrp *backupapi.RecoveryPointResponse, storageVault storage_vault.StorageVault) error {
 	_, err := os.Stat(filepath.Join(CACHE_PATH, lrp.ID, "index.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			buf, err := storageVolume.GetObject(filepath.Join(lrp.ID, "index.json"))
+			buf, err := storageVault.GetObject(filepath.Join(lrp.ID, "index.json"))
 			if err == nil {
 				_ = os.MkdirAll(filepath.Join(CACHE_PATH, lrp.ID), 0700)
 				if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, lrp.ID, "index.json"), buf, 0644); err != nil {
@@ -941,13 +939,13 @@ func (s *Server) storeIndexs(lrp *backupapi.RecoveryPointResponse, storageVolume
 	return nil
 }
 
-func (s *Server) putIndexs(storageVolume volume.StorageVolume, latestIndex cache.Index, rpID string) (string, error) {
+func (s *Server) putIndexs(storageVault storage_vault.StorageVault, latestIndex cache.Index, rpID string) (string, error) {
 	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "index.json"))
 	if err != nil {
 		s.logger.Error("Read indexs error", zap.Error(err))
 		return "", err
 	}
-	err = storageVolume.PutObject(filepath.Join(rpID, "index.json"), buf)
+	err = storageVault.PutObject(filepath.Join(rpID, "index.json"), buf)
 	if err != nil {
 		s.logger.Error("Put indexs to storage error", zap.Error(err))
 		os.RemoveAll(filepath.Join(CACHE_PATH, rpID))
@@ -959,7 +957,7 @@ func (s *Server) putIndexs(storageVolume volume.StorageVolume, latestIndex cache
 	return indexHash, nil
 }
 
-func (s *Server) storeChunks(cacheWriter *cache.Repository, chunks *cache.Chunk, rpID string, storageVolume volume.StorageVolume) error {
+func (s *Server) storeChunks(cacheWriter *cache.Repository, chunks *cache.Chunk, rpID string, storageVault storage_vault.StorageVault) error {
 	err := cacheWriter.SaveChunk(chunks)
 	if err != nil {
 		s.logger.Error("Write list chunks error", zap.Error(err))
@@ -970,7 +968,7 @@ func (s *Server) storeChunks(cacheWriter *cache.Repository, chunks *cache.Chunk,
 		s.logger.Error("Read list chunks error", zap.Error(err))
 		return err
 	}
-	err = storageVolume.PutObject(filepath.Join(rpID, "chunk.json"), buf)
+	err = storageVault.PutObject(filepath.Join(rpID, "chunk.json"), buf)
 	if err != nil {
 		s.logger.Error("Put list chunks to storage error", zap.Error(err))
 		return err
@@ -978,7 +976,7 @@ func (s *Server) storeChunks(cacheWriter *cache.Repository, chunks *cache.Chunk,
 	return nil
 }
 
-func (s *Server) storeFiles(rpID string, index *cache.Index, storageVolume volume.StorageVolume) error {
+func (s *Server) storeFiles(rpID string, index *cache.Index, storageVault storage_vault.StorageVault) error {
 	if _, err := os.Stat(filepath.Dir(filepath.Join(CACHE_PATH, rpID, "file.csv"))); os.IsNotExist(err) {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(CACHE_PATH, rpID, "file.csv")), 0700); err != nil {
 			s.logger.Error("Err make dir dir file.csv", zap.Error(err))
@@ -1005,13 +1003,13 @@ func (s *Server) storeFiles(rpID string, index *cache.Index, storageVolume volum
 	return nil
 }
 
-func (s *Server) putFiles(storageVolume volume.StorageVolume, rpID string) error {
+func (s *Server) putFiles(storageVault storage_vault.StorageVault, rpID string) error {
 	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "file.csv"))
 	if err != nil {
 		s.logger.Error("Read file csv error", zap.Error(err))
 		return err
 	}
-	err = storageVolume.PutObject(filepath.Join(rpID, "file.csv"), buf)
+	err = storageVault.PutObject(filepath.Join(rpID, "file.csv"), buf)
 	if err != nil {
 		s.logger.Error("Put file csv error", zap.Error(err))
 		return err

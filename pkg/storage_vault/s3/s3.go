@@ -16,29 +16,29 @@ import (
 	"github.com/cenkalti/backoff"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
-	"github.com/bizflycloud/bizfly-backup/pkg/volume"
+	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 )
 
 type S3 struct {
-	Id            string
-	ActionID      string
-	Name          string
-	StorageBucket string
-	SecretRef     string
-	PresignURL    string
-	StorageType   string
-	VolumeType    string
-	Location      string
-	Region        string
-	S3Session     *storage.S3
+	Id               string
+	ActionID         string
+	Name             string
+	StorageBucket    string
+	SecretRef        string
+	PresignURL       string
+	CredentialType   string
+	StorageVaultType string
+	Location         string
+	Region           string
+	S3Session        *storage.S3
 
 	logger *zap.Logger
 }
 
-func (s3 *S3) Type() volume.Type {
-	tpe := volume.Type{
-		VolumeType:  s3.VolumeType,
-		StorageType: s3.StorageType,
+func (s3 *S3) Type() storage_vault.Type {
+	tpe := storage_vault.Type{
+		StorageVaultType: s3.StorageVaultType,
+		CredentialType:   s3.CredentialType,
 	}
 	return tpe
 }
@@ -47,20 +47,20 @@ func (s3 *S3) ID() (string, string) {
 	return s3.Id, s3.ActionID
 }
 
-var _ volume.StorageVolume = (*S3)(nil)
+var _ storage_vault.StorageVault = (*S3)(nil)
 
-func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
+func NewS3Default(vault backupapi.StorageVault, actionID string) *S3 {
 
 	s3 := &S3{
-		Id:            vol.ID,
-		ActionID:      actionID,
-		Name:          vol.Name,
-		StorageBucket: vol.StorageBucket,
-		SecretRef:     vol.SecretRef,
-		StorageType:   vol.StorageType,
-		VolumeType:    vol.VolumeType,
-		Location:      vol.Credential.AwsLocation,
-		Region:        vol.Credential.Region,
+		Id:               vault.ID,
+		ActionID:         actionID,
+		Name:             vault.Name,
+		StorageBucket:    vault.StorageBucket,
+		SecretRef:        vault.SecretRef,
+		CredentialType:   vault.CredentialType,
+		StorageVaultType: vault.StorageVaultType,
+		Location:         vault.Credential.AwsLocation,
+		Region:           vault.Credential.Region,
 	}
 
 	if s3.logger == nil {
@@ -71,7 +71,7 @@ func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
 		s3.logger = l
 	}
 
-	cred := credentials.NewStaticCredentials(vol.Credential.AwsAccessKeyId, vol.Credential.AwsSecretAccessKey, vol.Credential.Token)
+	cred := credentials.NewStaticCredentials(vault.Credential.AwsAccessKeyId, vault.Credential.AwsSecretAccessKey, vault.Credential.Token)
 	_, err := cred.Get()
 	if err != nil {
 		s3.logger.Error("Bad credentials", zap.Error(err))
@@ -79,8 +79,8 @@ func NewS3Default(vol backupapi.Volume, actionID string) *S3 {
 	sess := storage.New(session.Must(session.NewSession(&aws.Config{
 		DisableSSL:       aws.Bool(false),
 		Credentials:      cred,
-		Endpoint:         aws.String(vol.Credential.AwsLocation),
-		Region:           aws.String(vol.Credential.Region),
+		Endpoint:         aws.String(vault.Credential.AwsLocation),
+		Region:           aws.String(vault.Credential.Region),
 		S3ForcePathStyle: aws.Bool(true),
 	})))
 	s3.S3Session = sess
@@ -229,7 +229,7 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 	return false, "", err
 }
 
-func (s3 *S3) RefreshCredential(credential volume.Credential) error {
+func (s3 *S3) RefreshCredential(credential storage_vault.Credential) error {
 	cred := credentials.NewStaticCredentials(credential.AwsAccessKeyId, credential.AwsSecretAccessKey, credential.Token)
 	_, err := cred.Get()
 	if err != nil {

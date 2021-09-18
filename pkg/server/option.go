@@ -32,9 +32,9 @@ func WithSubscribeTopics(topics ...string) Option {
 }
 
 // WithPublishTopic returns an Option which set the server topic that server broker will publish message.
-func WithPublishTopic(topic string) Option {
+func WithPublishTopics(topics ...string) Option {
 	return func(s *Server) error {
-		s.publishTopic = topic
+		s.publishTopics = topics
 		return nil
 	}
 }

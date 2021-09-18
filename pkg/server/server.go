@@ -60,7 +60,7 @@ type Server struct {
 	router          *chi.Mux
 	b               broker.Broker
 	subscribeTopics []string
-	publishTopic    string
+	publishTopics   []string
 	useUnixSock     bool
 	backupClient    *backupapi.Client
 
@@ -436,7 +436,7 @@ func (s *Server) subscribeBrokerLoop(ctx context.Context) {
 	}
 	msg := map[string]string{"status": "ONLINE", "event_type": broker.StatusNotify}
 	payload, _ := json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+	if err := s.b.Publish(s.publishTopics[0], payload); err != nil {
 		s.logger.Error("failed to notify server status online", zap.Error(err))
 	}
 	if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
@@ -534,7 +534,14 @@ func (s *Server) reportUploadCompleted(w io.Writer) {
 
 func (s *Server) notifyMsg(msg map[string]string) {
 	payload, _ := json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopic, payload); err != nil {
+	if err := s.b.Publish(s.publishTopics[0], payload); err != nil {
+		s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
+	}
+}
+
+func (s *Server) notifyMsgProgress(recoverypointID string, msg map[string]string) {
+	payload, _ := json.Marshal(msg)
+	if err := s.b.Publish(s.publishTopics[1]+"/"+recoverypointID, payload); err != nil {
 		s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
 	}
 }
@@ -638,14 +645,13 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	})
 
 	s.reportStartDownload(progressOutput)
-
-	progressScan := s.newProgressScanDir()
+	progressScan := s.newProgressScanDir(recoveryPointID)
 	itemTodo, err := WalkerItem(&index, progressScan)
 	if err != nil {
 		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
-	progressRestore := s.newDownloadProgress(itemTodo)
+	progressRestore := s.newDownloadProgress(recoveryPointID, itemTodo)
 
 	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVault, restoreKey, progressRestore); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
@@ -810,8 +816,8 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			"action_id": rp.ID,
 			"status":    statusUploadFile,
 		})
-		progressScan := s.newProgressScanDir()
-
+		rpID := rp.RecoveryPoint.ID
+		progressScan := s.newProgressScanDir(rpID)
 		index := cache.NewIndex(bd.ID, rp.RecoveryPoint.ID)
 		chunks := cache.NewChunk(bd.ID, rp.RecoveryPoint.ID)
 		itemTodo, totalFiles, err := WalkerDir(bd.Path, index, progressScan)
@@ -849,7 +855,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		var storageSize uint64
 		var errFileWorker error
-		progressUpload := s.newUploadProgress(itemTodo)
+		progressUpload := s.newUploadProgress(rpID, itemTodo)
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		var wg sync.WaitGroup
@@ -1047,22 +1053,22 @@ func (s *Server) putFiles(storageVault storage_vault.StorageVault, rpID string) 
 	return nil
 }
 
-func (s *Server) newProgressScanDir() *progress.Progress {
+func (s *Server) newProgressScanDir(recoverypointID string) *progress.Progress {
 	p := progress.NewProgress(time.Second)
 	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
-		s.notifyMsg(map[string]string{
+		s.notifyMsgProgress(recoverypointID, map[string]string{
 			"STATISTIC": stat.String(),
 		})
 	}
 	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
-		s.notifyMsg(map[string]string{
+		s.notifyMsgProgress(recoverypointID, map[string]string{
 			"SCANNED": stat.String(),
 		})
 	}
 	return p
 }
 
-func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
+func (s *Server) newUploadProgress(recoveryPointID string, todo progress.Stat) *progress.Progress {
 	p := progress.NewProgress(time.Second * 2)
 
 	var bps, eta uint64
@@ -1089,7 +1095,7 @@ func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
 			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
 
 			message := fmt.Sprintf("%s %s", status1, status2)
-			s.notifyMsg(map[string]string{
+			s.notifyMsgProgress(recoveryPointID, map[string]string{
 				"Uploading": message,
 			})
 		}
@@ -1097,14 +1103,14 @@ func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
 
 	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
 		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
-		s.notifyMsg(map[string]string{
+		s.notifyMsgProgress(recoveryPointID, map[string]string{
 			"COMPLETE UPLOAD": message,
 		})
 	}
 	return p
 }
 
-func (s *Server) newDownloadProgress(todo progress.Stat) *progress.Progress {
+func (s *Server) newDownloadProgress(recoveryPointID string, todo progress.Stat) *progress.Progress {
 	p := progress.NewProgress(time.Second * 2)
 
 	var bps, eta uint64
@@ -1131,7 +1137,7 @@ func (s *Server) newDownloadProgress(todo progress.Stat) *progress.Progress {
 			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
 
 			message := fmt.Sprintf("%s %s", status1, status2)
-			s.notifyMsg(map[string]string{
+			s.notifyMsgProgress(recoveryPointID, map[string]string{
 				"Downloading": message,
 			})
 		}
@@ -1139,7 +1145,7 @@ func (s *Server) newDownloadProgress(todo progress.Stat) *progress.Progress {
 
 	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
 		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
-		s.notifyMsg(map[string]string{
+		s.notifyMsgProgress(recoveryPointID, map[string]string{
 			"COMPLETE DOWNLOAD": message,
 		})
 	}

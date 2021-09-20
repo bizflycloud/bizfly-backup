@@ -245,7 +245,9 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 	}
 }
 
-func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVault storage_vault.StorageVault, restoreKey *AuthRestore) error {
+func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) error {
+	p.Start()
+	s := progress.Stat{}
 	numGoroutine := int(float64(runtime.NumCPU()) * 0.2)
 	if numGoroutine <= 1 {
 		numGoroutine = 2
@@ -264,14 +266,18 @@ func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVaul
 		}
 		group.Go(func() error {
 			defer sem.Release(1)
-			err := c.RestoreItem(ctx, destDir, *item, storageVault, restoreKey)
+			err := c.RestoreItem(ctx, destDir, *item, storageVault, restoreKey, p)
 			if err != nil {
 				c.logger.Error("Restore file error ", zap.Error(err), zap.String("item name", item.AbsolutePath))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
 			return nil
 		})
 	}
+	s.Items = 1
+	p.Report(s)
 
 	if err := group.Wait(); err != nil {
 		c.logger.Error("Has a goroutine error ", zap.Error(err))
@@ -281,11 +287,13 @@ func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVaul
 	return nil
 }
 
-func (c *Client) RestoreItem(ctx context.Context, destDir string, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore) error {
+func (c *Client) RestoreItem(ctx context.Context, destDir string, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) error {
 	select {
 	case <-ctx.Done():
 		return errors.New("context restore item done")
 	default:
+		p.Start()
+		s := progress.Stat{}
 		var pathItem string
 		if destDir == item.BasePath {
 			pathItem = item.AbsolutePath
@@ -294,29 +302,41 @@ func (c *Client) RestoreItem(ctx context.Context, destDir string, item cache.Nod
 		}
 		switch item.Type {
 		case "symlink":
-			err := c.restoreSymlink(pathItem, item)
+			err := c.restoreSymlink(pathItem, item, p)
 			if err != nil {
 				c.logger.Error("Error restore symlink ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
+			p.Report(s)
 		case "dir":
-			err := c.restoreDirectory(pathItem, item)
+			err := c.restoreDirectory(pathItem, item, p)
 			if err != nil {
 				c.logger.Error("Error restore directory ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
+			p.Report(s)
 		case "file":
-			err := c.restoreFile(pathItem, item, storageVault, restoreKey)
+			err := c.restoreFile(pathItem, item, storageVault, restoreKey, p)
 			if err != nil {
 				c.logger.Error("Error restore file ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
+			p.Report(s)
 		}
+		p.Report(s)
 		return nil
 	}
 }
 
-func (c *Client) restoreSymlink(target string, item cache.Node) error {
+func (c *Client) restoreSymlink(target string, item cache.Node, p *progress.Progress) error {
+	p.Start()
+	s := progress.Stat{}
 	fi, err := os.Stat(target)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -324,11 +344,15 @@ func (c *Client) restoreSymlink(target string, item cache.Node) error {
 			err := c.createSymlink(item.LinkTarget, target, item.Mode, int(item.UID), int(item.GID))
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
 			return nil
 		} else {
 			c.logger.Error("err ", zap.Error(err))
+			s.Errors = true
+			p.Report(s)
 			return err
 		}
 	}
@@ -338,6 +362,8 @@ func (c *Client) restoreSymlink(target string, item cache.Node) error {
 		err = os.Chmod(target, item.Mode)
 		if err != nil {
 			c.logger.Error("err ", zap.Error(err))
+			s.Errors = true
+			p.Report(s)
 			return err
 		}
 		_ = support.SetChownItem(target, int(item.UID), int(item.GID))
@@ -345,7 +371,9 @@ func (c *Client) restoreSymlink(target string, item cache.Node) error {
 	return nil
 }
 
-func (c *Client) restoreDirectory(target string, item cache.Node) error {
+func (c *Client) restoreDirectory(target string, item cache.Node, p *progress.Progress) error {
+	p.Start()
+	s := progress.Stat{}
 	fi, err := os.Stat(target)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -353,11 +381,15 @@ func (c *Client) restoreDirectory(target string, item cache.Node) error {
 			err := c.createDir(target, os.ModeDir|item.Mode, int(item.UID), int(item.GID), item.AccessTime, item.ModTime)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
 			return nil
 		} else {
 			c.logger.Error("err ", zap.Error(err))
+			s.Errors = true
+			p.Report(s)
 			return err
 		}
 	}
@@ -367,6 +399,8 @@ func (c *Client) restoreDirectory(target string, item cache.Node) error {
 		err = os.Chmod(target, os.ModeDir|item.Mode)
 		if err != nil {
 			c.logger.Error("err ", zap.Error(err))
+			s.Errors = true
+			p.Report(s)
 			return err
 		}
 		_ = support.SetChownItem(target, int(item.UID), int(item.GID))
@@ -374,7 +408,9 @@ func (c *Client) restoreDirectory(target string, item cache.Node) error {
 	return nil
 }
 
-func (c *Client) restoreFile(target string, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore) error {
+func (c *Client) restoreFile(target string, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) error {
+	p.Start()
+	s := progress.Stat{}
 	fi, err := os.Stat(target)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -382,17 +418,24 @@ func (c *Client) restoreFile(target string, item cache.Node, storageVault storag
 			file, err := c.createFile(target, item.Mode, int(item.UID), int(item.GID))
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
 
-			err = c.downloadFile(file, item, storageVault, restoreKey)
+			err = c.downloadFile(file, item, storageVault, restoreKey, p)
 			if err != nil {
 				c.logger.Error("downloadFile error ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
+			p.Report(s)
 			return nil
 		} else {
 			c.logger.Error("err ", zap.Error(err))
+			s.Errors = true
+			p.Report(s)
 			return err
 		}
 	}
@@ -403,18 +446,24 @@ func (c *Client) restoreFile(target string, item cache.Node, storageVault storag
 			c.logger.Sugar().Info("file change mtime, ctime ", target)
 			if err = os.Remove(target); err != nil {
 				c.logger.Error("err ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
 
 			file, err := c.createFile(target, item.Mode, int(item.UID), int(item.GID))
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
 
-			err = c.downloadFile(file, item, storageVault, restoreKey)
+			err = c.downloadFile(file, item, storageVault, restoreKey, p)
 			if err != nil {
 				c.logger.Error("downloadFile error ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
 			return nil
@@ -423,12 +472,16 @@ func (c *Client) restoreFile(target string, item cache.Node, storageVault storag
 			err = os.Chmod(target, item.Mode)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
 			_ = support.SetChownItem(target, int(item.UID), int(item.GID))
 			err = os.Chtimes(target, item.AccessTime, item.ModTime)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
+				s.Errors = true
+				p.Report(s)
 				return err
 			}
 		}
@@ -439,19 +492,29 @@ func (c *Client) restoreFile(target string, item cache.Node, storageVault storag
 	return nil
 }
 
-func (c *Client) downloadFile(file *os.File, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore) error {
+func (c *Client) downloadFile(file *os.File, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) error {
+	p.Start()
+	s := progress.Stat{}
 	for _, info := range item.Content {
 		offset := info.Start
 		key := info.Etag
+		length := info.Length
 
 		data, err := c.GetObject(storageVault, key, restoreKey)
 		if err != nil {
 			c.logger.Error("err ", zap.Error(err))
+			s.Errors = true
+			p.Report(s)
 			return err
 		}
+		s.Bytes = uint64(length)
+		s.Storage = uint64(length)
+		p.Report(s)
 		_, errWriteFile := file.WriteAt(data, int64(offset))
 		if errWriteFile != nil {
 			c.logger.Error("err write file ", zap.Error(errWriteFile))
+			s.Errors = true
+			p.Report(s)
 			return errWriteFile
 		}
 	}
@@ -459,12 +522,16 @@ func (c *Client) downloadFile(file *os.File, item cache.Node, storageVault stora
 	err := os.Chmod(file.Name(), item.Mode)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
+		s.Errors = true
+		p.Report(s)
 		return err
 	}
 	_ = support.SetChownItem(file.Name(), int(item.UID), int(item.GID))
 	err = os.Chtimes(file.Name(), item.AccessTime, item.ModTime)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
+		s.Errors = true
+		p.Report(s)
 		return err
 	}
 	return nil

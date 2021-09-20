@@ -639,13 +639,23 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	s.reportStartDownload(progressOutput)
 
-	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVault, restoreKey); err != nil {
+	progressScan := s.newProgressScanDir()
+	itemTodo, err := WalkerItem(&index, progressScan)
+	if err != nil {
+		s.notifyStatusFailed(rp.ID, err.Error())
+		return err
+	}
+	progressRestore := s.newDownloadProgress(itemTodo)
+
+	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVault, restoreKey, progressRestore); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
+		progressRestore.Done()
 		return err
 	}
 
 	s.reportRestoreCompleted(progressOutput)
+	progressRestore.Done()
 	s.notifyMsg(map[string]string{
 		"action_id": actionID,
 		"status":    statusComplete,
@@ -671,6 +681,26 @@ func NewStorageVault(storageVault backupapi.StorageVault, actionID string) (stor
 	default:
 		return nil, fmt.Errorf(fmt.Sprintf("storage vault type not supported %s", storageVault.StorageVaultType))
 	}
+}
+
+func WalkerItem(index *cache.Index, p *progress.Progress) (progress.Stat, error) {
+	p.Start()
+	defer p.Done()
+
+	var st progress.Stat
+	var totalSize uint64
+	for _, itemInfo := range index.Items {
+		if itemInfo.Type == "file" {
+			totalSize += itemInfo.Size
+		}
+	}
+	s := progress.Stat{
+		Items: uint64(index.TotalFiles),
+		Bytes: uint64(totalSize),
+	}
+	p.Report(s)
+	st.Add(s)
+	return st, nil
 }
 
 func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.Stat, int64, error) {
@@ -1069,6 +1099,48 @@ func (s *Server) newUploadProgress(todo progress.Stat) *progress.Progress {
 		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
 		s.notifyMsg(map[string]string{
 			"COMPLETE UPLOAD": message,
+		})
+	}
+	return p
+}
+
+func (s *Server) newDownloadProgress(todo progress.Stat) *progress.Progress {
+	p := progress.NewProgress(time.Second * 2)
+
+	var bps, eta uint64
+	itemsTodo := todo.Items
+
+	p.OnUpdate = func(stat progress.Stat, d time.Duration, ticker bool) {
+		sec := uint64(d / time.Second)
+
+		if todo.Bytes > 0 && sec > 0 && ticker {
+			bps = stat.Bytes / sec
+			if stat.Bytes >= todo.Bytes {
+				eta = 0
+			} else if bps > 0 {
+				eta = (todo.Bytes - stat.Bytes) / bps
+			}
+		}
+
+		if ticker {
+			itemsDone := stat.Items
+
+			status1 := fmt.Sprintf("[Duration %s] %s [speed:%s/s] [%s/%s (Total)] [%s pull storage] [%d/%d items] %t erros ",
+				formatDuration(d), formatPercent(stat.Bytes, todo.Bytes), formatBytes(bps), formatBytes(stat.Bytes), formatBytes(todo.Bytes),
+				formatBytes(stat.Storage), itemsDone, itemsTodo, stat.Errors)
+			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
+
+			message := fmt.Sprintf("%s %s", status1, status2)
+			s.notifyMsg(map[string]string{
+				"Downloading": message,
+			})
+		}
+	}
+
+	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
+		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
+		s.notifyMsg(map[string]string{
+			"COMPLETE DOWNLOAD": message,
 		})
 	}
 	return p

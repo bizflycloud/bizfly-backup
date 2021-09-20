@@ -239,7 +239,7 @@ func TestServer_storeFiles(t *testing.T) {
 		router               *chi.Mux
 		b                    broker.Broker
 		subscribeTopics      []string
-		publishTopic         string
+		publishTopics        []string
 		useUnixSock          bool
 		backupClient         *backupapi.Client
 		cronManager          *cron.Cron
@@ -284,7 +284,7 @@ func TestServer_storeFiles(t *testing.T) {
 				router:               tt.fields.router,
 				b:                    tt.fields.b,
 				subscribeTopics:      tt.fields.subscribeTopics,
-				publishTopic:         tt.fields.publishTopic,
+				publishTopics:        tt.fields.publishTopics,
 				useUnixSock:          tt.fields.useUnixSock,
 				backupClient:         tt.fields.backupClient,
 				cronManager:          tt.fields.cronManager,

@@ -94,7 +94,7 @@ var agentCmd = &cobra.Command{
 			server.WithAddr(addr),
 			server.WithBroker(b),
 			server.WithSubscribeTopics("agent/default", "agent/"+agentID),
-			server.WithPublishTopic("agent/"+agentID),
+			server.WithPublishTopics("agent/"+agentID, "agent/recovery-points/"+agentID),
 			server.WithBackupClient(backupClient),
 		)
 		if err != nil {

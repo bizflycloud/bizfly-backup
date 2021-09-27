@@ -88,6 +88,23 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 				c.logger.Error("err ", zap.Error(err))
 				return stat, err
 			}
+			isExist, etag, err := c.HeadObject(storageVault, key)
+			if err != nil {
+				c.logger.Sugar().Errorf("backup chunk head object error: ", zap.Error(err))
+				return 0, err
+			}
+			if isExist {
+				integrity := strings.Contains(etag, key)
+				if !integrity {
+					err := c.PutObject(storageVault, key, data)
+					if err != nil {
+						c.logger.Error("err ", zap.Error(err))
+						return stat, err
+					}
+				} else {
+					c.logger.Info("exists ", zap.String("etag", etag), zap.String("key", key))
+				}
+			}
 			stat += uint64(chunk.Length)
 		}
 		c.logger.Sugar().Info("Finished backup chunk ", key)

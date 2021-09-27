@@ -32,6 +32,15 @@ import (
 
 const ChunkUploadLowerBound = 8 * 1000 * 1000
 
+func (c *Client) SaveChunks(cacheWriter *cache.Repository, chunks *cache.Chunk) error {
+	err := cacheWriter.SaveChunk(chunks)
+	if err != nil {
+		c.logger.Error("Write list chunks error", zap.Error(err))
+		return err
+	}
+	return nil
+}
+
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	if c.ServerURL.Path != "" && c.ServerURL.Path != "/" {
 		relPath = path.Join(c.ServerURL.Path, relPath)
@@ -46,7 +55,7 @@ func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	return u.String(), nil
 }
 
-func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.ChunkInfo, chunks *cache.Chunk, storageVault storage_vault.StorageVault) (uint64, error) {
+func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.ChunkInfo, cacheWriter *cache.Repository, chunks *cache.Chunk, storageVault storage_vault.StorageVault) (uint64, error) {
 	select {
 	case <-ctx.Done():
 		c.logger.Debug("context backupChunk done")
@@ -91,12 +100,20 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 			stat += uint64(chunk.Length)
 		}
 		c.logger.Sugar().Info("Finished backup chunk ", key)
+
+		// Save chunks
+		c.logger.Sugar().Info("Save chunk to chunk.json ", key)
+		errSaveChunks := c.SaveChunks(cacheWriter, chunks)
+		if errSaveChunks != nil {
+			c.logger.Error("errSaveChunks ", zap.Error(errSaveChunks))
+			return 0, errSaveChunks
+		}
 		return stat, nil
 	}
 
 }
 
-func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node, chunks *cache.Chunk,
+func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node, cacheWriter *cache.Repository, chunks *cache.Chunk,
 	storageVault storage_vault.StorageVault, p *progress.Progress) (uint64, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -116,7 +133,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 				s.ItemName = append(s.ItemName, itemInfo.AbsolutePath)
 				s.Errors = true
 				p.Report(s)
-				return 0, nil
+				return 0, err
 			} else {
 				c.logger.Error("err ", zap.Error(err))
 				return 0, err
@@ -149,12 +166,12 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			hash.Write(temp)
 			itemInfo.Content = append(itemInfo.Content, &chunkToBackup)
 			wg.Add(1)
-			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, temp, &chunkToBackup, chunks, storageVault, p))
+			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, temp, &chunkToBackup, cacheWriter, chunks, storageVault, p))
 		}
 		wg.Wait()
 
 		if errBackupChunk != nil {
-			c.logger.Error("err backup chunk ", zap.Error(err))
+			c.logger.Error("err backup chunk ", zap.Error(errBackupChunk))
 			return 0, errBackupChunk
 		}
 		itemInfo.Sha256Hash = hash.Sum(nil)
@@ -167,7 +184,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 type chunkJob func()
 
 func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *error, size *uint64,
-	data []byte, chunk *cache.ChunkInfo, chunks *cache.Chunk, storageVault storage_vault.StorageVault, p *progress.Progress) chunkJob {
+	data []byte, chunk *cache.ChunkInfo, cacheWriter *cache.Repository, chunks *cache.Chunk, storageVault storage_vault.StorageVault, p *progress.Progress) chunkJob {
 	return func() {
 		p.Start()
 		defer func() {
@@ -181,7 +198,7 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 			s := progress.Stat{}
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			saveSize, err := c.backupChunk(ctx, data, chunk, chunks, storageVault)
+			saveSize, err := c.backupChunk(ctx, data, chunk, cacheWriter, chunks, storageVault)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
 				*chErr = err
@@ -198,7 +215,7 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 	}
 }
 
-func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cache.Node, itemInfo *cache.Node, chunks *cache.Chunk,
+func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cache.Node, itemInfo *cache.Node, cacheWriter *cache.Repository, chunks *cache.Chunk,
 	storageVault storage_vault.StorageVault, p *progress.Progress) (uint64, error) {
 
 	select {
@@ -216,7 +233,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 		if lastInfo == nil || !strings.EqualFold(timeToString(lastInfo.ModTime), timeToString(itemInfo.ModTime)) {
 			c.logger.Info("backup item with item change mtime, ctime")
 
-			storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, chunks, storageVault, p)
+			storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, cacheWriter, chunks, storageVault, p)
 			if err != nil {
 				c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
 				s.Errors = true

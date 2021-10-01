@@ -747,7 +747,7 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.S
 
 type backupJob func()
 
-func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, chunks *cache.Chunk, storageVault storage_vault.StorageVault,
+func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, cacheWriter *cache.Repository, chunks *cache.Chunk, storageVault storage_vault.StorageVault,
 	wg *sync.WaitGroup, size *uint64, errCh *error, p *progress.Progress) backupJob {
 	return func() {
 		defer wg.Done()
@@ -758,7 +758,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 			p.Start()
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, chunks, storageVault, p)
+			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, cacheWriter, chunks, storageVault, p)
 			if err != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(err))
 				*errCh = err
@@ -871,16 +871,24 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			if itemInfo.Type == "file" {
 				lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
 				wg.Add(1)
-				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, chunks, storageVault, &wg, &storageSize, &errFileWorker, progressUpload))
+				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, cacheWriter, chunks, storageVault, &wg, &storageSize, &errFileWorker, progressUpload))
 			}
 		}
 		wg.Wait()
 
-		// Store chunks
-		errStoreChunks := s.storeChunks(cacheWriter, chunks, rp.RecoveryPoint.ID, storageVault)
-		if errStoreChunks != nil {
-			s.notifyStatusFailed(rp.ID, errStoreChunks.Error())
-			errCh <- errStoreChunks
+		// Save chunks
+		errSaveChunks := s.backupClient.SaveChunks(cacheWriter, chunks)
+		if errSaveChunks != nil {
+			s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
+			errCh <- errSaveChunks
+			return
+		}
+
+		// Put chunks
+		errPutChunks := s.putChunks(rp.RecoveryPoint.ID, storageVault)
+		if errPutChunks != nil {
+			s.notifyStatusFailed(rp.ID, errPutChunks.Error())
+			errCh <- errPutChunks
 			return
 		}
 
@@ -995,12 +1003,7 @@ func (s *Server) putIndexs(storageVault storage_vault.StorageVault, latestIndex 
 	return indexHash, nil
 }
 
-func (s *Server) storeChunks(cacheWriter *cache.Repository, chunks *cache.Chunk, rpID string, storageVault storage_vault.StorageVault) error {
-	err := cacheWriter.SaveChunk(chunks)
-	if err != nil {
-		s.logger.Error("Write list chunks error", zap.Error(err))
-		return err
-	}
+func (s *Server) putChunks(rpID string, storageVault storage_vault.StorageVault) error {
 	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "chunk.json"))
 	if err != nil {
 		s.logger.Error("Read list chunks error", zap.Error(err))

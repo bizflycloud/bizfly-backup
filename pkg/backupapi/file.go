@@ -73,33 +73,15 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 			chunks.Chunks[key] = 1
 		}
 		c.mu.Unlock()
-		isExist, etag, err := c.HeadObject(storageVault, key)
+		c.logger.Sugar().Info("Scan chunk ", key)
+
+		// Put object
+		err := c.PutObject(storageVault, key, data)
 		if err != nil {
-			c.logger.Sugar().Errorf("backup chunk head object error: ", zap.Error(err))
-			return 0, err
+			c.logger.Error("err ", zap.Error(err))
+			return stat, err
 		}
-		c.logger.Sugar().Info("Backup chunk ", key)
-		if isExist {
-			integrity := strings.Contains(etag, key)
-			if !integrity {
-				err := c.PutObject(storageVault, key, data)
-				if err != nil {
-					c.logger.Error("err ", zap.Error(err))
-					return stat, err
-				}
-				stat += uint64(chunk.Length)
-			} else {
-				c.logger.Info("exists ", zap.String("etag", etag), zap.String("key", key))
-			}
-		} else {
-			err = c.PutObject(storageVault, key, data)
-			if err != nil {
-				c.logger.Error("err ", zap.Error(err))
-				return stat, err
-			}
-			stat += uint64(chunk.Length)
-		}
-		c.logger.Sugar().Info("Finished backup chunk ", key)
+		stat += uint64(chunk.Length)
 
 		// Save chunks
 		c.logger.Sugar().Info("Save chunk to chunk.json ", key)

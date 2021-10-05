@@ -136,6 +136,24 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 				Body:   bytes.NewReader(data),
 			})
 
+			if !strings.Contains(key, "chunk.json") && !strings.Contains(key, "index.json") && !strings.Contains(key, "file.csv") {
+				isExist, integrity, etag := s3.VerifyObject(key)
+				if isExist && !integrity {
+					s3.logger.Info("Exist, not integrity, put ", zap.String("key", key))
+					_, err = s3.S3Session.PutObject(&storage.PutObjectInput{
+						Bucket: aws.String(s3.StorageBucket),
+						Key:    aws.String(key),
+						Body:   bytes.NewReader(data),
+					})
+					if err == nil {
+						break
+					}
+				} else if isExist && integrity {
+					s3.logger.Info("Exist and integrity ", zap.String("etag", etag), zap.String("key", key))
+					break
+				}
+			}
+
 			if err == nil {
 				break
 			}

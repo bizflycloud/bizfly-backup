@@ -73,44 +73,27 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 			chunks.Chunks[key] = 1
 		}
 		c.mu.Unlock()
-		isExist, etag, err := c.HeadObject(storageVault, key)
+
+		// Put object
+		c.logger.Sugar().Info("Scan chunk ", key)
+		err := c.PutObject(storageVault, key, data)
 		if err != nil {
-			c.logger.Sugar().Errorf("backup chunk head object error: ", zap.Error(err))
-			return 0, err
+			c.logger.Error("err put object", zap.Error(err))
+			return stat, err
 		}
-		c.logger.Sugar().Info("Backup chunk ", key)
-		if isExist {
-			integrity := strings.Contains(etag, key)
-			if !integrity {
-				err := c.PutObject(storageVault, key, data)
-				if err != nil {
-					c.logger.Error("err ", zap.Error(err))
-					return stat, err
-				}
-				stat += uint64(chunk.Length)
-			} else {
-				c.logger.Info("exists ", zap.String("etag", etag), zap.String("key", key))
-			}
-		} else {
-			err = c.PutObject(storageVault, key, data)
-			if err != nil {
-				c.logger.Error("err ", zap.Error(err))
-				return stat, err
-			}
-			stat += uint64(chunk.Length)
-		}
-		c.logger.Sugar().Info("Finished backup chunk ", key)
+		stat += uint64(chunk.Length)
 
 		// Save chunks
 		c.logger.Sugar().Info("Save chunk to chunk.json ", key)
+		c.mu.Lock()
 		errSaveChunks := c.SaveChunks(cacheWriter, chunks)
 		if errSaveChunks != nil {
-			c.logger.Error("errSaveChunks ", zap.Error(errSaveChunks))
+			c.logger.Error("err save chunks ", zap.Error(errSaveChunks))
 			return 0, errSaveChunks
 		}
+		c.mu.Unlock()
 		return stat, nil
 	}
-
 }
 
 func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node, cacheWriter *cache.Repository, chunks *cache.Chunk,

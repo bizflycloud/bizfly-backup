@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/ioutil"
 	"math/rand"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -98,21 +99,67 @@ const (
 	maxRetry = 3 * time.Minute
 )
 
+func (s3 *S3) VerifyObject(key string) (bool, bool, string) {
+	var integrity bool
+	isExist, etag, _ := s3.HeadObject(key)
+	if isExist {
+		integrity = strings.Contains(etag, key)
+	}
+	return isExist, integrity, etag
+}
+
 func (s3 *S3) PutObject(key string, data []byte) error {
 	var err error
 	var once bool
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = maxRetry
 	for {
-		_, err = s3.S3Session.PutObject(&storage.PutObjectInput{
-			Bucket: aws.String(s3.StorageBucket),
-			Key:    aws.String(key),
-			Body:   bytes.NewReader(data),
-		})
-		if err == nil {
-			break
+		isExist, integrity, etag := s3.VerifyObject(key)
+		if isExist {
+			if !integrity {
+				s3.logger.Info("Exist, not integrity, put object ", zap.String("key", key))
+				_, err = s3.S3Session.PutObject(&storage.PutObjectInput{
+					Bucket: aws.String(s3.StorageBucket),
+					Key:    aws.String(key),
+					Body:   bytes.NewReader(data),
+				})
+				if err == nil {
+					break
+				}
+			} else {
+				s3.logger.Info("Exist and integrity ", zap.String("etag", etag), zap.String("key", key))
+				break
+			}
+		} else {
+			s3.logger.Info("Not exist, put ", zap.String("key", key))
+			_, err = s3.S3Session.PutObject(&storage.PutObjectInput{
+				Bucket: aws.String(s3.StorageBucket),
+				Key:    aws.String(key),
+				Body:   bytes.NewReader(data),
+			})
+			if !strings.Contains(key, "chunk.json") && !strings.Contains(key, "index.json") && !strings.Contains(key, "file.csv") {
+				isExist, integrity, etag := s3.VerifyObject(key)
+				if isExist {
+					if !integrity {
+						s3.logger.Info("Exist, not integrity, put ", zap.String("key", key))
+						_, err = s3.S3Session.PutObject(&storage.PutObjectInput{
+							Bucket: aws.String(s3.StorageBucket),
+							Key:    aws.String(key),
+							Body:   bytes.NewReader(data),
+						})
+						if err == nil {
+							break
+						}
+					} else {
+						s3.logger.Info("Exist and integrity ", zap.String("etag", etag), zap.String("key", key))
+						break
+					}
+				}
+			}
+			if err == nil {
+				break
+			}
 		}
-
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Error() == "Forbidden" {
 				if once {

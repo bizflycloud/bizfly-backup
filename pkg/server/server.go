@@ -766,6 +766,22 @@ func checkCache(dirCache string) ([]string, error) {
 	return listFileChunk, nil
 }
 
+func (s *Server) putChunkInCache(listFileChunk []string, storageVault storage_vault.StorageVault) error {
+	for _, fileChunk := range listFileChunk {
+		buf, err := ioutil.ReadFile(filepath.Join(".cache", fileChunk))
+		if err != nil {
+			s.logger.Error("Read file chunk.json error ", zap.Error(err))
+			return err
+		}
+		err = storageVault.PutObject(fileChunk, buf)
+		if err != nil {
+			s.logger.Error("Put file chunk.json to storage error ", zap.Error(err))
+			return err
+		}
+	}
+	return nil
+}
+
 type backupJob func()
 
 func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, cacheWriter *cache.Repository, chunks *cache.Chunk, storageVault storage_vault.StorageVault,
@@ -863,6 +879,16 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			s.logger.Error("Check file .cache error", zap.Error(err))
 			errCh <- err
 			return
+		}
+
+		// If list file chunk.json in .cache is not empty
+		if listFileChunk != nil {
+			// Put list file chunk.json in .cache to storage
+			errPutFileChunk := s.putChunkInCache(listFileChunk, storageVault)
+			if errPutFileChunk != nil {
+				errCh <- errPutFileChunk
+				return
+			}
 		}
 
 		if lrp != nil {

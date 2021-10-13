@@ -745,6 +745,27 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.S
 	return st, index.TotalFiles, nil
 }
 
+func checkCache(dirCache string) ([]string, error) {
+	var listFileChunk []string
+	dirEntries, _ := os.ReadDir(dirCache)
+	for _, file := range dirEntries {
+		dirFile := fmt.Sprintf("%s/%s", dirCache, file.Name())
+		fi, _ := os.ReadDir(dirFile)
+
+		// Count of directory tmp and chunk.json is 2
+		// If status backup is COMPLETED or FAILED, count file in .cache/recovery_point_id is > 2 include index.json, chunk.json, file.csv, tmp
+		if len(fi) == 2 {
+			for _, f := range fi {
+				if !f.IsDir() {
+					fileChunk := fmt.Sprintf("%s/%s", file.Name(), f.Name())
+					listFileChunk = append(listFileChunk, fileChunk)
+				}
+			}
+		}
+	}
+	return listFileChunk, nil
+}
+
 type backupJob func()
 
 func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, cacheWriter *cache.Repository, chunks *cache.Chunk, storageVault storage_vault.StorageVault,
@@ -831,6 +852,15 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 		cacheWriter, err := cache.NewRepository(".cache", rp.RecoveryPoint.ID)
 		if err != nil {
+			errCh <- err
+			return
+		}
+
+		// Check .cache get list file chunk.json
+		s.logger.Sugar().Info("Check .cache")
+		listFileChunk, err := checkCache(CACHE_PATH)
+		if err != nil {
+			s.logger.Error("Check file .cache error", zap.Error(err))
 			errCh <- err
 			return
 		}

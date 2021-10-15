@@ -4,23 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/cenkalti/backoff"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 
 	"go.uber.org/zap"
 )
-
-var backoffSchedule = []time.Duration{
-	1 * time.Second,
-	3 * time.Second,
-	5 * time.Second,
-	10 * time.Second,
-	20 * time.Second,
-	30 * time.Second,
-}
 
 // StorageVault ...
 type StorageVault struct {
@@ -53,8 +44,12 @@ func (c *Client) credentialStorageVaultPath(storageVaultID string, actionID stri
 func (c *Client) GetCredentialStorageVault(storageVaultID string, actionID string, restoreKey *AuthRestore) (*StorageVault, error) {
 	var resp *http.Response
 	var err error
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = maxRetry
+	bo.MaxElapsedTime = maxRetry
+
 	if restoreKey != nil {
-		for _, backoff := range backoffSchedule {
+		for {
 			req, err := c.NewRequest(http.MethodGet, c.credentialStorageVaultPath(storageVaultID, actionID), nil)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
@@ -62,11 +57,10 @@ func (c *Client) GetCredentialStorageVault(storageVaultID string, actionID strin
 			}
 			req.Header.Add("X-Session-Created-At", restoreKey.CreatedAt)
 			req.Header.Add("X-Restore-Session-Key", restoreKey.RestoreSessionKey)
+
 			resp, err = c.Do(req)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
-				time.Sleep(backoff)
-				continue
 			}
 			if resp.StatusCode == 401 {
 				c.logger.Sugar().Info("GetCredential access denied: ", resp.StatusCode)
@@ -78,12 +72,17 @@ func (c *Client) GetCredentialStorageVault(storageVaultID string, actionID strin
 				c.logger.Sugar().Info("new session key: ", newSessionKey)
 				restoreKey.CreatedAt = newSessionKey.CreatedAt
 				restoreKey.RestoreSessionKey = newSessionKey.RestoreSessionKey
-				continue
 			} else if resp.StatusCode == 200 {
 				break
 			}
-			time.Sleep(backoff)
-			continue
+
+			c.logger.Debug("BackOff retry")
+			d := bo.NextBackOff()
+			if d == backoff.Stop {
+				c.logger.Debug("Retry time out")
+				break
+			}
+			c.logger.Sugar().Info("Retry in ", d)
 		}
 	} else {
 		req, err := c.NewRequest(http.MethodGet, c.credentialStorageVaultPath(storageVaultID, actionID), nil)
@@ -91,6 +90,7 @@ func (c *Client) GetCredentialStorageVault(storageVaultID string, actionID strin
 			c.logger.Error("err ", zap.Error(err))
 			return nil, err
 		}
+
 		resp, err = c.Do(req)
 		if err != nil {
 			c.logger.Error("err ", zap.Error(err))
@@ -117,7 +117,11 @@ func (c *Client) HeadObject(storageVault storage_vault.StorageVault, key string)
 	var isExist bool
 	var etag string
 	var err error
-	for _, backoff := range backoffSchedule {
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = maxRetry
+	bo.MaxElapsedTime = maxRetry
+
+	for {
 		isExist, etag, err = storageVault.HeadObject(key)
 		if err == nil {
 			break
@@ -126,11 +130,13 @@ func (c *Client) HeadObject(storageVault storage_vault.StorageVault, key string)
 			if aerr.Code() == "Forbidden" && storageVault.Type().CredentialType == "DEFAULT" {
 				c.logger.Sugar().Info("GetCredential in head object ", key)
 				storageVaultID, actID := storageVault.ID()
+
 				vault, err := c.GetCredentialStorageVault(storageVaultID, actID, nil)
 				if err != nil {
 					c.logger.Error("Error get credential", zap.Error(err))
 					break
 				}
+
 				err = storageVault.RefreshCredential(vault.Credential)
 				if err != nil {
 					c.logger.Error("Error refresht credential ", zap.Error(err))
@@ -140,11 +146,16 @@ func (c *Client) HeadObject(storageVault storage_vault.StorageVault, key string)
 				err = nil
 				break
 			}
-		} else {
-			c.logger.Error("Error head object", zap.Error(err))
-			time.Sleep(backoff)
 		}
 
+		c.logger.Error("Error head object", zap.Error(err))
+		c.logger.Debug("BackOff retry")
+		d := bo.NextBackOff()
+		if d == backoff.Stop {
+			c.logger.Debug("Retry time out")
+			break
+		}
+		c.logger.Sugar().Info("Retry in ", d)
 	}
 	return isExist, etag, err
 }
@@ -152,7 +163,11 @@ func (c *Client) HeadObject(storageVault storage_vault.StorageVault, key string)
 // PutObject stores the data to the storage vault.
 func (c *Client) PutObject(storageVault storage_vault.StorageVault, key string, data []byte) error {
 	var err error
-	for _, backoff := range backoffSchedule {
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = maxRetry
+	bo.MaxElapsedTime = maxRetry
+
+	for {
 		err = storageVault.PutObject(key, data)
 		if err == nil {
 			break
@@ -161,11 +176,13 @@ func (c *Client) PutObject(storageVault storage_vault.StorageVault, key string, 
 			if aerr.Code() == "Forbidden" && storageVault.Type().CredentialType == "DEFAULT" {
 				c.logger.Sugar().Info("GetCredential for refreshing session s3")
 				storageVaultID, actID := storageVault.ID()
+
 				vault, err := c.GetCredentialStorageVault(storageVaultID, actID, nil)
 				if err != nil {
 					c.logger.Error("Error get credential", zap.Error(err))
 					break
 				}
+
 				err = storageVault.RefreshCredential(vault.Credential)
 				if err != nil {
 					c.logger.Error("Error refresht credential ", zap.Error(err))
@@ -173,8 +190,15 @@ func (c *Client) PutObject(storageVault storage_vault.StorageVault, key string, 
 				}
 			}
 		}
+
 		c.logger.Error("Error PutObject", zap.Error(err))
-		time.Sleep(backoff)
+		c.logger.Debug("BackOff retry")
+		d := bo.NextBackOff()
+		if d == backoff.Stop {
+			c.logger.Debug("Retry time out")
+			break
+		}
+		c.logger.Sugar().Info("Retry in ", d)
 	}
 	return err
 }
@@ -182,7 +206,11 @@ func (c *Client) PutObject(storageVault storage_vault.StorageVault, key string, 
 // GetObject downloads the object by name in storage vault.
 func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, restoreKey *AuthRestore) ([]byte, error) {
 	var err error
-	for _, backoff := range backoffSchedule {
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = maxRetry
+	bo.MaxElapsedTime = maxRetry
+
+	for {
 		data, err := storageVault.GetObject(key)
 		if err == nil {
 			return data, nil
@@ -190,11 +218,13 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() != "" && storageVault.Type().CredentialType == "DEFAULT" {
 				storageVaultID, actID := storageVault.ID()
+
 				vault, err := c.GetCredentialStorageVault(storageVaultID, actID, restoreKey)
 				if err != nil {
 					c.logger.Error("Error get credential ", zap.Error(err))
 					break
 				}
+
 				err = storageVault.RefreshCredential(vault.Credential)
 				if err != nil {
 					c.logger.Error("Error refresht credential ", zap.Error(err))
@@ -202,8 +232,15 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 				}
 			}
 		}
+
 		c.logger.Error("Error GetObject", zap.Error(err))
-		time.Sleep(backoff)
+		c.logger.Debug("BackOff retry")
+		d := bo.NextBackOff()
+		if d == backoff.Stop {
+			c.logger.Debug("Retry time out")
+			break
+		}
+		c.logger.Sugar().Info("Retry in ", d)
 	}
 	return nil, err
 }

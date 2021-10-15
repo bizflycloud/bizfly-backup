@@ -24,7 +24,7 @@ const (
 	defaultServerURLString = "http://public.vbs.vccloud.vn/v1"
 	userAgent              = "bizfly-backup-client"
 	latestVersionPath      = "/dashboard/download-urls"
-	maxRetry               = 3 * time.Minute
+	maxRetry               = 3 * time.Second
 )
 
 // Client is the client for interacting with BackupService API server.

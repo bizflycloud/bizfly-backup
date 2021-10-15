@@ -96,7 +96,7 @@ var (
 )
 
 const (
-	maxRetry = 3 * time.Minute
+	maxRetry = 3 * time.Second
 )
 
 func (s3 *S3) VerifyObject(key string) (bool, bool, string) {

@@ -113,6 +113,7 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 	var once bool
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = maxRetry
+	bo.MaxElapsedTime = maxRetry
 	for {
 		isExist, integrity, etag := s3.VerifyObject(key)
 		if isExist {
@@ -191,6 +192,7 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 	var once bool
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = maxRetry
+	bo.MaxElapsedTime = maxRetry
 	var obj *storage.GetObjectOutput
 	for {
 		obj, err = s3.S3Session.GetObject(&storage.GetObjectInput{
@@ -237,6 +239,7 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 	var once bool
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = maxRetry
+	bo.MaxElapsedTime = maxRetry
 	for {
 		headObject, err = s3.S3Session.HeadObject(&storage.HeadObjectInput{
 			Bucket: aws.String(s3.StorageBucket),

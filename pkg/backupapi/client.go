@@ -24,6 +24,7 @@ const (
 	defaultServerURLString = "http://public.vbs.vccloud.vn/v1"
 	userAgent              = "bizfly-backup-client"
 	latestVersionPath      = "/dashboard/download-urls"
+	maxRetry               = 3 * time.Minute
 )
 
 // Client is the client for interacting with BackupService API server.
@@ -155,7 +156,8 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	var resp *http.Response
 
 	bo := backoff.NewExponentialBackOff()
-	bo.MaxInterval = 3 * time.Minute
+	bo.MaxInterval = maxRetry
+	bo.MaxElapsedTime = maxRetry
 
 	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {

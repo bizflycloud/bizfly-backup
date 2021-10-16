@@ -3,7 +3,7 @@
 # secret_key: <Secret Key>
 # api_url: <API URL> 
 
-machine_id: 7670d6bf-4417-4ff5-aee3-8582f3aa8066
-access_key: JTBBTFQFU60CXXCMM0DL
-secret_key: b7aa3aa7bca7e5d99e8ae7a0f3027700428bae651b6362eea3d1e8a188f2ea26
+machine_id: 2c270e8d-8bd5-4c85-ae01-e48c41a8150f
+access_key: VKSSXBIZLHVXWFVRN3RH
+secret_key: b47d1b02dcafd0f27810c9f0dde2458424a3e6e75ea1d3642a270a6eb9f372c2
 api_url: http://localhost:5000

@@ -54,7 +54,7 @@ const (
 
 const (
 	CACHE_PATH         = ".cache"
-	BACKUP_FAILED_PATH = "backup-failed"
+	BACKUP_FAILED_PATH = "backup_failed"
 )
 
 // Server defines parameters for running BizFly Backup HTTP server.
@@ -816,20 +816,20 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		// Scan list chunk.json backup failed
-		s.logger.Sugar().Info("Scan list chunk backup failed")
-		listChunkFailed, errGetListChunkFailed := scanListChunkFailed()
-		if err != nil {
-			errCh <- errGetListChunkFailed
+		// Scan list backup failed
+		s.logger.Sugar().Info("Scan list backup failed")
+		listBackupFailed, errScanListBackupFailed := scanListBackupFailed()
+		if errScanListBackupFailed != nil {
+			errCh <- errScanListBackupFailed
 			return
 		}
 
-		if listChunkFailed != nil {
-			// Upload list chunk.json failed to storage
-			s.logger.Sugar().Info("Upload list chunk failed to storage")
-			errUploadListChunkFailed := s.uploadListChunkFailed(listChunkFailed, storageVault)
-			if err != nil {
-				errCh <- errUploadListChunkFailed
+		if listBackupFailed != nil {
+			// Upload list backup failed to storage
+			s.logger.Sugar().Info("Upload list backup failed to storage")
+			errUploadListBackupFailed := s.uploadListBackupFailed(listBackupFailed, storageVault)
+			if errUploadListBackupFailed != nil {
+				errCh <- errUploadListBackupFailed
 				return
 			}
 		}
@@ -905,24 +905,56 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		var chunkCachePath string
-		var errCopy error
+		// Store files
+		errWriterCSV := s.storeFiles(rp.RecoveryPoint.ID, index, storageVault)
+		if errWriterCSV != nil {
+			s.notifyStatusFailed(rp.ID, errWriterCSV.Error())
+			errCh <- errWriterCSV
+			return
+		}
+
+		var chunkFailedPath, fileFailedPath string
+		var errCopyChunk, errCopyFile error
 		if errFileWorker != nil {
-			// Copy chunk.json backup failed to /backup-failed
-			s.logger.Sugar().Info("Copy chunk backup failed to /backup-failed")
-			chunkCachePath, errCopy = copyChunkCache(rp.RecoveryPoint.ID)
-			if errCopy != nil {
-				errCh <- errCopy
+			// Copy chunk.json backup failed to /backup_failed/rp_id
+			s.logger.Sugar().Info("Copy chunk.json backup failed to /backup_failed/rp_id")
+			chunkFailedPath, errCopyChunk = copyCache(rp.RecoveryPoint.ID, "chunk.json")
+			if errCopyChunk != nil {
+				errCh <- errCopyChunk
+				return
+			}
+
+			// Copy file.csv backup failed to /backup_failed/rp_id
+			s.logger.Sugar().Info("Copy file.csv backup failed to /backup_failed/rp_id")
+			fileFailedPath, errCopyFile = copyCache(rp.RecoveryPoint.ID, "file.csv")
+			if errCopyFile != nil {
+				errCh <- errCopyFile
 				return
 			}
 		}
 
 		// Put chunks
-		errPutChunks := s.putChunks(rp.RecoveryPoint.ID, chunkCachePath, storageVault)
+		errPutChunks := s.putChunks(rp.RecoveryPoint.ID, chunkFailedPath, storageVault)
 		if errPutChunks != nil {
 			s.notifyStatusFailed(rp.ID, errPutChunks.Error())
 			errCh <- errPutChunks
 			return
+		}
+
+		// Put file.csv
+		errPutFiles := s.putFiles(rp.RecoveryPoint.ID, fileFailedPath, storageVault)
+		if errPutFiles != nil {
+			s.notifyStatusFailed(rp.ID, errPutFiles.Error())
+			errCh <- errPutFiles
+			return
+		}
+
+		if chunkFailedPath != "" || fileFailedPath != "" {
+			errRemove := os.RemoveAll(BACKUP_FAILED_PATH)
+			if errRemove != nil {
+				errCh <- errRemove
+				return
+			}
 		}
 
 		if errFileWorker != nil {
@@ -937,21 +969,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		// Store files
-		errWriterCSV := s.storeFiles(rp.RecoveryPoint.ID, index, storageVault)
-		if errWriterCSV != nil {
-			s.notifyStatusFailed(rp.ID, errWriterCSV.Error())
-			errCh <- errWriterCSV
-			return
-		}
-		// Put file.csv
-		errPutFiles := s.putFiles(storageVault, rp.RecoveryPoint.ID)
-		if errPutFiles != nil {
-			s.notifyStatusFailed(rp.ID, errPutFiles.Error())
-			errCh <- errPutFiles
-			return
-		}
-
+		// Save Indexs
 		err = cacheWriter.SaveIndex(index)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
@@ -1036,41 +1054,36 @@ func (s *Server) putIndexs(storageVault storage_vault.StorageVault, latestIndex 
 	return indexHash, nil
 }
 
-func (s *Server) putChunks(rpID, chunkCachePath string, storageVault storage_vault.StorageVault) error {
-	if chunkCachePath == "" {
-		chunkCachePath = filepath.Join(CACHE_PATH, rpID, "chunk.json")
+func (s *Server) putChunks(rpID, chunkPath string, storageVault storage_vault.StorageVault) error {
+	if chunkPath == "" {
+		chunkPath = filepath.Join(CACHE_PATH, rpID, "chunk.json")
 	} else {
-		chunkCachePath = fmt.Sprintf("%s/%s-chunk.json", BACKUP_FAILED_PATH, rpID)
+		chunkPath = filepath.Join(BACKUP_FAILED_PATH, rpID, "chunk.json")
 	}
-	buf, err := ioutil.ReadFile(chunkCachePath)
+	buf, err := ioutil.ReadFile(chunkPath)
 	if err != nil {
-		s.logger.Error("Read list chunks error", zap.Error(err))
+		s.logger.Error("Read chunk.json error", zap.Error(err))
 		return err
 	}
 	err = storageVault.PutObject(filepath.Join(rpID, "chunk.json"), buf)
 	if err != nil {
-		s.logger.Error("Put list chunks to storage error", zap.Error(err))
+		s.logger.Error("Put chunk.json to storage error", zap.Error(err))
 		return err
-	}
-	errRemove := os.RemoveAll(BACKUP_FAILED_PATH)
-	if errRemove != nil {
-		return errRemove
 	}
 	return nil
 }
 
-// uploadListChunkFailed upload list chunk.json failed to storage
-func (s *Server) uploadListChunkFailed(listChunkFailed []string, storageVault storage_vault.StorageVault) error {
-	for _, chunkFailed := range listChunkFailed {
-		buf, err := ioutil.ReadFile(filepath.Join(BACKUP_FAILED_PATH, chunkFailed))
+// Upload list backup failed to storage
+func (s *Server) uploadListBackupFailed(listBackupFailed []string, storageVault storage_vault.StorageVault) error {
+	for _, fileFailed := range listBackupFailed {
+		buf, err := ioutil.ReadFile(filepath.Join(BACKUP_FAILED_PATH, fileFailed))
 		if err != nil {
-			s.logger.Error("Read file chunk.json error ", zap.Error(err))
+			s.logger.Error("Read file error ", zap.Error(err))
 			return err
 		}
-		key := strings.ReplaceAll(chunkFailed, "-chunk", "/chunk")
-		err = storageVault.PutObject(key, buf)
+		err = storageVault.PutObject(fileFailed, buf)
 		if err != nil {
-			s.logger.Error("Put file chunk.json to storage error ", zap.Error(err))
+			s.logger.Error("Put file to storage error ", zap.Error(err))
 			return err
 		}
 	}
@@ -1108,15 +1121,20 @@ func (s *Server) storeFiles(rpID string, index *cache.Index, storageVault storag
 	return nil
 }
 
-func (s *Server) putFiles(storageVault storage_vault.StorageVault, rpID string) error {
-	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "file.csv"))
+func (s *Server) putFiles(rpID string, filePath string, storageVault storage_vault.StorageVault) error {
+	if filePath == "" {
+		filePath = filepath.Join(CACHE_PATH, rpID, "file.csv")
+	} else {
+		filePath = filepath.Join(BACKUP_FAILED_PATH, rpID, "file.csv")
+	}
+	buf, err := ioutil.ReadFile(filePath)
 	if err != nil {
-		s.logger.Error("Read file csv error", zap.Error(err))
+		s.logger.Error("Read file.csv error", zap.Error(err))
 		return err
 	}
 	err = storageVault.PutObject(filepath.Join(rpID, "file.csv"), buf)
 	if err != nil {
-		s.logger.Error("Put file csv error", zap.Error(err))
+		s.logger.Error("Put file.csv error", zap.Error(err))
 		return err
 	}
 	return nil
@@ -1265,11 +1283,10 @@ func formatDuration(d time.Duration) string {
 	return formatSeconds(sec)
 }
 
-// Copy chunk.json backup failed to /backup-failed
-func copyChunkCache(rpID string) (string, error) {
-	src := filepath.Join(CACHE_PATH, rpID, "chunk.json")
-	dst := fmt.Sprintf("%s/%s-chunk.json", BACKUP_FAILED_PATH, rpID)
-
+// Copy file (file.cav or chunk.json) backup failed to /backup_failed/rp_id
+func copyCache(rpID, fileName string) (string, error) {
+	src := filepath.Join(CACHE_PATH, rpID, fileName)
+	dst := filepath.Join(BACKUP_FAILED_PATH, rpID, fileName)
 	if _, err := os.Stat(filepath.Dir(dst)); os.IsNotExist(err) {
 		if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
 			return "", err
@@ -1297,16 +1314,23 @@ func copyChunkCache(rpID string) (string, error) {
 	return dst, nil
 }
 
-// "Scan list chunk.json backup failed"
-func scanListChunkFailed() ([]string, error) {
-	var listChunkFailed []string
-	files, err := ioutil.ReadDir(BACKUP_FAILED_PATH)
+// Scan list backup failed
+func scanListBackupFailed() ([]string, error) {
+	var listBackupFailed []string
+	dirEntries, err := ioutil.ReadDir(BACKUP_FAILED_PATH)
 	if err != nil {
 		return nil, err
 	}
-	for _, f := range files {
-		listChunkFailed = append(listChunkFailed, f.Name())
+	for _, file := range dirEntries {
+		dirRP := filepath.Join(BACKUP_FAILED_PATH, file.Name())
+		fi, err := os.ReadDir(dirRP)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range fi {
+			nameFile := filepath.Join(file.Name(), f.Name())
+			listBackupFailed = append(listBackupFailed, nameFile)
+		}
 	}
-
-	return listChunkFailed, nil
+	return listBackupFailed, nil
 }

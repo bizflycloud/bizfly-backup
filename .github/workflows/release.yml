@@ -5,6 +5,7 @@ on:
   create:
     tags:
       - 'v*'
+      - 'test*'
 jobs:
   git:
     name: Release on Git
@@ -18,10 +19,6 @@ jobs:
         with:
           go-version: 1.16
 
-      - name: Validates GO releaser config
-        uses: docker://goreleaser/goreleaser:latest
-        with:
-          args: check
       - name: Create release on GitHub
         uses: goreleaser/goreleaser-action@v2
         with:

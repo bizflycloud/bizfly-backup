@@ -698,18 +698,14 @@ func WalkerItem(index *cache.Index, p *progress.Progress) (progress.Stat, error)
 	defer p.Done()
 
 	var st progress.Stat
-	var totalSize uint64
 	for _, itemInfo := range index.Items {
-		if itemInfo.Type == "file" {
-			totalSize += itemInfo.Size
+		s := progress.Stat{
+			Items: uint64(index.TotalFiles),
+			Bytes: uint64(itemInfo.Size),
 		}
+		p.Report(s)
+		st.Add(s)
 	}
-	s := progress.Stat{
-		Items: uint64(index.TotalFiles),
-		Bytes: uint64(totalSize),
-	}
-	p.Report(s)
-	st.Add(s)
 	return st, nil
 }
 

@@ -3,7 +3,7 @@ package cache
 import (
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -98,7 +98,7 @@ func (node *Node) fill_extra(path string, fi os.FileInfo) (err error) {
 	case "symlink":
 		node.LinkTarget, err = os.Readlink(path)
 	default:
-		panic(fmt.Sprintf("invalid node type %q", node.Type))
+		return errors.New("invalid node type")
 	}
 	return err
 }

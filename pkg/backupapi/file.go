@@ -158,8 +158,6 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			return 0, errBackupChunk
 		}
 		itemInfo.Sha256Hash = hash.Sum(nil)
-		s.Items = 1
-		p.Report(s)
 		return stat, nil
 	}
 }

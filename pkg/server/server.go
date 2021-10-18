@@ -886,6 +886,11 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 				cancel()
 				break
 			}
+			progressUpload.Start()
+			st := progress.Stat{}
+			st.Items = 1
+			progressUpload.Report(st)
+
 			if itemInfo.Type == "file" {
 				lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
 				wg.Add(1)

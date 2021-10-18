@@ -273,8 +273,6 @@ func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVaul
 			return nil
 		})
 	}
-	s.Items = 1
-	p.Report(s)
 
 	if err := group.Wait(); err != nil {
 		c.logger.Error("Has a goroutine error ", zap.Error(err))
@@ -326,6 +324,7 @@ func (c *Client) RestoreItem(ctx context.Context, destDir string, item cache.Nod
 			}
 			p.Report(s)
 		}
+		s.Items = 1
 		p.Report(s)
 		return nil
 	}

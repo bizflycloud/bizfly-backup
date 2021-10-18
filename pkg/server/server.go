@@ -916,16 +916,16 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		var chunkFailedPath, fileFailedPath string
 		var errCopyChunk, errCopyFile error
 		if errFileWorker != nil {
-			// Copy chunk.json backup failed to /backup_failed/rp_id
-			s.logger.Sugar().Info("Copy chunk.json backup failed to /backup_failed/rp_id")
+			// Copy chunk.json backup failed to /backup_failed/<rp_id>/chunk.json
+			s.logger.Sugar().Info("Copy chunk.json backup failed to /backup_failed/<rp_id>/chunk.json")
 			chunkFailedPath, errCopyChunk = copyCache(rp.RecoveryPoint.ID, "chunk.json")
 			if errCopyChunk != nil {
 				errCh <- errCopyChunk
 				return
 			}
 
-			// Copy file.csv backup failed to /backup_failed/rp_id
-			s.logger.Sugar().Info("Copy file.csv backup failed to /backup_failed/rp_id")
+			// Copy file.csv backup failed to /backup_failed/<rp_id>/file.csv
+			s.logger.Sugar().Info("Copy file.csv backup failed to /backup_failed/<rp_id>/file.csv")
 			fileFailedPath, errCopyFile = copyCache(rp.RecoveryPoint.ID, "file.csv")
 			if errCopyFile != nil {
 				errCh <- errCopyFile
@@ -1283,7 +1283,7 @@ func formatDuration(d time.Duration) string {
 	return formatSeconds(sec)
 }
 
-// Copy file (file.cav or chunk.json) backup failed to /backup_failed/rp_id
+// Copy file (file.csv or chunk.json) backup failed to /backup_failed/<rp_id>
 func copyCache(rpID, fileName string) (string, error) {
 	src := filepath.Join(CACHE_PATH, rpID, fileName)
 	dst := filepath.Join(BACKUP_FAILED_PATH, rpID, fileName)

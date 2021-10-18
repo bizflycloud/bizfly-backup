@@ -820,6 +820,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		s.logger.Sugar().Info("Scan list backup failed")
 		listBackupFailed, errScanListBackupFailed := scanListBackupFailed()
 		if errScanListBackupFailed != nil {
+			s.logger.Error("Err scan list backup failed", zap.Error(errScanListBackupFailed))
 			errCh <- errScanListBackupFailed
 			return
 		}
@@ -1316,6 +1317,11 @@ func copyCache(rpID, fileName string) (string, error) {
 
 // Scan list backup failed
 func scanListBackupFailed() ([]string, error) {
+	if _, err := os.Stat(BACKUP_FAILED_PATH); os.IsNotExist(err) {
+		if err := os.MkdirAll(BACKUP_FAILED_PATH, 0700); err != nil {
+			return nil, err
+		}
+	}
 	var listBackupFailed []string
 	dirEntries, err := ioutil.ReadDir(BACKUP_FAILED_PATH)
 	if err != nil {

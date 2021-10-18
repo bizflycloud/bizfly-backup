@@ -207,10 +207,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 		return 0, errors.New("context backup done")
 	default:
 
-		s := progress.Stat{
-			Items:  1,
-			Errors: false,
-		}
+		s := progress.Stat{}
 
 		// backup item with item change mtime
 		if lastInfo == nil || !strings.EqualFold(timeToString(lastInfo.ModTime), timeToString(itemInfo.ModTime)) {

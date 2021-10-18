@@ -700,7 +700,7 @@ func WalkerItem(index *cache.Index, p *progress.Progress) (progress.Stat, error)
 	var st progress.Stat
 	for _, itemInfo := range index.Items {
 		s := progress.Stat{
-			Items: uint64(index.TotalFiles),
+			Items: 1,
 			Bytes: uint64(itemInfo.Size),
 		}
 		p.Report(s)

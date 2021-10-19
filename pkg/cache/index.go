@@ -98,7 +98,7 @@ func (node *Node) fill_extra(path string, fi os.FileInfo) (err error) {
 	case "symlink":
 		node.LinkTarget, err = os.Readlink(path)
 	default:
-		panic(fmt.Sprintf("invalid node type %q", node.Type))
+		fmt.Printf(" %s invalid node type %q", path, node.Type)
 	}
 	return err
 }

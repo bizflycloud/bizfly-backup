@@ -33,7 +33,7 @@ func (t Type) String() string {
 		return "chunk.json"
 	}
 
-	panic(fmt.Sprintf("unknown type %d", t))
+	return fmt.Sprintf("unknown type %d", t)
 }
 
 // NewDirRepository creates a new dir-baked repository at the given path.

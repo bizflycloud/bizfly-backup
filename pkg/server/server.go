@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -544,8 +545,13 @@ func (s *Server) notifyMsg(msg map[string]string) {
 
 func (s *Server) notifyMsgProgress(recoverypointID string, msg map[string]string) {
 	payload, _ := json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopics[1]+"/"+recoverypointID, payload); err != nil {
-		s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
+	floatPercent, _ := strconv.ParseFloat(strings.ReplaceAll(msg["percent"], "%", ""), 64)
+	percent := int(math.Ceil(floatPercent))
+
+	if percent%5 == 0 {
+		if err := s.b.Publish(s.publishTopics[1]+"/"+recoverypointID, payload); err != nil {
+			s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
+		}
 	}
 }
 
@@ -1177,15 +1183,18 @@ func (s *Server) newUploadProgress(recoveryPointID string, todo progress.Stat) *
 
 		if ticker {
 			itemsDone := stat.Items
+			strItemsDone := strconv.FormatUint(itemsDone, 10)
+			strItemsTodo := strconv.FormatUint(itemsTodo, 10)
 
-			status1 := fmt.Sprintf("[Duration %s] %s [speed:%s/s] [%s/%s (Total)] [%s put storage] [%d/%d items] %t erros ",
-				formatDuration(d), formatPercent(stat.Bytes, todo.Bytes), formatBytes(bps), formatBytes(stat.Bytes), formatBytes(todo.Bytes),
-				formatBytes(stat.Storage), itemsDone, itemsTodo, stat.Errors)
-			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
-
-			message := fmt.Sprintf("%s %s", status1, status2)
 			s.notifyMsgProgress(recoveryPointID, map[string]string{
-				"Uploading": message,
+				"duration":     formatDuration(d),
+				"percent":      formatPercent(stat.Bytes, todo.Bytes),
+				"speed":        formatBytes(bps),
+				"total":        fmt.Sprintf("%s/%s", formatBytes(stat.Bytes), formatBytes(todo.Bytes)),
+				"push_storage": formatBytes(stat.Storage),
+				"items":        fmt.Sprintf("%s/%s", strItemsDone, strItemsTodo),
+				"erros":        strconv.FormatBool(stat.Errors),
+				"eta":          formatSeconds(eta),
 			})
 		}
 	}
@@ -1219,15 +1228,18 @@ func (s *Server) newDownloadProgress(recoveryPointID string, todo progress.Stat)
 
 		if ticker {
 			itemsDone := stat.Items
+			strItemsDone := strconv.FormatUint(itemsDone, 10)
+			strItemsTodo := strconv.FormatUint(itemsTodo, 10)
 
-			status1 := fmt.Sprintf("[Duration %s] %s [speed:%s/s] [%s/%s (Total)] [%s pull storage] [%d/%d items] %t erros ",
-				formatDuration(d), formatPercent(stat.Bytes, todo.Bytes), formatBytes(bps), formatBytes(stat.Bytes), formatBytes(todo.Bytes),
-				formatBytes(stat.Storage), itemsDone, itemsTodo, stat.Errors)
-			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
-
-			message := fmt.Sprintf("%s %s", status1, status2)
 			s.notifyMsgProgress(recoveryPointID, map[string]string{
-				"Downloading": message,
+				"duration":     formatDuration(d),
+				"percent":      formatPercent(stat.Bytes, todo.Bytes),
+				"speed":        formatBytes(bps),
+				"total":        fmt.Sprintf("%s/%s", formatBytes(stat.Bytes), formatBytes(todo.Bytes)),
+				"pull_storage": formatBytes(stat.Storage),
+				"items":        fmt.Sprintf("%s/%s", strItemsDone, strItemsTodo),
+				"erros":        strconv.FormatBool(stat.Errors),
+				"eta":          formatSeconds(eta),
 			})
 		}
 	}

@@ -158,8 +158,6 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			return 0, errBackupChunk
 		}
 		itemInfo.Sha256Hash = hash.Sum(nil)
-		s.Items = 1
-		p.Report(s)
 		return stat, nil
 	}
 }
@@ -207,10 +205,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 		return 0, errors.New("context backup done")
 	default:
 
-		s := progress.Stat{
-			Items:  1,
-			Errors: false,
-		}
+		s := progress.Stat{}
 
 		// backup item with item change mtime
 		if lastInfo == nil || !strings.EqualFold(timeToString(lastInfo.ModTime), timeToString(itemInfo.ModTime)) {
@@ -276,8 +271,6 @@ func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVaul
 			return nil
 		})
 	}
-	s.Items = 1
-	p.Report(s)
 
 	if err := group.Wait(); err != nil {
 		c.logger.Error("Has a goroutine error ", zap.Error(err))
@@ -329,6 +322,7 @@ func (c *Client) RestoreItem(ctx context.Context, destDir string, item cache.Nod
 			}
 			p.Report(s)
 		}
+		s.Items = 1
 		p.Report(s)
 		return nil
 	}

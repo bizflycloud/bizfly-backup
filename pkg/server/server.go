@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -52,7 +53,10 @@ const (
 	PERCENT_PROCESS = 0.2
 )
 
-const CACHE_PATH = ".cache"
+const (
+	CACHE_PATH         = ".cache"
+	BACKUP_FAILED_PATH = "backup_failed"
+)
 
 // Server defines parameters for running BizFly Backup HTTP server.
 type Server struct {
@@ -541,8 +545,13 @@ func (s *Server) notifyMsg(msg map[string]string) {
 
 func (s *Server) notifyMsgProgress(recoverypointID string, msg map[string]string) {
 	payload, _ := json.Marshal(msg)
-	if err := s.b.Publish(s.publishTopics[1]+"/"+recoverypointID, payload); err != nil {
-		s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
+	floatPercent, _ := strconv.ParseFloat(strings.ReplaceAll(msg["percent"], "%", ""), 64)
+	percent := int(math.Ceil(floatPercent))
+
+	if percent%5 == 0 {
+		if err := s.b.Publish(s.publishTopics[1]+"/"+recoverypointID, payload); err != nil {
+			s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
+		}
 	}
 }
 
@@ -695,18 +704,14 @@ func WalkerItem(index *cache.Index, p *progress.Progress) (progress.Stat, error)
 	defer p.Done()
 
 	var st progress.Stat
-	var totalSize uint64
 	for _, itemInfo := range index.Items {
-		if itemInfo.Type == "file" {
-			totalSize += itemInfo.Size
+		s := progress.Stat{
+			Items: 1,
+			Bytes: uint64(itemInfo.Size),
 		}
+		p.Report(s)
+		st.Add(s)
 	}
-	s := progress.Stat{
-		Items: uint64(index.TotalFiles),
-		Bytes: uint64(totalSize),
-	}
-	p.Report(s)
-	st.Add(s)
 	return st, nil
 }
 
@@ -813,6 +818,25 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
+		// Scan list backup failed
+		s.logger.Sugar().Info("Scan list backup failed")
+		listBackupFailed, errScanListBackupFailed := scanListBackupFailed()
+		if errScanListBackupFailed != nil {
+			s.logger.Error("Err scan list backup failed", zap.Error(errScanListBackupFailed))
+			errCh <- errScanListBackupFailed
+			return
+		}
+
+		if listBackupFailed != nil {
+			// Upload list backup failed to storage
+			s.logger.Sugar().Info("Upload list backup failed to storage")
+			errUploadListBackupFailed := s.uploadListBackupFailed(listBackupFailed, storageVault)
+			if errUploadListBackupFailed != nil {
+				errCh <- errUploadListBackupFailed
+				return
+			}
+		}
+
 		s.notifyMsg(map[string]string{
 			"action_id": rp.ID,
 			"status":    statusUploadFile,
@@ -868,6 +892,11 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 				cancel()
 				break
 			}
+			progressUpload.Start()
+			st := progress.Stat{}
+			st.Items = 1
+			progressUpload.Report(st)
+
 			if itemInfo.Type == "file" {
 				lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
 				wg.Add(1)
@@ -884,14 +913,6 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		// Put chunks
-		errPutChunks := s.putChunks(rp.RecoveryPoint.ID, storageVault)
-		if errPutChunks != nil {
-			s.notifyStatusFailed(rp.ID, errPutChunks.Error())
-			errCh <- errPutChunks
-			return
-		}
-
 		// Store files
 		errWriterCSV := s.storeFiles(rp.RecoveryPoint.ID, index, storageVault)
 		if errWriterCSV != nil {
@@ -899,12 +920,49 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			errCh <- errWriterCSV
 			return
 		}
+
+		var chunkFailedPath, fileFailedPath string
+		var errCopyChunk, errCopyFile error
+		if errFileWorker != nil {
+			// Copy chunk.json backup failed to /backup_failed/<rp_id>/chunk.json
+			s.logger.Sugar().Info("Copy chunk.json backup failed to /backup_failed/<rp_id>/chunk.json")
+			chunkFailedPath, errCopyChunk = copyCache(rp.RecoveryPoint.ID, "chunk.json")
+			if errCopyChunk != nil {
+				errCh <- errCopyChunk
+				return
+			}
+
+			// Copy file.csv backup failed to /backup_failed/<rp_id>/file.csv
+			s.logger.Sugar().Info("Copy file.csv backup failed to /backup_failed/<rp_id>/file.csv")
+			fileFailedPath, errCopyFile = copyCache(rp.RecoveryPoint.ID, "file.csv")
+			if errCopyFile != nil {
+				errCh <- errCopyFile
+				return
+			}
+		}
+
+		// Put chunks
+		errPutChunks := s.putChunks(rp.RecoveryPoint.ID, chunkFailedPath, storageVault)
+		if errPutChunks != nil {
+			s.notifyStatusFailed(rp.ID, errPutChunks.Error())
+			errCh <- errPutChunks
+			return
+		}
+
 		// Put file.csv
-		errPutFiles := s.putFiles(storageVault, rp.RecoveryPoint.ID)
+		errPutFiles := s.putFiles(rp.RecoveryPoint.ID, fileFailedPath, storageVault)
 		if errPutFiles != nil {
 			s.notifyStatusFailed(rp.ID, errPutFiles.Error())
 			errCh <- errPutFiles
 			return
+		}
+
+		if chunkFailedPath != "" || fileFailedPath != "" {
+			errRemove := os.RemoveAll(BACKUP_FAILED_PATH)
+			if errRemove != nil {
+				errCh <- errRemove
+				return
+			}
 		}
 
 		if errFileWorker != nil {
@@ -919,8 +977,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		s.reportUploadCompleted(progressOutput)
-		progressUpload.Done()
+		// Save Indexs
 		err = cacheWriter.SaveIndex(index)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
@@ -943,6 +1000,8 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 
+		s.reportUploadCompleted(progressOutput)
+		progressUpload.Done()
 		s.notifyMsg(map[string]string{
 			"action_id":    rp.ID,
 			"status":       statusComplete,
@@ -1003,16 +1062,42 @@ func (s *Server) putIndexs(storageVault storage_vault.StorageVault, latestIndex 
 	return indexHash, nil
 }
 
-func (s *Server) putChunks(rpID string, storageVault storage_vault.StorageVault) error {
-	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "chunk.json"))
+func (s *Server) putChunks(rpID, chunkPath string, storageVault storage_vault.StorageVault) error {
+	if chunkPath == "" {
+		chunkPath = filepath.Join(CACHE_PATH, rpID, "chunk.json")
+	} else {
+		chunkPath = filepath.Join(BACKUP_FAILED_PATH, rpID, "chunk.json")
+	}
+	buf, err := ioutil.ReadFile(chunkPath)
 	if err != nil {
-		s.logger.Error("Read list chunks error", zap.Error(err))
+		s.logger.Error("Read chunk.json error", zap.Error(err))
 		return err
 	}
 	err = storageVault.PutObject(filepath.Join(rpID, "chunk.json"), buf)
 	if err != nil {
-		s.logger.Error("Put list chunks to storage error", zap.Error(err))
+		s.logger.Error("Put chunk.json to storage error", zap.Error(err))
 		return err
+	}
+	return nil
+}
+
+// Upload list backup failed to storage
+func (s *Server) uploadListBackupFailed(listBackupFailed []string, storageVault storage_vault.StorageVault) error {
+	for _, fileFailed := range listBackupFailed {
+		buf, err := ioutil.ReadFile(filepath.Join(BACKUP_FAILED_PATH, fileFailed))
+		if err != nil {
+			s.logger.Error("Read file error ", zap.Error(err))
+			return err
+		}
+		err = storageVault.PutObject(fileFailed, buf)
+		if err != nil {
+			s.logger.Error("Put file to storage error ", zap.Error(err))
+			return err
+		}
+	}
+	errRemove := os.RemoveAll(BACKUP_FAILED_PATH)
+	if errRemove != nil {
+		return errRemove
 	}
 	return nil
 }
@@ -1044,15 +1129,20 @@ func (s *Server) storeFiles(rpID string, index *cache.Index, storageVault storag
 	return nil
 }
 
-func (s *Server) putFiles(storageVault storage_vault.StorageVault, rpID string) error {
-	buf, err := ioutil.ReadFile(filepath.Join(".cache", rpID, "file.csv"))
+func (s *Server) putFiles(rpID string, filePath string, storageVault storage_vault.StorageVault) error {
+	if filePath == "" {
+		filePath = filepath.Join(CACHE_PATH, rpID, "file.csv")
+	} else {
+		filePath = filepath.Join(BACKUP_FAILED_PATH, rpID, "file.csv")
+	}
+	buf, err := ioutil.ReadFile(filePath)
 	if err != nil {
-		s.logger.Error("Read file csv error", zap.Error(err))
+		s.logger.Error("Read file.csv error", zap.Error(err))
 		return err
 	}
 	err = storageVault.PutObject(filepath.Join(rpID, "file.csv"), buf)
 	if err != nil {
-		s.logger.Error("Put file csv error", zap.Error(err))
+		s.logger.Error("Put file.csv error", zap.Error(err))
 		return err
 	}
 	return nil
@@ -1093,15 +1183,18 @@ func (s *Server) newUploadProgress(recoveryPointID string, todo progress.Stat) *
 
 		if ticker {
 			itemsDone := stat.Items
+			strItemsDone := strconv.FormatUint(itemsDone, 10)
+			strItemsTodo := strconv.FormatUint(itemsTodo, 10)
 
-			status1 := fmt.Sprintf("[Duration %s] %s [speed:%s/s] [%s/%s (Total)] [%s put storage] [%d/%d items] %t erros ",
-				formatDuration(d), formatPercent(stat.Bytes, todo.Bytes), formatBytes(bps), formatBytes(stat.Bytes), formatBytes(todo.Bytes),
-				formatBytes(stat.Storage), itemsDone, itemsTodo, stat.Errors)
-			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
-
-			message := fmt.Sprintf("%s %s", status1, status2)
 			s.notifyMsgProgress(recoveryPointID, map[string]string{
-				"Uploading": message,
+				"duration":     formatDuration(d),
+				"percent":      formatPercent(stat.Bytes, todo.Bytes),
+				"speed":        formatBytes(bps),
+				"total":        fmt.Sprintf("%s/%s", formatBytes(stat.Bytes), formatBytes(todo.Bytes)),
+				"push_storage": formatBytes(stat.Storage),
+				"items":        fmt.Sprintf("%s/%s", strItemsDone, strItemsTodo),
+				"erros":        strconv.FormatBool(stat.Errors),
+				"eta":          formatSeconds(eta),
 			})
 		}
 	}
@@ -1135,15 +1228,18 @@ func (s *Server) newDownloadProgress(recoveryPointID string, todo progress.Stat)
 
 		if ticker {
 			itemsDone := stat.Items
+			strItemsDone := strconv.FormatUint(itemsDone, 10)
+			strItemsTodo := strconv.FormatUint(itemsTodo, 10)
 
-			status1 := fmt.Sprintf("[Duration %s] %s [speed:%s/s] [%s/%s (Total)] [%s pull storage] [%d/%d items] %t erros ",
-				formatDuration(d), formatPercent(stat.Bytes, todo.Bytes), formatBytes(bps), formatBytes(stat.Bytes), formatBytes(todo.Bytes),
-				formatBytes(stat.Storage), itemsDone, itemsTodo, stat.Errors)
-			status2 := fmt.Sprintf("ETA %s", formatSeconds(eta))
-
-			message := fmt.Sprintf("%s %s", status1, status2)
 			s.notifyMsgProgress(recoveryPointID, map[string]string{
-				"Downloading": message,
+				"duration":     formatDuration(d),
+				"percent":      formatPercent(stat.Bytes, todo.Bytes),
+				"speed":        formatBytes(bps),
+				"total":        fmt.Sprintf("%s/%s", formatBytes(stat.Bytes), formatBytes(todo.Bytes)),
+				"pull_storage": formatBytes(stat.Storage),
+				"items":        fmt.Sprintf("%s/%s", strItemsDone, strItemsTodo),
+				"erros":        strconv.FormatBool(stat.Errors),
+				"eta":          formatSeconds(eta),
 			})
 		}
 	}
@@ -1199,4 +1295,61 @@ func formatSeconds(sec uint64) string {
 func formatDuration(d time.Duration) string {
 	sec := uint64(d / time.Second)
 	return formatSeconds(sec)
+}
+
+// Copy file (file.csv or chunk.json) backup failed to /backup_failed/<rp_id>
+func copyCache(rpID, fileName string) (string, error) {
+	src := filepath.Join(CACHE_PATH, rpID, fileName)
+	dst := filepath.Join(BACKUP_FAILED_PATH, rpID, fileName)
+	if _, err := os.Stat(filepath.Dir(dst)); os.IsNotExist(err) {
+		if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
+			return "", err
+		}
+	}
+
+	fin, err := os.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer fin.Close()
+
+	fout, err := os.Create(dst)
+	if err != nil {
+		return "", err
+	}
+	defer fout.Close()
+
+	_, err = io.Copy(fout, fin)
+
+	if err != nil {
+		return "", err
+	}
+
+	return dst, nil
+}
+
+// Scan list backup failed
+func scanListBackupFailed() ([]string, error) {
+	if _, err := os.Stat(BACKUP_FAILED_PATH); os.IsNotExist(err) {
+		if err := os.MkdirAll(BACKUP_FAILED_PATH, 0700); err != nil {
+			return nil, err
+		}
+	}
+	var listBackupFailed []string
+	dirEntries, err := ioutil.ReadDir(BACKUP_FAILED_PATH)
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range dirEntries {
+		dirRP := filepath.Join(BACKUP_FAILED_PATH, file.Name())
+		fi, err := os.ReadDir(dirRP)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range fi {
+			nameFile := filepath.Join(file.Name(), f.Name())
+			listBackupFailed = append(listBackupFailed, nameFile)
+		}
+	}
+	return listBackupFailed, nil
 }

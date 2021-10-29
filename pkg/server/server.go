@@ -1011,6 +1011,25 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			"total_files":  strconv.Itoa(int(totalFiles)),
 		})
 
+		oldCacheDirs, err := cache.Old(CACHE_PATH)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		s.logger.Sugar().Info("total old cache dirs found is ", len(oldCacheDirs))
+
+		if len(oldCacheDirs) != 0 {
+			for _, item := range oldCacheDirs {
+				dir := filepath.Join(CACHE_PATH, item.Name())
+				err = os.RemoveAll(dir)
+				if err != nil {
+					errCh <- err
+					return
+				}
+				s.logger.Sugar().Info("removing old cache ", dir)
+			}
+		}
+
 		errCh <- nil
 	}
 }

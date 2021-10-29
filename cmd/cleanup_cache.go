@@ -41,7 +41,6 @@ var cleanupCacheCmd = &cobra.Command{
 		}
 		fmt.Printf("%d old cache dirs found \n", len(oldCacheDirs))
 
-		// nothing more to do if no old cache dirs could be found
 		if len(oldCacheDirs) != 0 {
 			for _, item := range oldCacheDirs {
 				dir := filepath.Join(cacheDir, item.Name())

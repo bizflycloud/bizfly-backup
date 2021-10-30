@@ -8,6 +8,8 @@ import (
 	"os"
 	"path"
 	"time"
+
+	"github.com/bizflycloud/bizfly-backup/pkg/support"
 )
 
 const (
@@ -179,7 +181,8 @@ func olderThan(cacheDir string, maxCacheAge time.Duration) ([]os.FileInfo, error
 
 	var oldCacheDirs []os.FileInfo
 	for _, fi := range entries {
-		if !isOld(fi.ModTime(), maxCacheAge) {
+		_, _, mtime, _, _, _ := support.ItemLocal(fi)
+		if !isOld(mtime, maxCacheAge) {
 			continue
 		}
 		oldCacheDirs = append(oldCacheDirs, fi)

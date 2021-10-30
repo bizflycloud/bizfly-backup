@@ -13,10 +13,6 @@ import (
 const (
 	dirMode  = 0700
 	tempPath = "tmp"
-
-	// maxCacheAge is the default age (30 days) after which cache
-	// directories are considered old
-	maxCacheAge = 30 * 24 * time.Hour
 )
 
 type Repository struct {
@@ -174,7 +170,7 @@ func listCacheDirs(cacheDir string) ([]os.FileInfo, error) {
 }
 
 // olderThan returns the list of cache directories older than max.
-func olderThan(cacheDir string) ([]os.FileInfo, error) {
+func olderThan(cacheDir string, maxCacheAge time.Duration) ([]os.FileInfo, error) {
 	entries, err := listCacheDirs(cacheDir)
 	if err != nil {
 		fmt.Println(err.Error())
@@ -183,7 +179,7 @@ func olderThan(cacheDir string) ([]os.FileInfo, error) {
 
 	var oldCacheDirs []os.FileInfo
 	for _, fi := range entries {
-		if !isOld(fi.ModTime()) {
+		if !isOld(fi.ModTime(), maxCacheAge) {
 			continue
 		}
 		oldCacheDirs = append(oldCacheDirs, fi)
@@ -194,12 +190,12 @@ func olderThan(cacheDir string) ([]os.FileInfo, error) {
 
 // Old returns a list of cache directories with a modification time of more
 // than 30 days ago.
-func Old(basedir string) ([]os.FileInfo, error) {
-	return olderThan(basedir)
+func Old(basedir string, maxCacheAge time.Duration) ([]os.FileInfo, error) {
+	return olderThan(basedir, maxCacheAge)
 }
 
 // isOld returns true if the timestamp is considered old.
-func isOld(t time.Time) bool {
+func isOld(t time.Time, maxCacheAge time.Duration) bool {
 	oldest := time.Now().Add(-maxCacheAge)
 	return t.Before(oldest)
 }

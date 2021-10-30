@@ -58,6 +58,10 @@ const (
 	BACKUP_FAILED_PATH = "backup_failed"
 )
 
+const (
+	maxCacheAgeDefault = 30 * 24 * time.Hour
+)
+
 // Server defines parameters for running BizFly Backup HTTP server.
 type Server struct {
 	Addr            string
@@ -1011,7 +1015,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			"total_files":  strconv.Itoa(int(totalFiles)),
 		})
 
-		oldCacheDirs, err := cache.Old(CACHE_PATH)
+		oldCacheDirs, err := cache.Old(CACHE_PATH, maxCacheAgeDefault)
 		if err != nil {
 			errCh <- err
 			return

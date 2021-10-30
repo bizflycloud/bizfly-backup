@@ -21,6 +21,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/cache"
 	"github.com/spf13/cobra"
@@ -31,10 +33,18 @@ const (
 )
 
 var cleanupCacheCmd = &cobra.Command{
-	Use:   "cleanup-cache",
+	Use:   "cleanup-cache [max number of hours (integer) the old cache to be cleanup]",
 	Short: "Remove old cache directories",
+	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		oldCacheDirs, err := cache.Old(cacheDir)
+		number, err := strconv.ParseInt(args[0], 10, 64)
+		if err != nil {
+			fmt.Println(err.Error())
+			os.Exit(1)
+		}
+		maxCacheAge := time.Duration(number) * time.Hour
+
+		oldCacheDirs, err := cache.Old(cacheDir, maxCacheAge)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)

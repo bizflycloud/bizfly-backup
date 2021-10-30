@@ -39,7 +39,7 @@ var cleanupCacheCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		number, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
-			fmt.Println(err.Error())
+			logger.Error(err.Error())
 			os.Exit(1)
 		}
 		maxCacheAge := time.Duration(number) * time.Hour

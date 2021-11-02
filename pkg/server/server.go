@@ -58,6 +58,10 @@ const (
 	BACKUP_FAILED_PATH = "backup_failed"
 )
 
+const (
+	maxCacheAgeDefault = 24 * time.Hour * 30
+)
+
 // Server defines parameters for running BizFly Backup HTTP server.
 type Server struct {
 	Addr            string
@@ -186,6 +190,12 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	default:
 		s.logger.Debug("Got unknown event", zap.Any("message", msg))
 	}
+
+	// schedule check old cache directory after 1 days
+	go func() {
+		s.removeOldCacheSchedule(24*time.Hour, 1)
+	}()
+
 	return nil
 }
 
@@ -1352,4 +1362,20 @@ func scanListBackupFailed() ([]string, error) {
 		}
 	}
 	return listBackupFailed, nil
+}
+
+func (s *Server) removeOldCacheSchedule(timeSchedule time.Duration, index int) {
+	ticker := time.NewTicker(timeSchedule)
+	go func() {
+		for {
+			switch index {
+			case 1:
+				<-ticker.C
+				s.logger.Sugar().Info("Check old cache directory")
+				if err := cache.RemoveOldCache(maxCacheAgeDefault); err != nil {
+					s.logger.Error(err.Error())
+				}
+			}
+		}
+	}()
 }

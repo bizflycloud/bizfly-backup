@@ -26,12 +26,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	maxTime string
+)
+
 var cleanupCacheCmd = &cobra.Command{
-	Use:   "cleanup-cache [max number of days (integer) the old cache to be cleanup]",
+	Use:   "cleanup-cache",
 	Short: "Remove old cache directories",
-	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		number, err := strconv.ParseInt(args[0], 10, 64)
+		if maxTime == "" {
+			maxTime = "30"
+		}
+		number, err := strconv.ParseInt(maxTime, 10, 64)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
@@ -47,4 +53,5 @@ var cleanupCacheCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(cleanupCacheCmd)
+	cleanupCacheCmd.PersistentFlags().StringVar(&maxTime, "max-time", "", "The maximum number of days .cache folder exists (default is 30)")
 }

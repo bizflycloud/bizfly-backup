@@ -13,11 +13,12 @@ Usage:
   bizfly-backup [command]
 
 Available Commands:
-  agent       Run agent.
-  backup      Perform backup tasks.
-  help        Help about any command
-  restore     Restore a backup.
-  upgrade     Upgrade bizfly-backup to latest version.
+  agent         Run agent.
+  backup        Perform backup tasks.
+  cleanup-cache Remove old cache directories.
+  help          Help about any command
+  restore       Restore a backup.
+  upgrade       Upgrade bizfly-backup to latest version.
 
 Flags:
       --config string   config file (default is $HOME/.bizfly-backup.yaml)

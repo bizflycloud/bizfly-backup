@@ -116,13 +116,13 @@ var backupListRecoveryPointCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		defer resp.Body.Close()
-		var rps []backupapi.RecoveryPoint
+		var rps backupapi.ListRecoveryPointsResponse
 		if err := json.NewDecoder(resp.Body).Decode(&rps); err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
 		}
-		data := make([][]string, 0, len(rps))
-		for _, rp := range rps {
+		data := make([][]string, 0, len(rps.RecoveryPoints))
+		for _, rp := range rps.RecoveryPoints {
 			data = append(data, []string{rp.ID, rp.Name, rp.Status, rp.RecoveryPointType})
 		}
 		formatter.Output(listRecoveryPointsHeaders, data)

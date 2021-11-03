@@ -193,7 +193,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 
 	// schedule check old cache directory after 1 days
 	go func() {
-		s.removeOldCacheSchedule(24*time.Hour, 1)
+		s.schedule(24*time.Hour, 1)
 	}()
 
 	return nil
@@ -1364,7 +1364,7 @@ func scanListBackupFailed() ([]string, error) {
 	return listBackupFailed, nil
 }
 
-func (s *Server) removeOldCacheSchedule(timeSchedule time.Duration, index int) {
+func (s *Server) schedule(timeSchedule time.Duration, index int) {
 	ticker := time.NewTicker(timeSchedule)
 	go func() {
 		for {

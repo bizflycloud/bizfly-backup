@@ -102,16 +102,17 @@ func TestClient_ListRecoveryPoints(t *testing.T) {
 	recoveryPointPath := client.recoveryPointPath(backupDirectoryID)
 
 	mux.HandleFunc(path.Join("/api/v1/", recoveryPointPath), func(w http.ResponseWriter, r *http.Request) {
-		resp := []RecoveryPoint{
-			{ID: "1", Status: RecoveryPointStatusCompleted, RecoveryPointType: RecoveryPointTypePoint},
-			{ID: "2", Status: RecoveryPointStatusCreated, RecoveryPointType: RecoveryPointTypePoint},
+		resp := ListRecoveryPointsResponse{
+			RecoveryPoints: []RecoveryPointResponse{
+				{ID: "1", Status: RecoveryPointStatusCompleted, RecoveryPointType: RecoveryPointTypePoint},
+			},
 		}
 		assert.NoError(t, json.NewEncoder(w).Encode(resp))
 	})
 
 	rps, err := client.ListRecoveryPoints(context.Background(), backupDirectoryID)
 	require.NoError(t, err)
-	assert.Len(t, rps, 2)
+	assert.NotEmpty(t, rps.RecoveryPoints[0].ID)
 }
 
 func TestClient_RequestRestore(t *testing.T) {

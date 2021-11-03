@@ -73,6 +73,11 @@ type RecoveryPointResponse struct {
 	IndexHash         string `json:"index_hash"`
 }
 
+// ListRecoveryPointsResponse get a list recovery point of backup directory id
+type ListRecoveryPointsResponse struct {
+	RecoveryPoints []RecoveryPointResponse `json:"recovery_points"`
+}
+
 func (c *Client) recoveryPointPath(backupDirectoryID string) string {
 	return fmt.Sprintf("/agent/backup-directories/%s/recovery-points", backupDirectoryID)
 }
@@ -165,7 +170,7 @@ func (c *Client) CreateRecoveryPoint(ctx context.Context, backupDirectoryID stri
 }
 
 // ListRecoveryPoints list all recovery points of given backup directory.
-func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID string) ([]RecoveryPoint, error) {
+func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID string) (*ListRecoveryPointsResponse, error) {
 	req, err := c.NewRequest(http.MethodGet, c.recoveryPointPath(backupDirectoryID), nil)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
@@ -183,12 +188,12 @@ func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID strin
 	}
 	defer resp.Body.Close()
 
-	var rps []RecoveryPoint
+	var rps ListRecoveryPointsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&rps); err != nil {
 		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
-	return rps, nil
+	return &rps, nil
 }
 
 // RequestRestore requests restore

@@ -2,10 +2,15 @@ package cache
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path"
+	"path/filepath"
+	"time"
+
+	"github.com/bizflycloud/bizfly-backup/pkg/support"
 )
 
 const (
@@ -127,6 +132,87 @@ func (r *Repository) SaveChunk(chunk *Chunk) error {
 	err = r.renameFile(f, CHUNK)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+// listCacheDirs returns the list of cache directories.
+func listCacheDirs(cacheDir string) ([]os.FileInfo, error) {
+	f, err := os.Open(cacheDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		return nil, err
+	}
+
+	entries, err := f.Readdir(-1)
+	if err != nil {
+		return nil, err
+	}
+
+	err = f.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]os.FileInfo, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		result = append(result, entry)
+	}
+
+	return result, nil
+}
+
+// olderThan returns the list of cache directories older than max.
+func olderThan(cacheDir string, maxCacheAge time.Duration) ([]os.FileInfo, error) {
+	entries, err := listCacheDirs(cacheDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var oldCacheDirs []os.FileInfo
+	for _, fi := range entries {
+		_, _, mtime, _, _, _ := support.ItemLocal(fi)
+		if !isOld(mtime, maxCacheAge) {
+			continue
+		}
+		oldCacheDirs = append(oldCacheDirs, fi)
+	}
+
+	return oldCacheDirs, nil
+}
+
+// old returns a list of cache directories with a modification time
+func old(basedir string, maxCacheAge time.Duration) ([]os.FileInfo, error) {
+	return olderThan(basedir, maxCacheAge)
+}
+
+// isOld returns true if the timestamp is considered old.
+func isOld(t time.Time, maxCacheAge time.Duration) bool {
+	oldest := time.Now().Add(-maxCacheAge)
+	return t.Before(oldest)
+}
+
+// RemoveOldCache remove old cache after max time exists
+func RemoveOldCache(maxCacheAge time.Duration) error {
+	oldCacheDirs, err := old(".cache", maxCacheAge)
+	if err != nil {
+		return err
+	}
+	if len(oldCacheDirs) != 0 {
+		for _, item := range oldCacheDirs {
+			dir := filepath.Join(".cache", item.Name())
+			err := os.RemoveAll(dir)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("removing old cache dirs %s \n", dir)
+		}
 	}
 	return nil
 }

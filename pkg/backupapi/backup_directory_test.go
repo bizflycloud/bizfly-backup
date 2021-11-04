@@ -32,8 +32,8 @@ func TestClient_listBackupDirectoryPath(t *testing.T) {
 	setUp()
 	defer tearDown()
 
-	bdap := client.listBackupDirectoryPath()
-	assert.Equal(t, "/agent/backup-directories", bdap)
+	lbdp := client.listBackupDirectoryPath()
+	assert.Equal(t, "/agent/backup-directories", lbdp)
 }
 
 func TestClient_GetBackupDirectory(t *testing.T) {

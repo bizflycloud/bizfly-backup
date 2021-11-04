@@ -112,7 +112,6 @@ func (c *Client) ListBackupDirectory() (*ListBackupDirectory, error) {
 		return nil, err
 	}
 
-	c.logger.Sugar().Info(req.URL)
 	resp, err := c.Do(req)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))

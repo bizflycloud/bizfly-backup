@@ -28,6 +28,14 @@ func TestClient_backupDirectoryActionPath(t *testing.T) {
 	assert.Equal(t, "/agent/backup-directories/id/action", bdap)
 }
 
+func TestClient_listBackupDirectoryPath(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	bdap := client.listBackupDirectoryPath()
+	assert.Equal(t, "/agent/backup-directories", bdap)
+}
+
 func TestClient_GetBackupDirectory(t *testing.T) {
 	setUp()
 	defer tearDown()
@@ -81,4 +89,25 @@ func TestClient_RequestBackupDirectory(t *testing.T) {
 		Name:        name,
 	})
 	require.NoError(t, err)
+}
+
+func TestClient_ListBackupDirectory(t *testing.T) {
+	setUp()
+	defer tearDown()
+
+	lbdp := client.listBackupDirectoryPath()
+
+	mux.HandleFunc(path.Join("/api/v1/", lbdp), func(w http.ResponseWriter, r *http.Request) {
+		resp := ListBackupDirectory{
+			Directories: []BackupDirectory{
+				{ID: "1", Path: "/home/dactoan/upload", MachineID: "machine-id", TenantID: "tenant-id"},
+				{ID: "2", Path: "/home/dactoan/upload2", MachineID: "machine-id", TenantID: "tenant-id"},
+			},
+		}
+		assert.NoError(t, json.NewEncoder(w).Encode(resp))
+	})
+
+	lbd, err := client.ListBackupDirectory()
+	require.NoError(t, err)
+	assert.NotEmpty(t, lbd.Directories[0].Path)
 }

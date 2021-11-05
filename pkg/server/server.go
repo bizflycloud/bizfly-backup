@@ -196,6 +196,11 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 		s.schedule(24*time.Hour, 1)
 	}()
 
+	// schedule update size of directory on machine after 15 minutes
+	go func() {
+		s.schedule(15*time.Minute, 2)
+	}()
+
 	return nil
 }
 
@@ -546,7 +551,7 @@ func (s *Server) reportUploadCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Upload completed ..."))
 }
 
-func (s *Server) notifyMsg(msg map[string]string) {
+func (s *Server) notifyMsg(msg interface{}) {
 	payload, _ := json.Marshal(msg)
 	if err := s.b.Publish(s.publishTopics[0], payload); err != nil {
 		s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
@@ -1364,6 +1369,47 @@ func scanListBackupFailed() ([]string, error) {
 	return listBackupFailed, nil
 }
 
+// Get size of directory on machine and send server via mqtt
+func (s *Server) getDirectorySize() error {
+	var size int64
+	var state backupapi.UpdateState
+
+	// Get list backup directory
+	lbd, err := s.backupClient.ListBackupDirectory()
+	if err != nil {
+		s.logger.Error("ListBackupDirectory error", zap.Error(err))
+		return err
+	}
+
+	if len(lbd.Directories) != 0 {
+		for _, item := range lbd.Directories {
+			err := filepath.Walk(item.Path, func(_ string, fi os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if !fi.IsDir() {
+					size += fi.Size()
+				}
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+
+			dir := backupapi.Directories{
+				ID:   item.ID,
+				Size: int(size),
+			}
+			state.Directories = append(state.Directories, dir)
+		}
+		state.EventType = "agent_update_state"
+
+		// Send msg to server via mqtt
+		s.notifyMsg(state)
+	}
+	return nil
+}
+
 func (s *Server) schedule(timeSchedule time.Duration, index int) {
 	ticker := time.NewTicker(timeSchedule)
 	go func() {
@@ -1373,6 +1419,12 @@ func (s *Server) schedule(timeSchedule time.Duration, index int) {
 				<-ticker.C
 				s.logger.Sugar().Info("Check old cache directory")
 				if err := cache.RemoveOldCache(maxCacheAgeDefault); err != nil {
+					s.logger.Error(err.Error())
+				}
+			case 2:
+				<-ticker.C
+				s.logger.Sugar().Info("Update size of directory")
+				if err := s.getDirectorySize(); err != nil {
 					s.logger.Error(err.Error())
 				}
 			}

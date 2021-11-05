@@ -187,20 +187,15 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	case broker.AgentUpgrade:
 	case broker.StatusNotify:
 		s.logger.Info("Got agent status", zap.String("status", msg.Status))
+
+		// schedule check old cache directory after 1 days
+		s.schedule(24*time.Hour, 1)
+
+		// schedule update size of directory on machine after 15 minutes
+		s.schedule(15*time.Minute, 2)
 	default:
 		s.logger.Debug("Got unknown event", zap.Any("message", msg))
 	}
-
-	// schedule check old cache directory after 1 days
-	go func() {
-		s.schedule(24*time.Hour, 1)
-	}()
-
-	// schedule update size of directory on machine after 15 minutes
-	go func() {
-		s.schedule(15*time.Minute, 2)
-	}()
-
 	return nil
 }
 

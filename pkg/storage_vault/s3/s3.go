@@ -52,7 +52,7 @@ func (s3 *S3) ID() (string, string) {
 
 var _ storage_vault.StorageVault = (*S3)(nil)
 
-func NewS3Default(vault backupapi.StorageVault, actionID string) *S3 {
+func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, limitDownload int) *S3 {
 
 	s3 := &S3{
 		Id:               vault.ID,
@@ -96,7 +96,7 @@ func NewS3Default(vault backupapi.StorageVault, actionID string) *S3 {
 	}
 
 	// wrap the transport so that the throughput via HTTP is limited
-	lim := limiter.NewStaticLimiter(0, 0)
+	lim := limiter.NewStaticLimiter(limitUpload, limitDownload)
 	rt = lim.Transport(rt)
 
 	sess := storage.New(session.Must(session.NewSession(&aws.Config{

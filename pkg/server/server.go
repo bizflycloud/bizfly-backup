@@ -162,6 +162,8 @@ func (s *Server) setupRoutes() {
 func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	limitUpload := 0
+	limitDownload := 0
 	var msg broker.Message
 	if err := json.Unmarshal(e.Payload, &msg); err != nil {
 		return err
@@ -171,13 +173,13 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	case broker.BackupManual:
 		var err error
 		go func() {
-			err = s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+			err = s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, limitUpload, limitDownload, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
 		}()
 		return err
 	case broker.RestoreManual:
 		var err error
 		go func() {
-			err = s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.StorageVaultId, ioutil.Discard)
+			err = s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.StorageVaultId, limitUpload, limitDownload, ioutil.Discard)
 		}()
 		return err
 	case broker.ConfigUpdate:
@@ -251,11 +253,13 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 		for _, policy := range bd.Policies {
 			directoryID := bd.ID
 			policyID := policy.ID
+			limitUpload := policy.LimitUpload
+			limitDownload := policy.LimitDownload
 			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
 				name := "auto-" + time.Now().Format(time.RFC3339)
 				// improve when support incremental backup
 				recoveryPointType := backupapi.RecoveryPointTypeInitialReplica
-				if err := s.backup(directoryID, policyID, name, recoveryPointType, ioutil.Discard); err != nil {
+				if err := s.backup(directoryID, policyID, name, limitUpload, limitDownload, recoveryPointType, ioutil.Discard); err != nil {
 					zapFields := []zap.Field{
 						zap.Error(err),
 						zap.String("service", "cron"),
@@ -574,9 +578,9 @@ func (s *Server) notifyStatusFailed(recoveryPointID, reason string) {
 }
 
 // backup performs backup flow.
-func (s *Server) backup(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer) error {
+func (s *Server) backup(backupDirectoryID string, policyID string, name string, limitUpload, limitDownload int, recoveryPointType string, progressOutput io.Writer) error {
 	chErr := make(chan error, 1)
-	_ = s.poolDir.Submit(s.backupWorker(backupDirectoryID, policyID, name, recoveryPointType, progressOutput, chErr))
+	_ = s.poolDir.Submit(s.backupWorker(backupDirectoryID, policyID, name, limitUpload, limitDownload, recoveryPointType, progressOutput, chErr))
 	return <-chErr
 }
 
@@ -600,7 +604,7 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))
 }
 
-func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, storageVaultID string, progressOutput io.Writer) error {
+func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, storageVaultID string, limitUpload, limitDownload int, progressOutput io.Writer) error {
 	// Get storage volume
 	restoreKey := &backupapi.AuthRestore{
 		RecoveryPointID:   recoveryPointID,
@@ -614,7 +618,8 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		s.logger.Error("Get credential storage vault error", zap.Error(err))
 		return err
 	}
-	storageVault, _ := NewStorageVault(*vault, actionID)
+
+	storageVault, _ := NewStorageVault(*vault, actionID, limitUpload, limitDownload)
 
 	rp, err := s.backupClient.GetRecoveryPointInfo(recoveryPointID)
 	if err != nil {
@@ -700,10 +705,10 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 	return nil
 }
 
-func NewStorageVault(storageVault backupapi.StorageVault, actionID string) (storage_vault.StorageVault, error) {
+func NewStorageVault(storageVault backupapi.StorageVault, actionID string, limitUpload, limitDownload int) (storage_vault.StorageVault, error) {
 	switch storageVault.StorageVaultType {
 	case "S3":
-		return s3.NewS3Default(storageVault, actionID), nil
+		return s3.NewS3Default(storageVault, actionID, limitUpload, limitDownload), nil
 	default:
 		return nil, fmt.Errorf(fmt.Sprintf("storage vault type not supported %s", storageVault.StorageVaultType))
 	}
@@ -786,7 +791,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 	}
 }
 
-func (s *Server) backupWorker(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer, errCh chan<- error) backupJob {
+func (s *Server) backupWorker(backupDirectoryID string, policyID string, name string, limitUpload, limitDownload int, recoveryPointType string, progressOutput io.Writer, errCh chan<- error) backupJob {
 	return func() {
 		s.logger.Info("Backup directory ID: ", zap.String("backupDirectoryID", backupDirectoryID), zap.String("policyID", policyID), zap.String("name", name), zap.String("recoveryPointType", recoveryPointType))
 
@@ -821,7 +826,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Get storage vault
-		storageVault, err := NewStorageVault(*rp.StorageVault, rp.ID)
+		storageVault, err := NewStorageVault(*rp.StorageVault, rp.ID, limitUpload, limitDownload)
 		if err != nil {
 			s.logger.Error("NewStorageVault error", zap.Error(err))
 			errCh <- err

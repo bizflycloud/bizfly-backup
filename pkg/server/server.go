@@ -29,6 +29,7 @@ import (
 	"github.com/jpillora/backoff"
 	"github.com/panjf2000/ants/v2"
 	"github.com/robfig/cron/v3"
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"golang.org/x/mod/semver"
 
@@ -162,8 +163,8 @@ func (s *Server) setupRoutes() {
 func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	limitUpload := 0
-	limitDownload := 0
+	limitUpload := viper.GetInt("limit_upload")
+	limitDownload := viper.GetInt("limit_download")
 	var msg broker.Message
 	if err := json.Unmarshal(e.Payload, &msg); err != nil {
 		return err
@@ -255,6 +256,12 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 			policyID := policy.ID
 			limitUpload := policy.LimitUpload
 			limitDownload := policy.LimitDownload
+			if limitUpload == 0 {
+				limitUpload = viper.GetInt("limit_upload")
+			}
+			if limitDownload == 0 {
+				limitDownload = viper.GetInt("limit_download")
+			}
 			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
 				name := "auto-" + time.Now().Format(time.RFC3339)
 				// improve when support incremental backup

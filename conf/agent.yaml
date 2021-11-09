@@ -3,6 +3,6 @@ access_key: <Access Key>
 secret_key: <Secret Key>
 api_url: <API URL> 
 
-limit_upload: <Upload Kb>
-limit_download: <Download Kb>
+limit_upload: <Upload KiB>
+limit_download: <Download KiB>
 

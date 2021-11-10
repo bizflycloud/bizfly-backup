@@ -74,7 +74,6 @@ func NewS3Default(vault backupapi.StorageVault, actionID string) (*S3, error) {
 		s3.logger = l
 	}
 
-	machineID := viper.GetString("machine_id")
 	accessKey := viper.GetString("access_key")
 	secretKey := viper.GetString("secret_key")
 	apiUrl := viper.GetString("api_url")
@@ -84,7 +83,6 @@ func NewS3Default(vault backupapi.StorageVault, actionID string) (*S3, error) {
 			backupapi.WithAccessKey(accessKey),
 			backupapi.WithSecretKey(secretKey),
 			backupapi.WithServerURL(apiUrl),
-			backupapi.WithID(machineID),
 		)
 		if err != nil {
 			return nil, err

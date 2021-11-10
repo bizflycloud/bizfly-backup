@@ -703,7 +703,11 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 func NewStorageVault(storageVault backupapi.StorageVault, actionID string) (storage_vault.StorageVault, error) {
 	switch storageVault.StorageVaultType {
 	case "S3":
-		return s3.NewS3Default(storageVault, actionID), nil
+		newS3Default, err := s3.NewS3Default(storageVault, actionID)
+		if err != nil {
+			return nil, err
+		}
+		return newS3Default, nil
 	default:
 		return nil, fmt.Errorf(fmt.Sprintf("storage vault type not supported %s", storageVault.StorageVaultType))
 	}

@@ -221,7 +221,7 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 			}
 		}
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Error() == "Forbidden" {
+			if aerr.Code() == "Forbidden" {
 				if once {
 					s3.logger.Error("Return false cause in put object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return err
@@ -263,12 +263,12 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 		}
 
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Error() == "Forbidden" {
+			if aerr.Code() == "AccessDenied" {
 				if once {
 					s3.logger.Error("Return false cause in get object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return nil, err
 				}
-				s3.logger.Info("Get object one more time")
+				s3.logger.Sugar().Info("Get object one more time ", key)
 				once = true
 				rand.Seed(time.Now().UnixNano())
 				n := rand.Intn(3) // n will be between 0 and 10

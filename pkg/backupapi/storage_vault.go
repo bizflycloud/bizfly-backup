@@ -168,9 +168,9 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 			return data, nil
 		}
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() != "" && storageVault.Type().CredentialType == "DEFAULT" {
+			if aerr.Code() == "AccessDenied" && storageVault.Type().CredentialType == "DEFAULT" {
+				c.logger.Sugar().Info("GetCredential in get object ", key)
 				storageVaultID, actID := storageVault.ID()
-
 				vault, err := c.GetCredentialStorageVault(storageVaultID, actID, restoreKey)
 				if err != nil {
 					c.logger.Error("Error get credential ", zap.Error(err))
@@ -185,7 +185,6 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 			}
 		}
 
-		c.logger.Error("Error GetObject", zap.Error(err))
 		c.logger.Debug("BackOff retry")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {

@@ -172,12 +172,14 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
 	case broker.BackupManual:
+		limitDownload = 0
 		var err error
 		go func() {
 			err = s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, limitUpload, limitDownload, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
 		}()
 		return err
 	case broker.RestoreManual:
+		limitUpload = 0
 		var err error
 		go func() {
 			err = s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.StorageVaultId, limitUpload, limitDownload, ioutil.Discard)
@@ -255,13 +257,10 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 			directoryID := bd.ID
 			policyID := policy.ID
 			limitUpload := policy.LimitUpload
-			limitDownload := policy.LimitDownload
 			if limitUpload == 0 {
 				limitUpload = viper.GetInt("limit_upload")
 			}
-			if limitDownload == 0 {
-				limitDownload = viper.GetInt("limit_download")
-			}
+			limitDownload := 0
 			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
 				name := "auto-" + time.Now().Format(time.RFC3339)
 				// improve when support incremental backup

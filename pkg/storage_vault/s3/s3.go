@@ -52,8 +52,10 @@ func (s3 *S3) ID() (string, string) {
 }
 
 var _ storage_vault.StorageVault = (*S3)(nil)
+var uploadKb, downloadKb int
 
 func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, limitDownload int) *S3 {
+	uploadKb, downloadKb = limitUpload, limitDownload
 
 	s3 := &S3{
 		Id:               vault.ID,
@@ -326,11 +328,15 @@ func (s3 *S3) RefreshCredential(credential storage_vault.Credential) error {
 		s3.logger.Error("Got an error creating custom HTTP client", zap.Error(err))
 	}
 
-	limitUpload := viper.GetInt("limit_upload")
-	limitDownload := viper.GetInt("limit_download")
+	if uploadKb == 0 {
+		uploadKb = viper.GetInt("limit_upload")
+	}
+	if downloadKb == 0 {
+		downloadKb = viper.GetInt("limit_download")
+	}
 
 	// wrap the transport so that the throughput via HTTP is limited
-	lim := limiter.NewStaticLimiter(limitUpload, limitDownload)
+	lim := limiter.NewStaticLimiter(uploadKb, downloadKb)
 	rt = lim.Transport(rt)
 
 	sess := storage.New(session.Must(session.NewSession(&aws.Config{

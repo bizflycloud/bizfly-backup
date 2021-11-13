@@ -52,7 +52,7 @@ func (s3 *S3) ID() (string, string) {
 
 var _ storage_vault.StorageVault = (*S3)(nil)
 
-func NewS3Default(vault backupapi.StorageVault, actionID string) (*S3, error) {
+func NewS3Default(vault backupapi.StorageVault, actionID string, backupClient *backupapi.Client) (*S3, error) {
 
 	s3 := &S3{
 		Id:               vault.ID,
@@ -64,6 +64,7 @@ func NewS3Default(vault backupapi.StorageVault, actionID string) (*S3, error) {
 		StorageVaultType: vault.StorageVaultType,
 		Location:         vault.Credential.AwsLocation,
 		Region:           vault.Credential.Region,
+		backupClient:     backupClient,
 	}
 
 	if s3.logger == nil {
@@ -72,22 +73,6 @@ func NewS3Default(vault backupapi.StorageVault, actionID string) (*S3, error) {
 			return nil, err
 		}
 		s3.logger = l
-	}
-
-	accessKey := viper.GetString("access_key")
-	secretKey := viper.GetString("secret_key")
-	apiUrl := viper.GetString("api_url")
-
-	if s3.backupClient == nil {
-		c, err := backupapi.NewClient(
-			backupapi.WithAccessKey(accessKey),
-			backupapi.WithSecretKey(secretKey),
-			backupapi.WithServerURL(apiUrl),
-		)
-		if err != nil {
-			return nil, err
-		}
-		s3.backupClient = c
 	}
 
 	cred := credentials.NewStaticCredentials(vault.Credential.AwsAccessKeyId, vault.Credential.AwsSecretAccessKey, vault.Credential.Token)

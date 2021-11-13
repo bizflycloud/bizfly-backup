@@ -615,7 +615,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		s.logger.Error("Get credential storage vault error", zap.Error(err))
 		return err
 	}
-	storageVault, _ := NewStorageVault(*vault, actionID)
+	storageVault, _ := s.NewStorageVault(*vault, actionID)
 
 	rp, err := s.backupClient.GetRecoveryPointInfo(recoveryPointID)
 	if err != nil {
@@ -701,10 +701,10 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 	return nil
 }
 
-func NewStorageVault(storageVault backupapi.StorageVault, actionID string) (storage_vault.StorageVault, error) {
+func (s *Server) NewStorageVault(storageVault backupapi.StorageVault, actionID string) (storage_vault.StorageVault, error) {
 	switch storageVault.StorageVaultType {
 	case "S3":
-		newS3Default, err := s3.NewS3Default(storageVault, actionID)
+		newS3Default, err := s3.NewS3Default(storageVault, actionID, s.backupClient)
 		if err != nil {
 			return nil, err
 		}
@@ -826,7 +826,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Get storage vault
-		storageVault, err := NewStorageVault(*rp.StorageVault, rp.ID)
+		storageVault, err := s.NewStorageVault(*rp.StorageVault, rp.ID)
 		if err != nil {
 			s.logger.Error("NewStorageVault error", zap.Error(err))
 			errCh <- err

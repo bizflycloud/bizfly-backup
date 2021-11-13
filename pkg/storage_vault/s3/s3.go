@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	storage "github.com/aws/aws-sdk-go/service/s3"
 	"github.com/cenkalti/backoff"
-	"github.com/spf13/viper"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"

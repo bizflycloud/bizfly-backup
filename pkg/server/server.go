@@ -554,6 +554,7 @@ func (s *Server) notifyMsg(msg interface{}) {
 }
 
 func (s *Server) notifyMsgProgress(recoverypointID string, msg map[string]string) {
+	s.logger.Sugar().Info("Progress ", msg)
 	payload, _ := json.Marshal(msg)
 	floatPercent, _ := strconv.ParseFloat(strings.ReplaceAll(msg["percent"], "%", ""), 64)
 	percent := int(math.Ceil(floatPercent))

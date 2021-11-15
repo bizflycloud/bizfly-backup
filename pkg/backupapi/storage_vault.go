@@ -112,54 +112,6 @@ func (c *Client) GetCredentialStorageVault(storageVaultID string, actionID strin
 	return &vault, nil
 }
 
-// HeadObject a boolean value whether object name existing in storage vault.
-func (c *Client) HeadObject(storageVault storage_vault.StorageVault, key string) (bool, string, error) {
-	var isExist bool
-	var etag string
-	var err error
-	bo := backoff.NewExponentialBackOff()
-	bo.MaxInterval = maxRetry
-	bo.MaxElapsedTime = maxRetry
-
-	for {
-		isExist, etag, err = storageVault.HeadObject(key)
-		if err == nil {
-			break
-		}
-		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() == "Forbidden" && storageVault.Type().CredentialType == "DEFAULT" {
-				c.logger.Sugar().Info("GetCredential in head object ", key)
-				storageVaultID, actID := storageVault.ID()
-
-				vault, err := c.GetCredentialStorageVault(storageVaultID, actID, nil)
-				if err != nil {
-					c.logger.Error("Error get credential", zap.Error(err))
-					break
-				}
-
-				err = storageVault.RefreshCredential(vault.Credential)
-				if err != nil {
-					c.logger.Error("Error refresht credential ", zap.Error(err))
-					break
-				}
-			} else if aerr.Code() == "NotFound" {
-				err = nil
-				break
-			}
-		}
-
-		c.logger.Error("Error head object", zap.Error(err))
-		c.logger.Debug("BackOff retry")
-		d := bo.NextBackOff()
-		if d == backoff.Stop {
-			c.logger.Debug("Retry time out")
-			break
-		}
-		c.logger.Sugar().Info("Retry in ", d)
-	}
-	return isExist, etag, err
-}
-
 // PutObject stores the data to the storage vault.
 func (c *Client) PutObject(storageVault storage_vault.StorageVault, key string, data []byte) error {
 	var err error
@@ -216,9 +168,9 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 			return data, nil
 		}
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() != "" && storageVault.Type().CredentialType == "DEFAULT" {
+			if aerr.Code() == "AccessDenied" && storageVault.Type().CredentialType == "DEFAULT" {
+				c.logger.Sugar().Info("GetCredential in get object ", key)
 				storageVaultID, actID := storageVault.ID()
-
 				vault, err := c.GetCredentialStorageVault(storageVaultID, actID, restoreKey)
 				if err != nil {
 					c.logger.Error("Error get credential ", zap.Error(err))
@@ -233,7 +185,6 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 			}
 		}
 
-		c.logger.Error("Error GetObject", zap.Error(err))
 		c.logger.Debug("BackOff retry")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {

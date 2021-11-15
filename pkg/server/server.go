@@ -564,6 +564,7 @@ func (s *Server) notifyMsg(msg interface{}) {
 }
 
 func (s *Server) notifyMsgProgress(recoverypointID string, msg map[string]string) {
+	s.logger.Sugar().Info("Progress ", msg)
 	payload, _ := json.Marshal(msg)
 	floatPercent, _ := strconv.ParseFloat(strings.ReplaceAll(msg["percent"], "%", ""), 64)
 	percent := int(math.Ceil(floatPercent))
@@ -625,7 +626,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		return err
 	}
 
-	storageVault, _ := NewStorageVault(*vault, actionID, limitUpload, limitDownload)
+	storageVault, _ := s.NewStorageVault(*vault, actionID, limitUpload, limitDownload)
 
 	rp, err := s.backupClient.GetRecoveryPointInfo(recoveryPointID)
 	if err != nil {
@@ -711,10 +712,14 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 	return nil
 }
 
-func NewStorageVault(storageVault backupapi.StorageVault, actionID string, limitUpload, limitDownload int) (storage_vault.StorageVault, error) {
+func (s *Server) NewStorageVault(storageVault backupapi.StorageVault, actionID string, limitUpload, limitDownload int) (storage_vault.StorageVault, error) {
 	switch storageVault.StorageVaultType {
 	case "S3":
-		return s3.NewS3Default(storageVault, actionID, limitUpload, limitDownload), nil
+		newS3Default, err := s3.NewS3Default(storageVault, actionID, limitUpload, limitDownload, s.backupClient)
+		if err != nil {
+			return nil, err
+		}
+		return newS3Default, nil
 	default:
 		return nil, fmt.Errorf(fmt.Sprintf("storage vault type not supported %s", storageVault.StorageVaultType))
 	}
@@ -832,7 +837,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Get storage vault
-		storageVault, err := NewStorageVault(*rp.StorageVault, rp.ID, limitUpload, limitDownload)
+		storageVault, err := s.NewStorageVault(*rp.StorageVault, rp.ID, limitUpload, limitDownload)
 		if err != nil {
 			s.logger.Error("NewStorageVault error", zap.Error(err))
 			errCh <- err

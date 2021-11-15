@@ -36,7 +36,8 @@ type S3 struct {
 	Region           string
 	S3Session        *storage.S3
 
-	logger *zap.Logger
+	logger       *zap.Logger
+	backupClient *backupapi.Client
 }
 
 func (s3 *S3) Type() storage_vault.Type {
@@ -54,7 +55,7 @@ func (s3 *S3) ID() (string, string) {
 var _ storage_vault.StorageVault = (*S3)(nil)
 var uploadKb, downloadKb int
 
-func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, limitDownload int) *S3 {
+func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, limitDownload int, backupClient *backupapi.Client) (*S3, error) {
 	uploadKb, downloadKb = limitUpload, limitDownload
 
 	s3 := &S3{
@@ -67,12 +68,13 @@ func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, li
 		StorageVaultType: vault.StorageVaultType,
 		Location:         vault.Credential.AwsLocation,
 		Region:           vault.Credential.Region,
+		backupClient:     backupClient,
 	}
 
 	if s3.logger == nil {
 		l, err := backupapi.WriteLog()
 		if err != nil {
-			return nil
+			return nil, err
 		}
 		s3.logger = l
 	}
@@ -111,7 +113,7 @@ func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, li
 		HTTPClient:       &http.Client{Transport: rt},
 	})))
 	s3.S3Session = sess
-	return s3
+	return s3, nil
 
 }
 
@@ -125,13 +127,54 @@ const (
 	maxRetry = 3 * time.Minute
 )
 
-func (s3 *S3) VerifyObject(key string) (bool, bool, string) {
+func (s3 *S3) VerifyObject(key string) (bool, bool, string, error) {
+	var isExist bool
 	var integrity bool
-	isExist, etag, _ := s3.HeadObject(key)
-	if isExist {
-		integrity = strings.Contains(etag, key)
+	var etag string
+	var err error
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = maxRetry
+	bo.MaxElapsedTime = maxRetry
+
+	for {
+		isExist, etag, err = s3.HeadObject(key)
+		if err == nil {
+			if isExist {
+				integrity = strings.Contains(etag, key)
+			}
+			break
+		}
+		if aerr, ok := err.(awserr.Error); ok {
+			if aerr.Code() == "Forbidden" && s3.Type().CredentialType == "DEFAULT" {
+				s3.logger.Sugar().Info("GetCredential in head object ", key)
+				storageVaultID, actID := s3.ID()
+				vault, err := s3.backupClient.GetCredentialStorageVault(storageVaultID, actID, nil)
+				if err != nil {
+					s3.logger.Error("Error get credential", zap.Error(err))
+					break
+				}
+
+				err = s3.RefreshCredential(vault.Credential)
+				if err != nil {
+					s3.logger.Error("Error refresht credential ", zap.Error(err))
+					break
+				}
+			} else if aerr.Code() == "NotFound" {
+				err = nil
+				break
+			}
+		}
+
+		s3.logger.Error("Error head object", zap.Error(err))
+		s3.logger.Debug("BackOff retry")
+		d := bo.NextBackOff()
+		if d == backoff.Stop {
+			s3.logger.Debug("Retry time out")
+			break
+		}
+		s3.logger.Sugar().Info("Retry in ", d)
 	}
-	return isExist, integrity, etag
+	return isExist, integrity, etag, err
 }
 
 func (s3 *S3) PutObject(key string, data []byte) error {
@@ -141,7 +184,7 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 	bo.MaxInterval = maxRetry
 	bo.MaxElapsedTime = maxRetry
 	for {
-		isExist, integrity, etag := s3.VerifyObject(key)
+		isExist, integrity, etag, _ := s3.VerifyObject(key)
 		if isExist {
 			if !integrity {
 				s3.logger.Info("Exist, not integrity, put object ", zap.String("key", key))
@@ -165,7 +208,7 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 				Body:   bytes.NewReader(data),
 			})
 			if !strings.Contains(key, "chunk.json") && !strings.Contains(key, "index.json") && !strings.Contains(key, "file.csv") {
-				isExist, integrity, etag := s3.VerifyObject(key)
+				isExist, integrity, etag, _ := s3.VerifyObject(key)
 				if isExist {
 					if !integrity {
 						s3.logger.Info("Exist, not integrity, put ", zap.String("key", key))
@@ -188,7 +231,7 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 			}
 		}
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Error() == "Forbidden" {
+			if aerr.Code() == "Forbidden" {
 				if once {
 					s3.logger.Error("Return false cause in put object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return err
@@ -230,12 +273,12 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 		}
 
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Error() == "Forbidden" {
+			if aerr.Code() == "AccessDenied" {
 				if once {
 					s3.logger.Error("Return false cause in get object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return nil, err
 				}
-				s3.logger.Info("Get object one more time")
+				s3.logger.Sugar().Info("Get object one more time ", key)
 				once = true
 				rand.Seed(time.Now().UnixNano())
 				n := rand.Intn(3) // n will be between 0 and 10
@@ -285,7 +328,7 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 					s3.logger.Error("Return false cause in head object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return false, "", err
 				}
-				s3.logger.Sugar().Info("Head object one more time", key)
+				s3.logger.Sugar().Info("Head object one more time ", key)
 				once = true
 				rand.Seed(time.Now().UnixNano())
 				n := rand.Intn(3) // n will be between 0 and 10

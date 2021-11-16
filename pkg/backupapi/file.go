@@ -116,7 +116,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 				s.ItemName = append(s.ItemName, itemInfo.AbsolutePath)
 				s.Errors = true
 				p.Report(s)
-				return 0, err
+				return 0, nil
 			} else {
 				c.logger.Error("err ", zap.Error(err))
 				return 0, err

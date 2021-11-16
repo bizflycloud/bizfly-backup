@@ -844,18 +844,18 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		// Scan list backup failed
-		s.logger.Sugar().Info("Scan list backup failed")
+		// Scaning failed backup list
+		s.logger.Sugar().Info("Scaning failed backup list")
 		listBackupFailed, errScanListBackupFailed := scanListBackupFailed()
 		if errScanListBackupFailed != nil {
-			s.logger.Error("Err scan list backup failed", zap.Error(errScanListBackupFailed))
+			s.logger.Error("Err scan failed backup list", zap.Error(errScanListBackupFailed))
 			errCh <- errScanListBackupFailed
 			return
 		}
 
 		if listBackupFailed != nil {
-			// Upload list backup failed to storage
-			s.logger.Sugar().Info("Upload list backup failed to storage")
+			// Uploading failed backup list to storage
+			s.logger.Sugar().Info("Uploading failed backup list to storage")
 			errUploadListBackupFailed := s.uploadListBackupFailed(listBackupFailed, storageVault)
 			if errUploadListBackupFailed != nil {
 				errCh <- errUploadListBackupFailed

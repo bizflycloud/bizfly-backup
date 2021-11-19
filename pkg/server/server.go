@@ -560,7 +560,7 @@ func (s *Server) notifyMsgProgress(recoverypointID string, msg map[string]string
 	percent := int(math.Ceil(floatPercent))
 
 	if percent > 0 && percent%5 == 0 {
-		s.logger.Sugar().Debug("Progress ", msg)
+		s.logger.Sugar().Info("Progress ", msg)
 		if err := s.b.Publish(s.publishTopics[1]+"/"+recoverypointID, payload); err != nil {
 			s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
 		}

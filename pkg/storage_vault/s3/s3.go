@@ -26,7 +26,6 @@ type S3 struct {
 	Name             string
 	StorageBucket    string
 	SecretRef        string
-	PresignURL       string
 	CredentialType   string
 	StorageVaultType string
 	Location         string

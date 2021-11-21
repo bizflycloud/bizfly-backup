@@ -120,6 +120,7 @@ func New(opts ...Option) (*Server, error) {
 	if numGoroutine <= 1 {
 		numGoroutine = 2
 	}
+	defer ants.Release()
 	s.poolDir, err = ants.NewPool(numGoroutine)
 	if err != nil {
 		s.logger.Error("err ", zap.Error(err))
@@ -554,12 +555,12 @@ func (s *Server) notifyMsg(msg interface{}) {
 }
 
 func (s *Server) notifyMsgProgress(recoverypointID string, msg map[string]string) {
-	s.logger.Sugar().Info("Progress ", msg)
 	payload, _ := json.Marshal(msg)
 	floatPercent, _ := strconv.ParseFloat(strings.ReplaceAll(msg["percent"], "%", ""), 64)
 	percent := int(math.Ceil(floatPercent))
 
-	if percent%5 == 0 {
+	if percent > 0 && percent%5 == 0 {
+		s.logger.Sugar().Info("Progress ", msg)
 		if err := s.b.Publish(s.publishTopics[1]+"/"+recoverypointID, payload); err != nil {
 			s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
 		}

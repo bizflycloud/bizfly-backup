@@ -32,6 +32,4 @@ type Credential struct {
 	AwsLocation        string `json:"aws_location,omitempty"`
 	Token              string `json:"token,omitempty"`
 	Region             string `json:"region,omitempty"`
-	Username           string `json:"username,omitempty"`
-	Password           string `json:"password,omitempty"`
 }

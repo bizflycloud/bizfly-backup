@@ -120,7 +120,6 @@ func New(opts ...Option) (*Server, error) {
 	if numGoroutine <= 1 {
 		numGoroutine = 2
 	}
-	defer ants.Release()
 	s.poolDir, err = ants.NewPool(numGoroutine)
 	if err != nil {
 		s.logger.Error("err ", zap.Error(err))

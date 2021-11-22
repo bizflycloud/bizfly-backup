@@ -18,7 +18,6 @@ func TestS3_Type(t *testing.T) {
 		Name             string
 		StorageBucket    string
 		SecretRef        string
-		PresignURL       string
 		CredentialType   string
 		StorageVaultType string
 		Location         string
@@ -47,7 +46,6 @@ func TestS3_Type(t *testing.T) {
 				Name:             tt.fields.Name,
 				StorageBucket:    tt.fields.StorageBucket,
 				SecretRef:        tt.fields.SecretRef,
-				PresignURL:       tt.fields.PresignURL,
 				CredentialType:   tt.fields.CredentialType,
 				StorageVaultType: tt.fields.StorageVaultType,
 				Location:         tt.fields.Location,
@@ -97,7 +95,6 @@ func TestS3_ID(t *testing.T) {
 				Name:             tt.fields.Name,
 				StorageBucket:    tt.fields.StorageBucket,
 				SecretRef:        tt.fields.SecretRef,
-				PresignURL:       tt.fields.PresignURL,
 				CredentialType:   tt.fields.CredentialType,
 				StorageVaultType: tt.fields.StorageVaultType,
 				Location:         tt.fields.Location,

@@ -104,8 +104,9 @@ func (c *Client) GetCredentialStorageVault(storageVaultID string, actionID strin
 	}
 	defer resp.Body.Close()
 
+	body := resp.Body
 	var vault StorageVault
-	if err := json.NewDecoder(resp.Body).Decode(&vault); err != nil {
+	if err := json.NewDecoder(body).Decode(&vault); err != nil {
 		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}

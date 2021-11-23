@@ -26,7 +26,6 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/panjf2000/ants/v2"
 	"github.com/restic/chunker"
 )
 
@@ -96,10 +95,12 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 	}
 }
 
-func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node, cacheWriter *cache.Repository, chunks *cache.Chunk,
-	storageVault storage_vault.StorageVault, p *progress.Progress) (uint64, error) {
-	ctx, cancel := context.WithCancel(ctx)
+func (c *Client) ChunkFileToBackup(ctx context.Context, itemInfo *cache.Node, cacheWriter *cache.Repository, chunks *cache.Chunk,
+	storageVault storage_vault.StorageVault, p *progress.Progress, numGoroutine int) (uint64, error) {
+	cxtUploadFile, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	group, context := errgroup.WithContext(cxtUploadFile)
+	sem := semaphore.NewWeighted(int64(numGoroutine))
 	select {
 	case <-ctx.Done():
 		c.logger.Info("context done ChunkFileToBackup")
@@ -108,7 +109,6 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 	default:
 		p.Start()
 		s := progress.Stat{}
-		var errBackupChunk error
 
 		file, err := os.Open(itemInfo.AbsolutePath)
 		if err != nil {
@@ -125,8 +125,8 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		chk := chunker.New(file, 0x3dea92648f6e83)
 		buf := make([]byte, ChunkUploadLowerBound)
 		var stat uint64
+		var mu sync.Mutex
 		hash := sha256.New()
-		var wg sync.WaitGroup
 		for {
 			chunk, err := chk.Next(buf)
 			if err == io.EOF {
@@ -148,57 +148,45 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			}
 			hash.Write(temp)
 			itemInfo.Content = append(itemInfo.Content, &chunkToBackup)
-			wg.Add(1)
-			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, temp, &chunkToBackup, cacheWriter, chunks, storageVault, p))
-		}
-		wg.Wait()
 
-		if errBackupChunk != nil {
-			c.logger.Error("err backup chunk ", zap.Error(errBackupChunk))
-			return 0, errBackupChunk
+			errAcquire := sem.Acquire(context, 1)
+			if errAcquire != nil {
+				c.logger.Sugar().Debug("Acquire err = %+v\n", errAcquire)
+				continue
+			}
+			group.Go(func() error {
+				defer sem.Release(1)
+				saveSize, err := c.backupChunk(ctx, temp, &chunkToBackup, cacheWriter, chunks, storageVault)
+				if err != nil {
+					s.Errors = true
+					p.Report(s)
+					cancel()
+					return err
+				}
+				s.Storage = saveSize
+				s.Bytes = uint64(chunkToBackup.Length)
+				p.Report(s)
+
+				mu.Lock()
+				stat += saveSize
+				mu.Unlock()
+
+				return nil
+			})
 		}
+		if errGroupWait := group.Wait(); errGroupWait != nil {
+			c.logger.Error("Has a goroutine error ", zap.Error(errGroupWait))
+			cancel()
+			return 0, errGroupWait
+		}
+
 		itemInfo.Sha256Hash = hash.Sum(nil)
 		return stat, nil
 	}
 }
 
-type chunkJob func()
-
-func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *error, size *uint64,
-	data []byte, chunk *cache.ChunkInfo, cacheWriter *cache.Repository, chunks *cache.Chunk, storageVault storage_vault.StorageVault, p *progress.Progress) chunkJob {
-	return func() {
-		p.Start()
-		defer func() {
-			c.logger.Sugar().Info("Done task ", chunk.Start)
-			wg.Done()
-		}()
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			s := progress.Stat{}
-			ctx, cancel := context.WithCancel(ctx)
-			defer cancel()
-			saveSize, err := c.backupChunk(ctx, data, chunk, cacheWriter, chunks, storageVault)
-			if err != nil {
-				c.logger.Error("err ", zap.Error(err))
-				*chErr = err
-				s.Errors = true
-				p.Report(s)
-				cancel()
-				return
-			}
-			s.Storage = saveSize
-			s.Bytes = uint64(chunk.Length)
-			p.Report(s)
-			*size += saveSize
-		}
-	}
-}
-
-func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cache.Node, itemInfo *cache.Node, cacheWriter *cache.Repository, chunks *cache.Chunk,
-	storageVault storage_vault.StorageVault, p *progress.Progress) (uint64, error) {
-
+func (c *Client) UploadFile(ctx context.Context, lastInfo *cache.Node, itemInfo *cache.Node, cacheWriter *cache.Repository, chunks *cache.Chunk,
+	storageVault storage_vault.StorageVault, p *progress.Progress, numGoroutine int) (uint64, error) {
 	select {
 	case <-ctx.Done():
 		c.logger.Debug("Context backup done")
@@ -211,7 +199,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 		if lastInfo == nil || !strings.EqualFold(timeToString(lastInfo.ModTime), timeToString(itemInfo.ModTime)) {
 			c.logger.Info("backup item with item change mtime, ctime")
 
-			storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, cacheWriter, chunks, storageVault, p)
+			storageSize, err := c.ChunkFileToBackup(ctx, itemInfo, cacheWriter, chunks, storageVault, p, numGoroutine)
 			if err != nil {
 				c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
 				s.Errors = true
@@ -243,11 +231,11 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) error {
 	p.Start()
 	s := progress.Stat{}
-	numGoroutine := int(float64(runtime.NumCPU()) * 0.2)
-	if numGoroutine <= 1 {
-		numGoroutine = 2
-	}
-	sem := semaphore.NewWeighted(int64(numGoroutine))
+	// numGoroutine := int(float64(runtime.NumCPU()) * 0.2)
+	// if numGoroutine <= 1 {
+	// 	numGoroutine = 2
+	// }
+	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)

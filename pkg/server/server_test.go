@@ -20,7 +20,6 @@ import (
 
 	"github.com/go-chi/chi"
 	"github.com/ory/dockertest/v3"
-	"github.com/panjf2000/ants/v2"
 	"github.com/robfig/cron/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -245,10 +244,8 @@ func TestServer_storeFiles(t *testing.T) {
 		cronManager          *cron.Cron
 		mappingToCronEntryID map[string]cron.EntryID
 		testSignalCh         chan os.Signal
-		poolDir              *ants.Pool
-		pool                 *ants.Pool
-		chunkPool            *ants.Pool
 		logger               *zap.Logger
+		numGoroutine         int
 	}
 	type args struct {
 		rpID         string
@@ -290,10 +287,8 @@ func TestServer_storeFiles(t *testing.T) {
 				cronManager:          tt.fields.cronManager,
 				mappingToCronEntryID: tt.fields.mappingToCronEntryID,
 				testSignalCh:         tt.fields.testSignalCh,
-				poolDir:              tt.fields.poolDir,
-				pool:                 tt.fields.pool,
-				chunkPool:            tt.fields.chunkPool,
 				logger:               tt.fields.logger,
+				numGoroutine:         tt.fields.numGoroutine,
 			}
 			if err := s.storeFiles(tt.args.rpID, tt.args.index, tt.args.storageVault); (err != nil) != tt.wantErr {
 				t.Errorf("Server.writeFileCSV() error = %v, wantErr %v", err, tt.wantErr)

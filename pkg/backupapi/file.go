@@ -12,7 +12,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -228,14 +227,10 @@ func (c *Client) UploadFile(ctx context.Context, lastInfo *cache.Node, itemInfo 
 	}
 }
 
-func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) error {
+func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress, numGoroutine int) error {
 	p.Start()
 	s := progress.Stat{}
-	// numGoroutine := int(float64(runtime.NumCPU()) * 0.2)
-	// if numGoroutine <= 1 {
-	// 	numGoroutine = 2
-	// }
-	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
+	sem := semaphore.NewWeighted(int64(numGoroutine))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	group, ctx := errgroup.WithContext(ctx)

@@ -650,7 +650,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 	}
 	progressRestore := s.newDownloadProgress(recoveryPointID, itemTodo)
 
-	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVault, restoreKey, progressRestore); err != nil {
+	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVault, restoreKey, progressRestore, s.numGoroutine); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		progressRestore.Done()

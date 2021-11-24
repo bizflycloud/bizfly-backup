@@ -13,7 +13,6 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/cache"
@@ -124,7 +123,6 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, itemInfo *cache.Node, ca
 		chk := chunker.New(file, 0x3dea92648f6e83)
 		buf := make([]byte, ChunkUploadLowerBound)
 		var stat uint64
-		var mu sync.Mutex
 		hash := sha256.New()
 		for {
 			chunk, err := chk.Next(buf)
@@ -150,7 +148,6 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, itemInfo *cache.Node, ca
 
 			errAcquire := sem.Acquire(context, 1)
 			if errAcquire != nil {
-				c.logger.Sugar().Debug("Acquire err = %+v\n", errAcquire)
 				continue
 			}
 			group.Go(func() error {
@@ -166,9 +163,9 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, itemInfo *cache.Node, ca
 				s.Bytes = uint64(chunkToBackup.Length)
 				p.Report(s)
 
-				mu.Lock()
+				c.mu.Lock()
 				stat += saveSize
-				mu.Unlock()
+				c.mu.Unlock()
 
 				return nil
 			})
@@ -239,7 +236,6 @@ func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVaul
 		item := item
 		err := sem.Acquire(ctx, 1)
 		if err != nil {
-			c.logger.Error("err ", zap.Error(err))
 			continue
 		}
 		group.Go(func() error {

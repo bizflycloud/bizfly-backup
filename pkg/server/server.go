@@ -856,7 +856,6 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		}
 	}
 
-	// var mu sync.Mutex
 	var storageSize uint64
 	var errUploadFileWorker error
 	progressUpload := s.newUploadProgress(rpID, itemTodo)
@@ -879,7 +878,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		progressUpload.Report(st)
 
 		if itemInfo.Type == "file" {
-			item := itemInfo
+			itemInfo := itemInfo
 			errAcquire := sem.Acquire(context, 1)
 			if errAcquire != nil {
 				continue
@@ -887,7 +886,7 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 			group.Go(func() error {
 				defer sem.Release(1)
 				lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
-				_ = s.uploadFileWorker(ctx, item, lastInfo, cacheWriter, chunks, storageVault, &storageSize, &errUploadFileWorker, progressUpload)
+				_ = s.uploadFileWorker(ctx, itemInfo, lastInfo, cacheWriter, chunks, storageVault, &storageSize, &errUploadFileWorker, progressUpload)
 				return nil
 			})
 

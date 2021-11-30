@@ -896,7 +896,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 
-		pipe := make(chan *cache.Chunk)
+		pipe := make(chan *cache.Chunk, 500)
 		done := make(chan bool)
 
 		go func() {

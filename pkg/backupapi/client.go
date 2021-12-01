@@ -39,7 +39,8 @@ type Client struct {
 
 	logger *zap.Logger
 
-	mu sync.Mutex
+	mu      sync.Mutex
+	chunkMu sync.Mutex
 }
 
 // NewClient creates a Client with given options.

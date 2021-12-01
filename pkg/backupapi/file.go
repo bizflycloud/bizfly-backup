@@ -75,13 +75,13 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 		stat += uint64(chunk.Length)
 
 		// Save chunks
-		cacheWriter.Mu.Lock()
+		c.chunkMu.Lock()
 		errSaveChunks := cacheWriter.SaveChunk(chunks)
 		if errSaveChunks != nil {
 			c.logger.Error("err save chunks ", zap.Error(errSaveChunks))
 			return 0, errSaveChunks
 		}
-		cacheWriter.Mu.Unlock()
+		c.chunkMu.Unlock()
 		return stat, nil
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/support"
@@ -21,6 +22,8 @@ const (
 type Repository struct {
 	path string
 	rpID string
+
+	Mu sync.Mutex
 }
 
 type Type int

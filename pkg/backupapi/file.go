@@ -32,15 +32,6 @@ import (
 
 const ChunkUploadLowerBound = 8 * 1000 * 1000
 
-func (c *Client) SaveChunks(cacheWriter *cache.Repository, chunks *cache.Chunk) error {
-	err := cacheWriter.SaveChunk(chunks)
-	if err != nil {
-		c.logger.Error("Write list chunks error", zap.Error(err))
-		return err
-	}
-	return nil
-}
-
 func (c *Client) urlStringFromRelPath(relPath string) (string, error) {
 	if c.ServerURL.Path != "" && c.ServerURL.Path != "/" {
 		relPath = path.Join(c.ServerURL.Path, relPath)
@@ -84,14 +75,13 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 		stat += uint64(chunk.Length)
 
 		// Save chunks
-		c.logger.Sugar().Info("Save chunk to chunk.json ", key)
-		c.mu.Lock()
-		errSaveChunks := c.SaveChunks(cacheWriter, chunks)
+		cacheWriter.Mu.Lock()
+		errSaveChunks := cacheWriter.SaveChunk(chunks)
 		if errSaveChunks != nil {
 			c.logger.Error("err save chunks ", zap.Error(errSaveChunks))
 			return 0, errSaveChunks
 		}
-		c.mu.Unlock()
+		cacheWriter.Mu.Unlock()
 		return stat, nil
 	}
 }

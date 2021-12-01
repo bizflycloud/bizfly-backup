@@ -50,7 +50,7 @@ const (
 )
 
 const (
-	PERCENT_PROCESS = 0.2
+	PERCENT_PROCESS = 1
 )
 
 const (
@@ -922,7 +922,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		wg.Wait()
 
 		// Save chunks
-		errSaveChunks := s.backupClient.SaveChunks(cacheWriter, chunks)
+		errSaveChunks := cacheWriter.SaveChunk(chunks)
 		if errSaveChunks != nil {
 			s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
 			errCh <- errSaveChunks

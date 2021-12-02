@@ -1214,14 +1214,15 @@ func (s *Server) newUploadProgress(recoveryPointID string, todo progress.Stat) *
 			strItemsTodo := strconv.FormatUint(itemsTodo, 10)
 
 			s.notifyMsgProgress(recoveryPointID, map[string]string{
-				"duration":     formatDuration(d),
-				"percent":      formatPercent(stat.Bytes, todo.Bytes),
-				"speed":        formatBytes(bps),
-				"total":        fmt.Sprintf("%s/%s", formatBytes(stat.Bytes), formatBytes(todo.Bytes)),
-				"push_storage": formatBytes(stat.Storage),
-				"items":        fmt.Sprintf("%s/%s", strItemsDone, strItemsTodo),
-				"erros":        strconv.FormatBool(stat.Errors),
-				"eta":          formatSeconds(eta),
+				"duration":          formatDuration(d),
+				"percent":           formatPercent(stat.Bytes, todo.Bytes),
+				"speed":             formatBytes(bps),
+				"total":             fmt.Sprintf("%s/%s", formatBytes(stat.Bytes), formatBytes(todo.Bytes)),
+				"push_storage":      formatBytes(stat.Storage),
+				"items":             fmt.Sprintf("%s/%s", strItemsDone, strItemsTodo),
+				"erros":             strconv.FormatBool(stat.Errors),
+				"eta":               formatSeconds(eta),
+				"recovery_point_id": recoveryPointID,
 			})
 		}
 	}
@@ -1259,14 +1260,15 @@ func (s *Server) newDownloadProgress(recoveryPointID string, todo progress.Stat)
 			strItemsTodo := strconv.FormatUint(itemsTodo, 10)
 
 			s.notifyMsgProgress(recoveryPointID, map[string]string{
-				"duration":     formatDuration(d),
-				"percent":      formatPercent(stat.Bytes, todo.Bytes),
-				"speed":        formatBytes(bps),
-				"total":        fmt.Sprintf("%s/%s", formatBytes(stat.Bytes), formatBytes(todo.Bytes)),
-				"pull_storage": formatBytes(stat.Storage),
-				"items":        fmt.Sprintf("%s/%s", strItemsDone, strItemsTodo),
-				"erros":        strconv.FormatBool(stat.Errors),
-				"eta":          formatSeconds(eta),
+				"duration":          formatDuration(d),
+				"percent":           formatPercent(stat.Bytes, todo.Bytes),
+				"speed":             formatBytes(bps),
+				"total":             fmt.Sprintf("%s/%s", formatBytes(stat.Bytes), formatBytes(todo.Bytes)),
+				"pull_storage":      formatBytes(stat.Storage),
+				"items":             fmt.Sprintf("%s/%s", strItemsDone, strItemsTodo),
+				"erros":             strconv.FormatBool(stat.Errors),
+				"eta":               formatSeconds(eta),
+				"recovery_point_id": recoveryPointID,
 			})
 		}
 	}

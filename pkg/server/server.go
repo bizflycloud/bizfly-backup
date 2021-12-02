@@ -862,7 +862,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		progressScan := s.newProgressScanDir(rpID)
 
 		index := cache.NewIndex(bd.ID, rp.RecoveryPoint.ID)
-
+		chunks := cache.NewChunk(bdID, rpID)
 		itemTodo, totalFiles, err := WalkerDir(bd.Path, index, progressScan)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
@@ -896,19 +896,28 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 
-		// chunks := cache.NewChunk(bd.ID, rp.RecoveryPoint.ID)
-		var chunks *cache.Chunk
 		pipe := make(chan *cache.Chunk)
+		done := make(chan bool)
+
 		go func() {
 			for {
-				receiver := <-pipe
-				chunks = receiver
-				s.logger.Sugar().Info("chunks ", chunks)
-
-				errSaveChunks := cacheWriter.SaveChunk(chunks)
-				if errSaveChunks != nil {
-					s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
-					errCh <- errSaveChunks
+				receiver, more := <-pipe
+				if more {
+					for key := range receiver.Chunks {
+						if count, ok := chunks.Chunks[key]; ok {
+							chunks.Chunks[key] = count + 1
+						} else {
+							chunks.Chunks[key] = 1
+						}
+					}
+					errSaveChunks := cacheWriter.SaveChunk(chunks)
+					if errSaveChunks != nil {
+						s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
+						errCh <- errSaveChunks
+						return
+					}
+				} else {
+					done <- true
 					return
 				}
 			}
@@ -939,6 +948,9 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 		wg.Wait()
+
+		// close(pipe)
+		// <-done
 
 		// Store files
 		errWriterCSV := s.storeFiles(rp.RecoveryPoint.ID, index, storageVault)

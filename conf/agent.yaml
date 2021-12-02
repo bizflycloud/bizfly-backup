@@ -1,5 +1,9 @@
-machine_id: foo
-access_key: <Access Key>
-secret_key: <Secret Key>
-api_url: <API URL> 
+access_key: JSFRZPYIXSEXDX2FDST9 
+api_url: http://localhost:5000
+machine_id: 674d0781-26da-4ab9-9b5b-a68d322adb44 
+secret_key: 9a6207638ff8408311b88e5785b4e5e708350285989c6fe0afe7e51f2a496b7f
 
+# access_key: ZORX3FWONFCYDHDKMZ3D 
+# api_url: https://backup-staging.bizflycloud.vn 
+# machine_id: ef5ef378-49c0-4dfc-b0c8-1e3b8090ed51 
+# secret_key: 98a45a5063172af083df8418e474f0ce3af4f7fb720cb80ff8b24441b60e072e

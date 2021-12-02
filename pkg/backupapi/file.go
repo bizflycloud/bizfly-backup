@@ -207,7 +207,6 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 
 				chunks.Chunks[content.Etag] = 1
 
-				// pipeKey <- content.Etag
 				pipe <- chunks
 			}
 

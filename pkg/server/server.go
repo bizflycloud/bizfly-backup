@@ -768,8 +768,8 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.S
 
 type backupJob func()
 
-func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, cacheWriter *cache.Repository, chunks *cache.Chunk, storageVault storage_vault.StorageVault,
-	wg *sync.WaitGroup, size *uint64, errCh *error, p *progress.Progress, pipe chan<- *cache.Chunk) backupJob {
+func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, latestInfo *cache.Node, cacheWriter *cache.Repository, storageVault storage_vault.StorageVault,
+	wg *sync.WaitGroup, size *uint64, errCh *error, p *progress.Progress, pipe chan<- *cache.Chunk, rpID, bdID string) backupJob {
 	return func() {
 		defer wg.Done()
 		select {
@@ -779,7 +779,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 			p.Start()
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
-			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, cacheWriter, chunks, storageVault, p)
+			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, cacheWriter, storageVault, p, pipe, rpID, bdID)
 			if err != nil {
 				s.logger.Error("uploadFileWorker error", zap.Error(err))
 				*errCh = err
@@ -787,7 +787,6 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 				return
 			}
 
-			pipe <- chunks
 			*size += storageSize
 		}
 	}
@@ -859,10 +858,11 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			"status":    statusUploadFile,
 		})
 		rpID := rp.RecoveryPoint.ID
+		bdID := bd.ID
 		progressScan := s.newProgressScanDir(rpID)
 
 		index := cache.NewIndex(bd.ID, rp.RecoveryPoint.ID)
-		chunks := cache.NewChunk(bd.ID, rp.RecoveryPoint.ID)
+
 		itemTodo, totalFiles, err := WalkerDir(bd.Path, index, progressScan)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
@@ -896,26 +896,22 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 
+		// chunks := cache.NewChunk(bd.ID, rp.RecoveryPoint.ID)
+		var chunks *cache.Chunk
 		pipe := make(chan *cache.Chunk)
-		done := make(chan bool)
-
 		go func() {
 			for {
-				receiver, more := <-pipe
+				receiver := <-pipe
+				chunks = receiver
+				s.logger.Sugar().Info("chunks ", chunks)
 
-				errSaveChunks := cacheWriter.SaveChunk(receiver)
+				errSaveChunks := cacheWriter.SaveChunk(chunks)
 				if errSaveChunks != nil {
 					s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
 					errCh <- errSaveChunks
 					return
 				}
-
-				if !more {
-					done <- true
-					return
-				}
 			}
-
 		}()
 
 		var storageSize uint64
@@ -939,7 +935,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			if itemInfo.Type == "file" {
 				lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
 				wg.Add(1)
-				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, cacheWriter, chunks, storageVault, &wg, &storageSize, &errFileWorker, progressUpload, pipe))
+				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, cacheWriter, storageVault, &wg, &storageSize, &errFileWorker, progressUpload, pipe, rpID, bdID))
 			}
 		}
 		wg.Wait()
@@ -973,12 +969,12 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Put chunks
-		errPutChunks := s.putChunks(rp.RecoveryPoint.ID, chunkFailedPath, storageVault)
-		if errPutChunks != nil {
-			s.notifyStatusFailed(rp.ID, errPutChunks.Error())
-			errCh <- errPutChunks
-			return
-		}
+		// errPutChunks := s.putChunks(rp.RecoveryPoint.ID, chunkFailedPath, storageVault)
+		// if errPutChunks != nil {
+		// 	s.notifyStatusFailed(rp.ID, errPutChunks.Error())
+		// 	errCh <- errPutChunks
+		// 	return
+		// }
 
 		// Put file.csv
 		errPutFiles := s.putFiles(rp.RecoveryPoint.ID, fileFailedPath, storageVault)

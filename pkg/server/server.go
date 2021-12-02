@@ -897,29 +897,24 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		pipe := make(chan *cache.Chunk)
-		done := make(chan bool)
 
 		go func() {
 			for {
-				receiver, more := <-pipe
-				if more {
-					for key := range receiver.Chunks {
-						if count, ok := chunks.Chunks[key]; ok {
-							chunks.Chunks[key] = count + 1
-						} else {
-							chunks.Chunks[key] = 1
-						}
+				receiver := <-pipe
+				for key := range receiver.Chunks {
+					if count, ok := chunks.Chunks[key]; ok {
+						chunks.Chunks[key] = count + 1
+					} else {
+						chunks.Chunks[key] = 1
 					}
-					errSaveChunks := cacheWriter.SaveChunk(chunks)
-					if errSaveChunks != nil {
-						s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
-						errCh <- errSaveChunks
-						return
-					}
-				} else {
-					done <- true
+				}
+				errSaveChunks := cacheWriter.SaveChunk(chunks)
+				if errSaveChunks != nil {
+					s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
+					errCh <- errSaveChunks
 					return
 				}
+
 			}
 		}()
 
@@ -948,9 +943,6 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 		wg.Wait()
-
-		// close(pipe)
-		// <-done
 
 		// Store files
 		errWriterCSV := s.storeFiles(rp.RecoveryPoint.ID, index, storageVault)

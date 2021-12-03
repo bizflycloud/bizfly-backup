@@ -910,7 +910,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 						}
 					}
 
-					if time.Now().Minute()%5 == 0 {
+					if time.Now().Minute()%5 == 0 && time.Now().Second() == 0 {
 						// Save chunks to chunk.json
 						s.logger.Sugar().Info("Save to chunk.json ", receiver.Chunks)
 						errSaveChunks := cacheWriter.SaveChunk(chunks)

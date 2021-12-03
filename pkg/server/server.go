@@ -51,7 +51,7 @@ const (
 )
 
 const (
-	PERCENT_PROCESS = 1
+	PERCENT_PROCESS = 0.2
 )
 
 const (

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/ioutil"
 	"math/rand"
+	"net/http"
 	"strings"
 	"time"
 
@@ -15,8 +16,10 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	storage "github.com/aws/aws-sdk-go/service/s3"
 	"github.com/cenkalti/backoff"
+	"github.com/spf13/viper"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
+	"github.com/bizflycloud/bizfly-backup/pkg/limiter"
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 )
 
@@ -49,8 +52,10 @@ func (s3 *S3) ID() (string, string) {
 }
 
 var _ storage_vault.StorageVault = (*S3)(nil)
+var uploadKb, downloadKb int
 
-func NewS3Default(vault backupapi.StorageVault, actionID string, backupClient *backupapi.Client) (*S3, error) {
+func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, limitDownload int, backupClient *backupapi.Client) (*S3, error) {
+	uploadKb, downloadKb = limitUpload, limitDownload
 
 	s3 := &S3{
 		Id:               vault.ID,
@@ -78,12 +83,33 @@ func NewS3Default(vault backupapi.StorageVault, actionID string, backupClient *b
 	if err != nil {
 		s3.logger.Error("Bad credentials", zap.Error(err))
 	}
+
+	// using a Custom HTTP Transport
+	rt, err := storage_vault.Transport(storage_vault.TransportOptions{
+		Connect:          30 * time.Second,
+		ExpectContinue:   1 * time.Second,
+		IdleConn:         90 * time.Second,
+		ConnKeepAlive:    30 * time.Second,
+		MaxAllIdleConns:  100,
+		MaxHostIdleConns: 100,
+		ResponseHeader:   10 * time.Second,
+		TLSHandshake:     10 * time.Second,
+	})
+	if err != nil {
+		s3.logger.Error("Got an error creating custom HTTP client", zap.Error(err))
+	}
+
+	// wrap the transport so that the throughput via HTTP is limited
+	lim := limiter.NewStaticLimiter(limitUpload, limitDownload)
+	rt = lim.Transport(rt)
+
 	sess := storage.New(session.Must(session.NewSession(&aws.Config{
 		DisableSSL:       aws.Bool(false),
 		Credentials:      cred,
 		Endpoint:         aws.String(vault.Credential.AwsLocation),
 		Region:           aws.String(vault.Credential.Region),
 		S3ForcePathStyle: aws.Bool(true),
+		HTTPClient:       &http.Client{Transport: rt},
 	})))
 	s3.S3Session = sess
 	return s3, nil
@@ -328,12 +354,40 @@ func (s3 *S3) RefreshCredential(credential storage_vault.Credential) error {
 		s3.logger.Error("err ", zap.Error(err))
 		return err
 	}
+
+	// using a Custom HTTP Transport
+	rt, err := storage_vault.Transport(storage_vault.TransportOptions{
+		Connect:          30 * time.Second,
+		ExpectContinue:   1 * time.Second,
+		IdleConn:         90 * time.Second,
+		ConnKeepAlive:    30 * time.Second,
+		MaxAllIdleConns:  100,
+		MaxHostIdleConns: 100,
+		ResponseHeader:   10 * time.Second,
+		TLSHandshake:     10 * time.Second,
+	})
+	if err != nil {
+		s3.logger.Error("Got an error creating custom HTTP client", zap.Error(err))
+	}
+
+	if uploadKb == 0 {
+		uploadKb = viper.GetInt("limit_upload")
+	}
+	if downloadKb == 0 {
+		downloadKb = viper.GetInt("limit_download")
+	}
+
+	// wrap the transport so that the throughput via HTTP is limited
+	lim := limiter.NewStaticLimiter(uploadKb, downloadKb)
+	rt = lim.Transport(rt)
+
 	sess := storage.New(session.Must(session.NewSession(&aws.Config{
 		DisableSSL:       aws.Bool(false),
 		Credentials:      cred,
 		Endpoint:         aws.String(s3.Location),
 		Region:           aws.String(s3.Region),
 		S3ForcePathStyle: aws.Bool(true),
+		HTTPClient:       &http.Client{Transport: rt},
 	})))
 	s3.S3Session = sess
 	return nil

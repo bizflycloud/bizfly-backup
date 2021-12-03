@@ -22,6 +22,7 @@ type BackupDirectoryConfigPolicy struct {
 	ID              string `json:"id" yaml:"id"`
 	Name            string `json:"name" yaml:"name"`
 	SchedulePattern string `json:"schedule_pattern" yaml:"schedule_pattern"`
+	LimitUpload     int    `json:"limit_upload" yaml:"limit_upload"`
 }
 
 type Config struct {

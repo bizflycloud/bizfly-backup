@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -902,17 +903,17 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			for {
 				receiver, more := <-pipe
 				if more {
-					for key := range receiver.Chunks {
-						if count, ok := chunks.Chunks[key]; ok {
-							chunks.Chunks[key] = count + 1
-						} else {
-							chunks.Chunks[key] = 1
-						}
+					key := reflect.ValueOf(receiver.Chunks).MapKeys()[0].Interface().(string)
+					s.logger.Sugar().Info("Received chunk ", key)
+					if count, ok := chunks.Chunks[key]; ok {
+						chunks.Chunks[key] = count + 1
+					} else {
+						chunks.Chunks[key] = 1
 					}
 
 					if time.Now().Minute()%5 == 0 && time.Now().Second() == 0 {
 						// Save chunks to chunk.json
-						s.logger.Sugar().Info("Save to chunk.json ", receiver.Chunks)
+						s.logger.Sugar().Info("Save chunk to chunk.json ", key)
 						errSaveChunks := cacheWriter.SaveChunk(chunks)
 						if errSaveChunks != nil {
 							s.notifyStatusFailed(rp.ID, errSaveChunks.Error())

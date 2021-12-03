@@ -15,17 +15,11 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker/mqtt"
-	"github.com/bizflycloud/bizfly-backup/pkg/cache"
-	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 
-	"github.com/go-chi/chi"
 	"github.com/ory/dockertest/v3"
-	"github.com/panjf2000/ants/v2"
 	"github.com/robfig/cron/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"go.uber.org/zap"
 )
 
 var (
@@ -233,71 +227,71 @@ func TestServerCron(t *testing.T) {
 	}
 }
 
-func TestServer_storeFiles(t *testing.T) {
-	type fields struct {
-		Addr                 string
-		router               *chi.Mux
-		b                    broker.Broker
-		subscribeTopics      []string
-		publishTopics        []string
-		useUnixSock          bool
-		backupClient         *backupapi.Client
-		cronManager          *cron.Cron
-		mappingToCronEntryID map[string]cron.EntryID
-		testSignalCh         chan os.Signal
-		poolDir              *ants.Pool
-		pool                 *ants.Pool
-		chunkPool            *ants.Pool
-		logger               *zap.Logger
-	}
-	type args struct {
-		rpID         string
-		index        *cache.Index
-		storageVault storage_vault.StorageVault
-	}
-	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		wantErr bool
-	}{
-		{
-			name: "test witer file csv",
-			fields: fields{
-				Addr: "unix://" + filepath.Join(os.TempDir(), "bizfly-backup-test-server.sock"),
-			},
-			args: args{
-				rpID: "1",
-				index: &cache.Index{
-					BackupDirectoryID: "1",
-					RecoveryPointID:   "1",
-					TotalFiles:        1,
-				},
-			},
-			wantErr: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := &Server{
-				Addr:                 tt.fields.Addr,
-				router:               tt.fields.router,
-				b:                    tt.fields.b,
-				subscribeTopics:      tt.fields.subscribeTopics,
-				publishTopics:        tt.fields.publishTopics,
-				useUnixSock:          tt.fields.useUnixSock,
-				backupClient:         tt.fields.backupClient,
-				cronManager:          tt.fields.cronManager,
-				mappingToCronEntryID: tt.fields.mappingToCronEntryID,
-				testSignalCh:         tt.fields.testSignalCh,
-				poolDir:              tt.fields.poolDir,
-				pool:                 tt.fields.pool,
-				chunkPool:            tt.fields.chunkPool,
-				logger:               tt.fields.logger,
-			}
-			if err := s.storeFiles(tt.args.rpID, tt.args.index, tt.args.storageVault); (err != nil) != tt.wantErr {
-				t.Errorf("Server.writeFileCSV() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
-	}
-}
+// func TestServer_storeFiles(t *testing.T) {
+// 	type fields struct {
+// 		Addr                 string
+// 		router               *chi.Mux
+// 		b                    broker.Broker
+// 		subscribeTopics      []string
+// 		publishTopics        []string
+// 		useUnixSock          bool
+// 		backupClient         *backupapi.Client
+// 		cronManager          *cron.Cron
+// 		mappingToCronEntryID map[string]cron.EntryID
+// 		testSignalCh         chan os.Signal
+// 		poolDir              *ants.Pool
+// 		pool                 *ants.Pool
+// 		chunkPool            *ants.Pool
+// 		logger               *zap.Logger
+// 	}
+// 	type args struct {
+// 		rpID         string
+// 		index        *cache.Index
+// 		storageVault storage_vault.StorageVault
+// 	}
+// 	tests := []struct {
+// 		name    string
+// 		fields  fields
+// 		args    args
+// 		wantErr bool
+// 	}{
+// 		{
+// 			name: "test witer file csv",
+// 			fields: fields{
+// 				Addr: "unix://" + filepath.Join(os.TempDir(), "bizfly-backup-test-server.sock"),
+// 			},
+// 			args: args{
+// 				rpID: "1",
+// 				index: &cache.Index{
+// 					BackupDirectoryID: "1",
+// 					RecoveryPointID:   "1",
+// 					TotalFiles:        1,
+// 				},
+// 			},
+// 			wantErr: false,
+// 		},
+// 	}
+// 	for _, tt := range tests {
+// 		t.Run(tt.name, func(t *testing.T) {
+// 			s := &Server{
+// 				Addr:                 tt.fields.Addr,
+// 				router:               tt.fields.router,
+// 				b:                    tt.fields.b,
+// 				subscribeTopics:      tt.fields.subscribeTopics,
+// 				publishTopics:        tt.fields.publishTopics,
+// 				useUnixSock:          tt.fields.useUnixSock,
+// 				backupClient:         tt.fields.backupClient,
+// 				cronManager:          tt.fields.cronManager,
+// 				mappingToCronEntryID: tt.fields.mappingToCronEntryID,
+// 				testSignalCh:         tt.fields.testSignalCh,
+// 				poolDir:              tt.fields.poolDir,
+// 				pool:                 tt.fields.pool,
+// 				chunkPool:            tt.fields.chunkPool,
+// 				logger:               tt.fields.logger,
+// 			}
+// 			if err := s.storeFiles(tt.args.rpID, tt.args.index, tt.args.storageVault); (err != nil) != tt.wantErr {
+// 				t.Errorf("Server.writeFileCSV() error = %v, wantErr %v", err, tt.wantErr)
+// 			}
+// 		})
+// 	}
+// }

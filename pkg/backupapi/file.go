@@ -60,7 +60,6 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 
 		chunks := cache.NewChunk(bdID, rpID)
 		chunks.Chunks[key] = 1
-		pipe <- chunks
 
 		// Put object
 		c.logger.Sugar().Info("Scan chunk ", key)
@@ -69,6 +68,8 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 			c.logger.Error("err put object", zap.Error(err))
 			return stat, err
 		}
+
+		pipe <- chunks
 		stat += uint64(chunk.Length)
 		return stat, nil
 	}

@@ -909,16 +909,19 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 							chunks.Chunks[key] = 1
 						}
 					}
-					// Save chunks to chunk.json
-					s.logger.Sugar().Info("Save to chunk.json ", receiver.Chunks)
-					errSaveChunks := cacheWriter.SaveChunk(chunks)
-					if errSaveChunks != nil {
-						s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
-						errCh <- errSaveChunks
-						return
+
+					if time.Now().Minute()%5 == 0 {
+						// Save chunks to chunk.json
+						s.logger.Sugar().Info("Save to chunk.json ", receiver.Chunks)
+						errSaveChunks := cacheWriter.SaveChunk(chunks)
+						if errSaveChunks != nil {
+							s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
+							errCh <- errSaveChunks
+							return
+						}
 					}
 				} else {
-					s.logger.Sugar().Info("Save all chunks")
+					s.logger.Sugar().Info("Received all chunks")
 					done <- true
 					return
 				}
@@ -954,6 +957,14 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			close(pipe)
 		}()
 		<-done
+
+		s.logger.Sugar().Info("Save all chunks to chunk.json")
+		errSaveChunks := cacheWriter.SaveChunk(chunks)
+		if errSaveChunks != nil {
+			s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
+			errCh <- errSaveChunks
+			return
+		}
 
 		// Store files
 		errWriterCSV := s.storeFiles(rp.RecoveryPoint.ID, index, storageVault)

@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/cenkalti/backoff"
@@ -38,8 +37,6 @@ type Client struct {
 	userAgent string
 
 	logger *zap.Logger
-
-	mu sync.Mutex
 }
 
 // NewClient creates a Client with given options.

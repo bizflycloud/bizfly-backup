@@ -18,6 +18,7 @@ require (
 	github.com/google/uuid v1.2.0 // indirect
 	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf
 	github.com/jpillora/backoff v1.0.0
+	github.com/juju/ratelimit v1.0.1
 	github.com/lib/pq v1.9.0 // indirect
 	github.com/mattn/go-runewidth v0.0.13 // indirect
 	github.com/mitchellh/go-homedir v1.1.0

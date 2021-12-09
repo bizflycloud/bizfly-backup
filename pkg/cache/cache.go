@@ -20,6 +20,7 @@ const (
 
 type Repository struct {
 	path string
+	mcID string
 	rpID string
 }
 
@@ -42,9 +43,10 @@ func (t Type) String() string {
 }
 
 // NewDirRepository creates a new dir-baked repository at the given path.
-func NewRepository(path string, rpID string) (*Repository, error) {
+func NewRepository(path string, mcID string, rpID string) (*Repository, error) {
 	d := &Repository{
 		path: path,
+		mcID: mcID,
 		rpID: rpID,
 	}
 
@@ -59,7 +61,7 @@ func NewRepository(path string, rpID string) (*Repository, error) {
 func (r *Repository) create() error {
 	dirs := []string{
 		r.path,
-		path.Join(r.path, r.rpID, tempPath),
+		path.Join(r.path, r.mcID, r.rpID, tempPath),
 	}
 
 	for _, dir := range dirs {
@@ -74,7 +76,7 @@ func (r *Repository) create() error {
 
 // Return temp directory in correct directory for this repository.
 func (r *Repository) tempFile() (*os.File, error) {
-	return ioutil.TempFile(path.Join(r.path, r.rpID, tempPath), "temp-")
+	return ioutil.TempFile(path.Join(r.path, r.mcID, r.rpID, tempPath), "temp-")
 }
 
 // Rename temp file to final name according to type and ID.
@@ -85,7 +87,7 @@ func (r *Repository) renameFile(file *os.File, t Type) error {
 
 // Construct path for given Type and ID.
 func (r *Repository) filename(t Type) string {
-	return path.Join(r.path, r.rpID, t.String())
+	return path.Join(r.path, r.mcID, r.rpID, t.String())
 }
 
 func (r *Repository) SaveIndex(index *Index) error {

@@ -102,7 +102,7 @@ func WithServerURL(serverURL string) ClientOption {
 	}
 }
 
-// WithAccessKey sets the access key for Client.
+// WithMachineID sets the machine id for Client.
 func WithID(id string) ClientOption {
 	return func(c *Client) error {
 		c.Id = id

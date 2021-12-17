@@ -50,6 +50,7 @@ func NewBroker(opts ...Option) (*MQTTBroker, error) {
 		}
 		m.logger = l
 	}
+	m.qos = 1
 	return m, nil
 }
 
@@ -98,7 +99,6 @@ func (m *MQTTBroker) Publish(topic string, payload interface{}) error {
 	token := m.client.Publish(topic, m.qos, m.retained, payload)
 	for !token.WaitTimeout(tokenWaitTimeout) {
 	}
-
 	return token.Error()
 }
 

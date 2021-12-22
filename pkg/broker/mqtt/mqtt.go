@@ -50,6 +50,7 @@ func NewBroker(opts ...Option) (*MQTTBroker, error) {
 		}
 		m.logger = l
 	}
+	m.qos = 1
 	return m, nil
 }
 

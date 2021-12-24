@@ -906,11 +906,10 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 				receiver, more := <-pipe
 				if more {
 					key := reflect.ValueOf(receiver.Chunks).MapKeys()[0].Interface().(string)
-					s.logger.Sugar().Info("Received chunk ", key)
 					if count, ok := chunks.Chunks[key]; ok {
-						chunks.Chunks[key] = count + 1
+						chunks.Chunks[key] = []uint{count[0] + 1, receiver.Chunks[key][1]}
 					} else {
-						chunks.Chunks[key] = 1
+						chunks.Chunks[key] = []uint{1, receiver.Chunks[key][1]}
 					}
 
 					if time.Now().Minute()%5 == 0 && time.Now().Second() == 0 {

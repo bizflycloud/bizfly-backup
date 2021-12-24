@@ -30,6 +30,7 @@ import (
 	"github.com/jpillora/backoff"
 	"github.com/panjf2000/ants/v2"
 	"github.com/robfig/cron/v3"
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"golang.org/x/mod/semver"
 
@@ -121,7 +122,6 @@ func New(opts ...Option) (*Server, error) {
 	if numGoroutine <= 1 {
 		numGoroutine = 2
 	}
-	defer ants.Release()
 	s.poolDir, err = ants.NewPool(numGoroutine)
 	if err != nil {
 		s.logger.Error("err ", zap.Error(err))
@@ -164,6 +164,8 @@ func (s *Server) setupRoutes() {
 func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	limitUpload := viper.GetInt("limit_upload")
+	limitDownload := viper.GetInt("limit_download")
 	var msg broker.Message
 	if err := json.Unmarshal(e.Payload, &msg); err != nil {
 		return err
@@ -171,15 +173,17 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	s.logger.Debug("Got broker event", zap.String("event_type", msg.EventType))
 	switch msg.EventType {
 	case broker.BackupManual:
+		limitDownload = 0
 		var err error
 		go func() {
-			err = s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+			err = s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, limitUpload, limitDownload, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
 		}()
 		return err
 	case broker.RestoreManual:
+		limitUpload = 0
 		var err error
 		go func() {
-			err = s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.StorageVaultId, ioutil.Discard)
+			err = s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.StorageVaultId, limitUpload, limitDownload, ioutil.Discard)
 		}()
 		return err
 	case broker.ConfigUpdate:
@@ -253,11 +257,16 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 		for _, policy := range bd.Policies {
 			directoryID := bd.ID
 			policyID := policy.ID
+			limitUpload := policy.LimitUpload
+			if limitUpload == 0 {
+				limitUpload = viper.GetInt("limit_upload")
+			}
+			limitDownload := 0
 			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
 				name := "auto-" + time.Now().Format(time.RFC3339)
 				// improve when support incremental backup
 				recoveryPointType := backupapi.RecoveryPointTypeInitialReplica
-				if err := s.backup(directoryID, policyID, name, recoveryPointType, ioutil.Discard); err != nil {
+				if err := s.backup(directoryID, policyID, name, limitUpload, limitDownload, recoveryPointType, ioutil.Discard); err != nil {
 					zapFields := []zap.Field{
 						zap.Error(err),
 						zap.String("service", "cron"),
@@ -577,9 +586,9 @@ func (s *Server) notifyStatusFailed(recoveryPointID, reason string) {
 }
 
 // backup performs backup flow.
-func (s *Server) backup(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer) error {
+func (s *Server) backup(backupDirectoryID string, policyID string, name string, limitUpload, limitDownload int, recoveryPointType string, progressOutput io.Writer) error {
 	chErr := make(chan error, 1)
-	_ = s.poolDir.Submit(s.backupWorker(backupDirectoryID, policyID, name, recoveryPointType, progressOutput, chErr))
+	_ = s.poolDir.Submit(s.backupWorker(backupDirectoryID, policyID, name, limitUpload, limitDownload, recoveryPointType, progressOutput, chErr))
 	return <-chErr
 }
 
@@ -603,7 +612,7 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))
 }
 
-func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, storageVaultID string, progressOutput io.Writer) error {
+func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, storageVaultID string, limitUpload, limitDownload int, progressOutput io.Writer) error {
 	// Get storage volume
 	restoreKey := &backupapi.AuthRestore{
 		RecoveryPointID:   recoveryPointID,
@@ -618,7 +627,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		s.logger.Error("Get credential storage vault error", zap.Error(err))
 		return err
 	}
-	storageVault, _ := s.NewStorageVault(*vault, actionID)
+	storageVault, _ := s.NewStorageVault(*vault, actionID, limitUpload, limitDownload)
 
 	rp, err := s.backupClient.GetRecoveryPointInfo(recoveryPointID)
 	if err != nil {
@@ -704,10 +713,10 @@ func (s *Server) requestRestore(recoveryPointID string, machineID string, path s
 	return nil
 }
 
-func (s *Server) NewStorageVault(storageVault backupapi.StorageVault, actionID string) (storage_vault.StorageVault, error) {
+func (s *Server) NewStorageVault(storageVault backupapi.StorageVault, actionID string, limitUpload, limitDownload int) (storage_vault.StorageVault, error) {
 	switch storageVault.StorageVaultType {
 	case "S3":
-		newS3Default, err := s3.NewS3Default(storageVault, actionID, s.backupClient)
+		newS3Default, err := s3.NewS3Default(storageVault, actionID, limitUpload, limitDownload, s.backupClient)
 		if err != nil {
 			return nil, err
 		}
@@ -794,7 +803,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 	}
 }
 
-func (s *Server) backupWorker(backupDirectoryID string, policyID string, name string, recoveryPointType string, progressOutput io.Writer, errCh chan<- error) backupJob {
+func (s *Server) backupWorker(backupDirectoryID string, policyID string, name string, limitUpload, limitDownload int, recoveryPointType string, progressOutput io.Writer, errCh chan<- error) backupJob {
 	return func() {
 		s.logger.Info("Backup directory ID: ", zap.String("backupDirectoryID", backupDirectoryID), zap.String("policyID", policyID), zap.String("name", name), zap.String("recoveryPointType", recoveryPointType))
 
@@ -829,7 +838,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Get storage vault
-		storageVault, err := s.NewStorageVault(*rp.StorageVault, rp.ID)
+		storageVault, err := s.NewStorageVault(*rp.StorageVault, rp.ID, limitUpload, limitDownload)
 		if err != nil {
 			s.logger.Error("NewStorageVault error", zap.Error(err))
 			errCh <- err

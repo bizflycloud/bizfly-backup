@@ -1181,6 +1181,7 @@ func (s *Server) storeFiles(mcID string, rpID string, index *cache.Index, storag
 	defer file.Close()
 	writerCSV := csv.NewWriter(file)
 	defer writerCSV.Flush()
+	writerCSV.Write([]string{"name", "hash", "path"})
 	for _, itemInfo := range index.Items {
 		if itemInfo.Type == "file" {
 			err := writerCSV.Write([]string{itemInfo.Name, itemInfo.Sha256Hash.String(), itemInfo.AbsolutePath})

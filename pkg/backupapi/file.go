@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -59,7 +60,7 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 		chunk.Etag = key
 
 		chunks := cache.NewChunk(bdID, rpID)
-		chunks.Chunks[key] = []uint{1, chunk.Length}
+		chunks.Chunks[key] = []string{strconv.Itoa(1), strconv.Itoa(int(chunk.Length))}
 
 		// Put object
 		c.logger.Sugar().Info("Scan chunk ", key)
@@ -203,7 +204,7 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 			c.logger.Info("backup item with item no change mtime, ctime")
 			for _, content := range lastInfo.Content {
 				chunks := cache.NewChunk(bdID, rpID)
-				chunks.Chunks[content.Etag] = []uint{1, content.Length}
+				chunks.Chunks[content.Etag] = []string{strconv.Itoa(1), strconv.Itoa(int(content.Length))}
 				pipe <- chunks
 			}
 

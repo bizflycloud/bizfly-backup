@@ -915,10 +915,15 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 				receiver, more := <-pipe
 				if more {
 					key := reflect.ValueOf(receiver.Chunks).MapKeys()[0].Interface().(string)
-					if count, ok := chunks.Chunks[key]; ok {
-						chunks.Chunks[key] = []uint{count[0] + 1, receiver.Chunks[key][1]}
+					s.logger.Sugar().Info("Received chunk ", key)
+					if value, ok := chunks.Chunks[key]; ok {
+						count, errParseInt := strconv.Atoi(strings.Split(value[0], "-")[0])
+						if errParseInt != nil {
+							errCh <- errParseInt
+						}
+						chunks.Chunks[key] = []string{fmt.Sprintf("%s-%s", strconv.Itoa(count+1), receiver.Chunks[key][1])}
 					} else {
-						chunks.Chunks[key] = []uint{1, receiver.Chunks[key][1]}
+						chunks.Chunks[key] = []string{fmt.Sprintf("%s-%s", strconv.Itoa(1), receiver.Chunks[key][1])}
 					}
 
 					if time.Now().Minute()%5 == 0 && time.Now().Second() == 0 {

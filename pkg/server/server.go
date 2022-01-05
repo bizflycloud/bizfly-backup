@@ -1186,12 +1186,19 @@ func (s *Server) storeFiles(mcID string, rpID string, index *cache.Index, storag
 	defer file.Close()
 	writerCSV := csv.NewWriter(file)
 	defer writerCSV.Flush()
+	errWriteCSV := writerCSV.Write([]string{"name", "hash", "path", "size", "chunk"})
+	if errWriteCSV != nil {
+		return errWriteCSV
+	}
 	for _, itemInfo := range index.Items {
 		if itemInfo.Type == "file" {
-			err := writerCSV.Write([]string{itemInfo.Name, itemInfo.Sha256Hash.String(), itemInfo.AbsolutePath})
-			if err != nil {
-				s.logger.Error("Err writer file.csv", zap.Error(err))
-				return err
+			sizeStr := strconv.FormatUint(itemInfo.Size, 10)
+			for _, content := range itemInfo.Content {
+				err := writerCSV.Write([]string{itemInfo.Name, itemInfo.Sha256Hash.String(), itemInfo.AbsolutePath, sizeStr, content.Etag})
+				if err != nil {
+					s.logger.Error("Err writer file.csv", zap.Error(err))
+					return err
+				}
 			}
 		}
 	}

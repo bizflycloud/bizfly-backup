@@ -202,13 +202,13 @@ func isOld(t time.Time, maxCacheAge time.Duration) bool {
 
 // RemoveOldCache remove old cache after max time exists
 func RemoveOldCache(maxCacheAge time.Duration) error {
-	oldCacheDirs, err := old(".cache", maxCacheAge)
+	oldCacheDirs, err := old(support.CACHE_PATH, maxCacheAge)
 	if err != nil {
 		return err
 	}
 	if len(oldCacheDirs) != 0 {
 		for _, item := range oldCacheDirs {
-			dir := filepath.Join(".cache", item.Name())
+			dir := filepath.Join(support.CACHE_PATH, item.Name())
 			err := os.RemoveAll(dir)
 			if err != nil {
 				return err

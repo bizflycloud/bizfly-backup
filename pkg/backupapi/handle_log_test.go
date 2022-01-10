@@ -10,35 +10,6 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-func Test_getCurrentDirectory(t *testing.T) {
-	user, _ := user.Current()
-	homeDirectory := user.HomeDir
-
-	tests := []struct {
-		name    string
-		want    string
-		wantErr bool
-	}{
-		{
-			name:    "test get current directory",
-			want:    homeDirectory,
-			wantErr: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := getCurrentDirectory()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("getCurrentDirectory() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("getCurrentDirectory() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func Test_logDebugWriter(t *testing.T) {
 	user, _ := user.Current()
 	homeDirectory := user.HomeDir

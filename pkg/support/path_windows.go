@@ -1,6 +1,9 @@
 package support
 
-import "os/user"
+import (
+	"os/user"
+	"strings"
+)
 
 const (
 	LOG_ERROR_PATH = "C:\\Program Files\\bizfly-backup\\log\\error.log"

@@ -1,5 +1,7 @@
 package support
 
+import "os/user"
+
 const (
 	LOG_ERROR_PATH = "C:\\Program Files\\bizfly-backup\\log\\error.log"
 	LOG_DEBUG_PATH = "C:\\Program Files\\bizfly-backup\\log\\debug.log"
@@ -26,7 +28,7 @@ func CheckPath() (string, string, string, string, error) {
 		logDebugPath = user.HomeDir + "/var/log/bizfly-backup/debug.log"
 		logInfoPath = user.HomeDir + "/var/log/bizfly-backup/info.log"
 
-		cachePath = user.HomeDir + "/var/lib/bizfly-backup/.cache"
+		cachePath = ".cache"
 	}
 
 	return logErrorPath, logDebugPath, logInfoPath, cachePath, nil

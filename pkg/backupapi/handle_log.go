@@ -1,10 +1,12 @@
 package backupapi
 
 import (
+	"io/fs"
 	"os"
-	"os/user"
+	"path/filepath"
 	"time"
 
+	"github.com/bizflycloud/bizfly-backup/pkg/support"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -32,16 +34,19 @@ func CustomLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) 
 }
 
 func logErrorWriter() (zapcore.WriteSyncer, error) {
-	homeDirectory, err := getCurrentDirectory()
+	path, _, _, _, err := support.CheckPath()
 	if err != nil {
 		return nil, err
 	}
-	logErrorPath := homeDirectory + "/var/log/bizflycloud-backup/error.log"
-	_, _, _ = zap.Open(logErrorPath)
+
+	logErrorPath, err := createLogFile(path, 0700)
+	if err != nil {
+		return nil, err
+	}
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
-			Filename: logErrorPath,
+			Filename: logErrorPath.Name(),
 			MaxSize:  500, // megabytes
 			MaxAge:   30,  // days
 		}),
@@ -49,16 +54,19 @@ func logErrorWriter() (zapcore.WriteSyncer, error) {
 }
 
 func logInfoWriter() (zapcore.WriteSyncer, error) {
-	homeDirectory, err := getCurrentDirectory()
+	_, _, path, _, err := support.CheckPath()
 	if err != nil {
 		return nil, err
 	}
-	logInfoPath := homeDirectory + "/var/log/bizflycloud-backup/info.log"
-	_, _, _ = zap.Open(logInfoPath)
+
+	logInfoPath, err := createLogFile(path, 0700)
+	if err != nil {
+		return nil, err
+	}
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
-			Filename: logInfoPath,
+			Filename: logInfoPath.Name(),
 			MaxSize:  500,
 			MaxAge:   30,
 		}),
@@ -66,16 +74,19 @@ func logInfoWriter() (zapcore.WriteSyncer, error) {
 }
 
 func logDebugWriter() (zapcore.WriteSyncer, error) {
-	homeDirectory, err := getCurrentDirectory()
+	_, path, _, _, err := support.CheckPath()
 	if err != nil {
 		return nil, err
 	}
-	logDebugPath := homeDirectory + "/var/log/bizflycloud-backup/debug.log"
-	_, _, _ = zap.Open(logDebugPath)
+
+	logDebugPath, err := createLogFile(path, 0700)
+	if err != nil {
+		return nil, err
+	}
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
-			Filename: logDebugPath,
+			Filename: logDebugPath.Name(),
 			MaxSize:  500,
 			MaxAge:   30,
 		}),
@@ -119,11 +130,21 @@ func WriteLog() (*zap.Logger, error) {
 	return logger, nil
 }
 
-func getCurrentDirectory() (string, error) {
-	user, err := user.Current()
-	if err != nil {
-		return "", err
+func createLogFile(path string, mode fs.FileMode) (*os.File, error) {
+	dirName := filepath.Dir(path)
+	if _, err := os.Stat(dirName); os.IsNotExist(err) {
+		if err := os.MkdirAll(dirName, mode); err != nil {
+			return nil, err
+		}
 	}
-	homeDirectory := user.HomeDir
-	return homeDirectory, nil
+	var file *os.File
+	file, err := os.Create(path)
+	if err != nil {
+		return nil, err
+	}
+	err = os.Chmod(path, mode)
+	if err != nil {
+		return nil, err
+	}
+	return file, nil
 }

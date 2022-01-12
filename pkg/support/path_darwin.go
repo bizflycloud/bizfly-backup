@@ -3,10 +3,26 @@
 
 package support
 
-const (
-	LOG_ERROR_PATH = "/var/log/bizfly-backup/error.log"
-	LOG_DEBUG_PATH = "/var/log/bizfly-backup/debug.log"
-	LOG_INFO_PATH  = "/var/log/bizfly-backup/info.log"
+func CheckPath() (string, string, string, string, error) {
+	var logErrorPath, logDebugPath, logInfoPath, cachePath string
+	user, err := user.Current()
+	if err != nil {
+		return "", "", "", "", err
+	}
 
-	CACHE_PATH = "/var/lib/bizfly-backup/.cache"
-)
+	if user.Username == "root" {
+		logErrorPath = "/var/log/bizfly-backup/error.log"
+		logDebugPath = "/var/log/bizfly-backup/debug.log"
+		logInfoPath = "/var/log/bizfly-backup/info.log"
+
+		cachePath = "/var/lib/bizfly-backup/.cache"
+	} else {
+		logErrorPath = user.HomeDir + "/var/log/bizfly-backup/error.log"
+		logDebugPath = user.HomeDir + "/var/log/bizfly-backup/debug.log"
+		logInfoPath = user.HomeDir + "/var/log/bizfly-backup/info.log"
+
+		cachePath = user.HomeDir + "/var/lib/bizfly-backup/.cache"
+	}
+
+	return logErrorPath, logDebugPath, logInfoPath, cachePath, nil
+}

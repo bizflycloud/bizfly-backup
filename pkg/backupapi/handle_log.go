@@ -34,7 +34,12 @@ func CustomLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) 
 }
 
 func logErrorWriter() (zapcore.WriteSyncer, error) {
-	logErrorPath, err := createLogFile(support.LOG_ERROR_PATH, 0700)
+	path, _, _, _, err := support.CheckPath()
+	if err != nil {
+		return nil, err
+	}
+
+	logErrorPath, err := createLogFile(path, 0700)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +54,12 @@ func logErrorWriter() (zapcore.WriteSyncer, error) {
 }
 
 func logInfoWriter() (zapcore.WriteSyncer, error) {
-	logInfoPath, err := createLogFile(support.LOG_INFO_PATH, 0700)
+	_, _, path, _, err := support.CheckPath()
+	if err != nil {
+		return nil, err
+	}
+
+	logInfoPath, err := createLogFile(path, 0700)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +74,12 @@ func logInfoWriter() (zapcore.WriteSyncer, error) {
 }
 
 func logDebugWriter() (zapcore.WriteSyncer, error) {
-	logDebugPath, err := createLogFile(support.LOG_DEBUG_PATH, 0700)
+	_, path, _, _, err := support.CheckPath()
+	if err != nil {
+		return nil, err
+	}
+
+	logDebugPath, err := createLogFile(path, 0700)
 	if err != nil {
 		return nil, err
 	}

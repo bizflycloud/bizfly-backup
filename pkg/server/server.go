@@ -1413,20 +1413,32 @@ func scanListBackupFailed() ([]string, error) {
 			return nil, err
 		}
 	}
+
 	var listBackupFailed []string
+
 	dirEntries, err := ioutil.ReadDir(BACKUP_FAILED_PATH)
 	if err != nil {
 		return nil, err
 	}
-	for _, file := range dirEntries {
-		dirRP := filepath.Join(BACKUP_FAILED_PATH, file.Name())
-		fi, err := os.ReadDir(dirRP)
+
+	for _, dir := range dirEntries {
+		dirMc := filepath.Join(BACKUP_FAILED_PATH, dir.Name())
+		dirMcRead, err := os.ReadDir(dirMc)
 		if err != nil {
 			return nil, err
 		}
-		for _, f := range fi {
-			nameFile := filepath.Join(file.Name(), f.Name())
-			listBackupFailed = append(listBackupFailed, nameFile)
+
+		for _, dirChild := range dirMcRead {
+			dirRp := filepath.Join(dirMc, dirChild.Name())
+			dirRpRead, err := os.ReadDir(dirRp)
+			if err != nil {
+				return nil, err
+			}
+
+			for _, f := range dirRpRead {
+				nameFile := filepath.Join(dir.Name(), dirChild.Name(), f.Name())
+				listBackupFailed = append(listBackupFailed, nameFile)
+			}
 		}
 	}
 	return listBackupFailed, nil

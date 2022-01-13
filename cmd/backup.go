@@ -42,7 +42,7 @@ import (
 
 var (
 	listBackupHeaders         = []string{"ID", "Name", "Path", "PolicyID", "Pattern", "Limit Upload", "Activated"}
-	listRecoveryPointsHeaders = []string{"ID", "Name", "Status", "Type"}
+	listRecoveryPointsHeaders = []string{"ID", "Name", "Status", "Type", "CREATED AT"}
 	backupID                  string
 	backupName                string
 	recoveryPointID           string
@@ -124,7 +124,7 @@ var backupListRecoveryPointCmd = &cobra.Command{
 		}
 		data := make([][]string, 0, len(rps.RecoveryPoints))
 		for _, rp := range rps.RecoveryPoints {
-			data = append(data, []string{rp.ID, rp.Name, rp.Status, rp.RecoveryPointType})
+			data = append(data, []string{rp.ID, rp.Name, rp.Status, rp.RecoveryPointType, rp.CreatedAt})
 		}
 		formatter.Output(listRecoveryPointsHeaders, data)
 	},

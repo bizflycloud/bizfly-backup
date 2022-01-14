@@ -1,10 +1,5 @@
 package support
 
-import (
-	"os/user"
-	"strings"
-)
-
 func CheckPath() (string, string, string, string, error) {
 	logErrorPath := "C:\\Program Files\\bizfly-backup\\log\\error.log"
 	logDebugPath := "C:\\Program Files\\bizfly-backup\\log\\debug.log"

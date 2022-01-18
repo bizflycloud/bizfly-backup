@@ -2,47 +2,16 @@ package backupapi
 
 import (
 	"os"
-	"os/user"
 	"reflect"
 	"testing"
 
+	"github.com/bizflycloud/bizfly-backup/pkg/support"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
-func Test_getCurrentDirectory(t *testing.T) {
-	user, _ := user.Current()
-	homeDirectory := user.HomeDir
-
-	tests := []struct {
-		name    string
-		want    string
-		wantErr bool
-	}{
-		{
-			name:    "test get current directory",
-			want:    homeDirectory,
-			wantErr: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := getCurrentDirectory()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("getCurrentDirectory() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("getCurrentDirectory() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 func Test_logDebugWriter(t *testing.T) {
-	user, _ := user.Current()
-	homeDirectory := user.HomeDir
-	logDebugPath := homeDirectory + "/var/log/bizflycloud-backup/debug.log"
+	_, logDebugPath, _, _, _ := support.CheckPath()
 
 	tests := []struct {
 		name    string
@@ -75,9 +44,7 @@ func Test_logDebugWriter(t *testing.T) {
 }
 
 func Test_logInfoWriter(t *testing.T) {
-	user, _ := user.Current()
-	homeDirectory := user.HomeDir
-	logInfoPath := homeDirectory + "/var/log/bizflycloud-backup/info.log"
+	_, _, logInfoPath, _, _ := support.CheckPath()
 
 	tests := []struct {
 		name    string
@@ -110,9 +77,7 @@ func Test_logInfoWriter(t *testing.T) {
 }
 
 func Test_logErrorWriter(t *testing.T) {
-	user, _ := user.Current()
-	homeDirectory := user.HomeDir
-	logErrorPath := homeDirectory + "/var/log/bizflycloud-backup/error.log"
+	logErrorPath, _, _, _, _ := support.CheckPath()
 
 	tests := []struct {
 		name    string

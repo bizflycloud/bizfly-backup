@@ -63,7 +63,7 @@ func (c *Client) GetCredentialStorageVault(storageVaultID string, actionID strin
 				c.logger.Error("err ", zap.Error(err))
 			}
 			if resp.StatusCode == 401 {
-				c.logger.Sugar().Info("GetCredential access denied: ", resp.StatusCode)
+				c.logger.Sugar().Info("GetRestoreSessionKey access denied: ", resp.StatusCode)
 				newSessionKey, err := c.GetRestoreSessionKey(restoreKey.RecoveryPointID, restoreKey.ActionID, restoreKey.CreatedAt)
 				if err != nil {
 					c.logger.Error("Get restore session key error: ", zap.Error(err))
@@ -170,14 +170,28 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 		}
 		if aerr, ok := err.(awserr.Error); ok {
 			if aerr.Code() == "AccessDenied" && storageVault.Type().CredentialType == "DEFAULT" {
-				c.logger.Sugar().Info("GetCredential in get object ", key)
 				storageVaultID, actID := storageVault.ID()
+
+				// get new restore session key
+				newSessionKey, err := c.GetRestoreSessionKey(restoreKey.RecoveryPointID, restoreKey.ActionID, restoreKey.CreatedAt)
+				c.logger.Sugar().Info("newSessionKey ", newSessionKey)
+				if err != nil {
+					c.logger.Error("Get restore session key error: ", zap.Error(err))
+					return nil, err
+				}
+				c.logger.Sugar().Info("new session key: ", newSessionKey)
+
+				restoreKey.CreatedAt = newSessionKey.CreatedAt
+				restoreKey.RestoreSessionKey = newSessionKey.RestoreSessionKey
+
+				// get credential storage vault
 				vault, err := c.GetCredentialStorageVault(storageVaultID, actID, restoreKey)
 				if err != nil {
 					c.logger.Error("Error get credential ", zap.Error(err))
 					break
 				}
 
+				// refresh credential storage vault
 				err = storageVault.RefreshCredential(vault.Credential)
 				if err != nil {
 					c.logger.Error("Error refresht credential ", zap.Error(err))

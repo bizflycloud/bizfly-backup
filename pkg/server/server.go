@@ -40,6 +40,7 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault/s3"
+	"github.com/bizflycloud/bizfly-backup/pkg/support"
 )
 
 var Version = "dev"
@@ -56,7 +57,6 @@ const (
 )
 
 const (
-	CACHE_PATH         = ".cache"
 	BACKUP_FAILED_PATH = "backup_failed"
 )
 
@@ -613,6 +613,11 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 }
 
 func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, storageVaultID string, limitUpload, limitDownload int, progressOutput io.Writer) error {
+	_, _, _, cachePath, err := support.CheckPath()
+	if err != nil {
+		return err
+	}
+
 	// Get storage volume
 	restoreKey := &backupapi.AuthRestore{
 		RecoveryPointID:   recoveryPointID,
@@ -635,13 +640,13 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		return err
 	}
 
-	_, err = os.Stat(filepath.Join(CACHE_PATH, mcID, recoveryPointID, "index.json"))
+	_, err = os.Stat(filepath.Join(cachePath, mcID, recoveryPointID, "index.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			buf, err := storageVault.GetObject(filepath.Join(mcID, recoveryPointID, "index.json"))
 			if err == nil {
-				_ = os.MkdirAll(filepath.Join(CACHE_PATH, mcID, recoveryPointID), 0700)
-				if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, mcID, recoveryPointID, "index.json"), buf, 0700); err != nil {
+				_ = os.MkdirAll(filepath.Join(cachePath, mcID, recoveryPointID), 0700)
+				if err := ioutil.WriteFile(filepath.Join(cachePath, mcID, recoveryPointID, "index.json"), buf, 0700); err != nil {
 					s.logger.Error("Error writing index file", zap.Error(err))
 					return err
 				}
@@ -657,7 +662,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	index := cache.Index{}
 
-	buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, mcID, recoveryPointID, "index.json"))
+	buf, err := ioutil.ReadFile(filepath.Join(cachePath, mcID, recoveryPointID, "index.json"))
 	if err != nil {
 		s.logger.Error("Error read index file", zap.Error(err))
 		return err
@@ -882,7 +887,14 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			errCh <- err
 			return
 		}
-		cacheWriter, err := cache.NewRepository(".cache", mcID, rpID)
+
+		_, _, _, cachePath, err := support.CheckPath()
+		if err != nil {
+			errCh <- err
+			return
+		}
+
+		cacheWriter, err := cache.NewRepository(cachePath, mcID, rpID)
 		if err != nil {
 			errCh <- err
 			return
@@ -890,7 +902,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		if lrp != nil {
 			// Store index
-			errStoreIndexs := s.storeIndexs(mcID, lrp, storageVault)
+			errStoreIndexs := s.storeIndexs(cachePath, mcID, lrp, storageVault)
 			if errStoreIndexs != nil {
 				s.notifyStatusFailed(rp.ID, errStoreIndexs.Error())
 				errCh <- errStoreIndexs
@@ -900,7 +912,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		latestIndex := cache.Index{}
 		if lrp != nil {
-			buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, mcID, lrp.ID, "index.json"))
+			buf, err := ioutil.ReadFile(filepath.Join(cachePath, mcID, lrp.ID, "index.json"))
 			if err != nil {
 				lrp = nil
 			} else {
@@ -983,7 +995,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Store files
-		errWriterCSV := s.storeFiles(mcID, rpID, index, storageVault)
+		errWriterCSV := s.storeFiles(cachePath, mcID, rpID, index, storageVault)
 		if errWriterCSV != nil {
 			s.notifyStatusFailed(rp.ID, errWriterCSV.Error())
 			errCh <- errWriterCSV
@@ -995,7 +1007,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		if errFileWorker != nil {
 			// Copy chunk.json backup failed to /backup_failed/<machine_id>/<rp_id>/chunk.json
 			s.logger.Sugar().Info("Copy chunk.json backup failed to /backup_failed/<machine_id>/<rp_id>/chunk.json")
-			chunkFailedPath, errCopyChunk = copyCache(mcID, rpID, "chunk.json")
+			chunkFailedPath, errCopyChunk = copyCache(cachePath, mcID, rpID, "chunk.json")
 			if errCopyChunk != nil {
 				errCh <- errCopyChunk
 				return
@@ -1003,7 +1015,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 			// Copy file.csv backup failed to /backup_failed/<machine_id>/<rp_id>/file.csv
 			s.logger.Sugar().Info("Copy file.csv backup failed to /backup_failed/<machine_id>/<rp_id>/file.csv")
-			fileFailedPath, errCopyFile = copyCache(mcID, rpID, "file.csv")
+			fileFailedPath, errCopyFile = copyCache(cachePath, mcID, rpID, "file.csv")
 			if errCopyFile != nil {
 				errCh <- errCopyFile
 				return
@@ -1011,7 +1023,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Put chunks
-		errPutChunks := s.putChunks(mcID, rpID, chunkFailedPath, storageVault)
+		errPutChunks := s.putChunks(cachePath, mcID, rpID, chunkFailedPath, storageVault)
 		if errPutChunks != nil {
 			s.notifyStatusFailed(rp.ID, errPutChunks.Error())
 			errCh <- errPutChunks
@@ -1019,7 +1031,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Put file.csv
-		errPutFiles := s.putFiles(mcID, rpID, fileFailedPath, storageVault)
+		errPutFiles := s.putFiles(cachePath, mcID, rpID, fileFailedPath, storageVault)
 		if errPutFiles != nil {
 			s.notifyStatusFailed(rp.ID, errPutFiles.Error())
 			errCh <- errPutFiles
@@ -1055,14 +1067,14 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Put indexs
-		indexHash, errPutIndexs := s.putIndexs(storageVault, latestIndex, mcID, rpID)
+		indexHash, errPutIndexs := s.putIndexs(storageVault, latestIndex, cachePath, mcID, rpID)
 		if errPutIndexs != nil {
 			s.notifyStatusFailed(rp.ID, errPutIndexs.Error())
 			errCh <- errPutIndexs
 			return
 		}
 		if lrp != nil {
-			err := os.RemoveAll(filepath.Join(CACHE_PATH, mcID, lrp.ID))
+			err := os.RemoveAll(filepath.Join(cachePath, mcID, lrp.ID))
 			if err != nil {
 				errCh <- err
 				return
@@ -1084,14 +1096,14 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 	}
 }
 
-func (s *Server) storeIndexs(mcID string, lrp *backupapi.RecoveryPointResponse, storageVault storage_vault.StorageVault) error {
-	_, err := os.Stat(filepath.Join(CACHE_PATH, mcID, lrp.ID, "index.json"))
+func (s *Server) storeIndexs(cachePath, mcID string, lrp *backupapi.RecoveryPointResponse, storageVault storage_vault.StorageVault) error {
+	_, err := os.Stat(filepath.Join(cachePath, mcID, lrp.ID, "index.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			buf, err := storageVault.GetObject(filepath.Join(mcID, lrp.ID, "index.json"))
 			if err == nil {
-				_ = os.MkdirAll(filepath.Join(CACHE_PATH, mcID, lrp.ID), 0700)
-				if err := ioutil.WriteFile(filepath.Join(CACHE_PATH, mcID, lrp.ID, "index.json"), buf, 0700); err != nil {
+				_ = os.MkdirAll(filepath.Join(cachePath, mcID, lrp.ID), 0700)
+				if err := ioutil.WriteFile(filepath.Join(cachePath, mcID, lrp.ID, "index.json"), buf, 0700); err != nil {
 					return err
 				}
 			} else {
@@ -1101,7 +1113,7 @@ func (s *Server) storeIndexs(mcID string, lrp *backupapi.RecoveryPointResponse, 
 			return err
 		}
 	} else {
-		buf, err := ioutil.ReadFile(filepath.Join(CACHE_PATH, mcID, lrp.ID, "index.json"))
+		buf, err := ioutil.ReadFile(filepath.Join(cachePath, mcID, lrp.ID, "index.json"))
 		if err != nil {
 			return err
 		}
@@ -1113,8 +1125,8 @@ func (s *Server) storeIndexs(mcID string, lrp *backupapi.RecoveryPointResponse, 
 	return nil
 }
 
-func (s *Server) putIndexs(storageVault storage_vault.StorageVault, latestIndex cache.Index, mcID, rpID string) (string, error) {
-	buf, err := ioutil.ReadFile(filepath.Join(".cache", mcID, rpID, "index.json"))
+func (s *Server) putIndexs(storageVault storage_vault.StorageVault, latestIndex cache.Index, cachePath, mcID, rpID string) (string, error) {
+	buf, err := ioutil.ReadFile(filepath.Join(cachePath, mcID, rpID, "index.json"))
 	if err != nil {
 		s.logger.Error("Read indexs error", zap.Error(err))
 		return "", err
@@ -1122,7 +1134,7 @@ func (s *Server) putIndexs(storageVault storage_vault.StorageVault, latestIndex 
 	err = storageVault.PutObject(filepath.Join(mcID, rpID, "index.json"), buf)
 	if err != nil {
 		s.logger.Error("Put indexs to storage error", zap.Error(err))
-		os.RemoveAll(filepath.Join(CACHE_PATH, mcID, rpID))
+		os.RemoveAll(filepath.Join(cachePath, mcID, rpID))
 		return "", err
 	}
 	hash := sha256.Sum256(buf)
@@ -1131,9 +1143,9 @@ func (s *Server) putIndexs(storageVault storage_vault.StorageVault, latestIndex 
 	return indexHash, nil
 }
 
-func (s *Server) putChunks(mcID, rpID, chunkPath string, storageVault storage_vault.StorageVault) error {
+func (s *Server) putChunks(cachePath, mcID, rpID, chunkPath string, storageVault storage_vault.StorageVault) error {
 	if chunkPath == "" {
-		chunkPath = filepath.Join(CACHE_PATH, mcID, rpID, "chunk.json")
+		chunkPath = filepath.Join(cachePath, mcID, rpID, "chunk.json")
 	} else {
 		chunkPath = filepath.Join(BACKUP_FAILED_PATH, mcID, rpID, "chunk.json")
 	}
@@ -1171,14 +1183,14 @@ func (s *Server) uploadListBackupFailed(listBackupFailed []string, storageVault 
 	return nil
 }
 
-func (s *Server) storeFiles(mcID string, rpID string, index *cache.Index, storageVault storage_vault.StorageVault) error {
-	if _, err := os.Stat(filepath.Dir(filepath.Join(CACHE_PATH, mcID, rpID, "file.csv"))); os.IsNotExist(err) {
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(CACHE_PATH, mcID, rpID, "file.csv")), 0700); err != nil {
+func (s *Server) storeFiles(cachePath, mcID string, rpID string, index *cache.Index, storageVault storage_vault.StorageVault) error {
+	if _, err := os.Stat(filepath.Dir(filepath.Join(cachePath, mcID, rpID, "file.csv"))); os.IsNotExist(err) {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(cachePath, mcID, rpID, "file.csv")), 0700); err != nil {
 			s.logger.Error("Err make dir dir file.csv", zap.Error(err))
 			return err
 		}
 	}
-	file, err := os.Create(filepath.Join(CACHE_PATH, mcID, rpID, "file.csv"))
+	file, err := os.Create(filepath.Join(cachePath, mcID, rpID, "file.csv"))
 	if err != nil {
 		s.logger.Error("Err Create file.csv", zap.Error(err))
 		return err
@@ -1205,9 +1217,9 @@ func (s *Server) storeFiles(mcID string, rpID string, index *cache.Index, storag
 	return nil
 }
 
-func (s *Server) putFiles(mcID, rpID string, filePath string, storageVault storage_vault.StorageVault) error {
+func (s *Server) putFiles(cachePath, mcID, rpID string, filePath string, storageVault storage_vault.StorageVault) error {
 	if filePath == "" {
-		filePath = filepath.Join(CACHE_PATH, mcID, rpID, "file.csv")
+		filePath = filepath.Join(cachePath, mcID, rpID, "file.csv")
 	} else {
 		filePath = filepath.Join(BACKUP_FAILED_PATH, mcID, rpID, "file.csv")
 	}
@@ -1376,8 +1388,8 @@ func formatDuration(d time.Duration) string {
 }
 
 // Copy file (file.csv or chunk.json) backup failed to /backup_failed/<rp_id>
-func copyCache(mcID, rpID, fileName string) (string, error) {
-	src := filepath.Join(CACHE_PATH, mcID, rpID, fileName)
+func copyCache(cachePath, mcID, rpID, fileName string) (string, error) {
+	src := filepath.Join(cachePath, mcID, rpID, fileName)
 	dst := filepath.Join(BACKUP_FAILED_PATH, mcID, rpID, fileName)
 	if _, err := os.Stat(filepath.Dir(dst)); os.IsNotExist(err) {
 		if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {

@@ -251,6 +251,7 @@ func TestServer_storeFiles(t *testing.T) {
 		logger               *zap.Logger
 	}
 	type args struct {
+		cachePath    string
 		mcID         string
 		rpID         string
 		index        *cache.Index
@@ -268,8 +269,9 @@ func TestServer_storeFiles(t *testing.T) {
 				Addr: "unix://" + filepath.Join(os.TempDir(), "bizfly-backup-test-server.sock"),
 			},
 			args: args{
-				mcID: "1",
-				rpID: "1",
+				cachePath: "cache",
+				mcID:      "1",
+				rpID:      "1",
 				index: &cache.Index{
 					BackupDirectoryID: "1",
 					RecoveryPointID:   "1",
@@ -297,7 +299,7 @@ func TestServer_storeFiles(t *testing.T) {
 				chunkPool:            tt.fields.chunkPool,
 				logger:               tt.fields.logger,
 			}
-			if err := s.storeFiles(tt.args.mcID, tt.args.rpID, tt.args.index, tt.args.storageVault); (err != nil) != tt.wantErr {
+			if err := s.storeFiles(tt.args.cachePath, tt.args.mcID, tt.args.rpID, tt.args.index, tt.args.storageVault); (err != nil) != tt.wantErr {
 				t.Errorf("Server.writeFileCSV() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})

@@ -521,10 +521,6 @@ func (c *Client) createSymlink(symlinkPath string, path string, mode fs.FileMode
 		c.logger.Error("err ", zap.Error(err))
 	}
 
-	err = os.Chmod(path, mode)
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-	}
 	_ = support.SetChownItem(path, uid, gid)
 	return nil
 }

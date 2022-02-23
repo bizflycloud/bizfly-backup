@@ -183,7 +183,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 		limitUpload = 0
 		var err error
 		go func() {
-			err = s.restore(msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.StorageVaultId, limitUpload, limitDownload, ioutil.Discard)
+			err = s.restore(msg.MachineID, msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.StorageVaultId, limitUpload, limitDownload, ioutil.Discard)
 		}()
 		return err
 	case broker.ConfigUpdate:
@@ -612,7 +612,7 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 	_, _ = w.Write([]byte("Restore completed."))
 }
 
-func (s *Server) restore(actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, storageVaultID string, limitUpload, limitDownload int, progressOutput io.Writer) error {
+func (s *Server) restore(machineID, actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, storageVaultID string, limitUpload, limitDownload int, progressOutput io.Writer) error {
 	_, _, _, cachePath, err := support.CheckPath()
 	if err != nil {
 		return err
@@ -626,7 +626,6 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		RestoreSessionKey: restoreSessionKey,
 	}
 
-	mcID := s.backupClient.Id
 	vault, err := s.backupClient.GetCredentialStorageVault(storageVaultID, actionID, restoreKey)
 	if err != nil {
 		s.logger.Error("Get credential storage vault error", zap.Error(err))
@@ -640,13 +639,13 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 		return err
 	}
 
-	_, err = os.Stat(filepath.Join(cachePath, mcID, recoveryPointID, "index.json"))
+	_, err = os.Stat(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			buf, err := storageVault.GetObject(filepath.Join(mcID, recoveryPointID, "index.json"))
+			buf, err := storageVault.GetObject(filepath.Join(machineID, recoveryPointID, "index.json"))
 			if err == nil {
-				_ = os.MkdirAll(filepath.Join(cachePath, mcID, recoveryPointID), 0700)
-				if err := ioutil.WriteFile(filepath.Join(cachePath, mcID, recoveryPointID, "index.json"), buf, 0700); err != nil {
+				_ = os.MkdirAll(filepath.Join(cachePath, machineID, recoveryPointID), 0700)
+				if err := ioutil.WriteFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"), buf, 0700); err != nil {
 					s.logger.Error("Error writing index file", zap.Error(err))
 					return err
 				}
@@ -662,7 +661,7 @@ func (s *Server) restore(actionID string, createdAt string, restoreSessionKey st
 
 	index := cache.Index{}
 
-	buf, err := ioutil.ReadFile(filepath.Join(cachePath, mcID, recoveryPointID, "index.json"))
+	buf, err := ioutil.ReadFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"))
 	if err != nil {
 		s.logger.Error("Error read index file", zap.Error(err))
 		return err

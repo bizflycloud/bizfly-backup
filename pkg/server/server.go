@@ -629,6 +629,7 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	vault, err := s.backupClient.GetCredentialStorageVault(storageVaultID, actionID, restoreKey)
 	if err != nil {
 		s.logger.Error("Get credential storage vault error", zap.Error(err))
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 	storageVault, _ := s.NewStorageVault(*vault, actionID, limitUpload, limitDownload)
@@ -636,6 +637,7 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	rp, err := s.backupClient.GetRecoveryPointInfo(recoveryPointID)
 	if err != nil {
 		s.logger.Error("Error get recoveryPointInfo", zap.Error(err))
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 
@@ -647,14 +649,17 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 				_ = os.MkdirAll(filepath.Join(cachePath, machineID, recoveryPointID), 0700)
 				if err := ioutil.WriteFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"), buf, 0700); err != nil {
 					s.logger.Error("Error writing index file", zap.Error(err))
+					s.notifyStatusFailed(rp.ID, err.Error())
 					return err
 				}
 			} else {
 				s.logger.Error("Error downloading index from storage", zap.Error(err))
+				s.notifyStatusFailed(rp.ID, err.Error())
 				return err
 			}
 		} else {
 			s.logger.Error("Error stat index file", zap.Error(err))
+			s.notifyStatusFailed(rp.ID, err.Error())
 			return err
 		}
 	}
@@ -664,6 +669,7 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	buf, err := ioutil.ReadFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"))
 	if err != nil {
 		s.logger.Error("Error read index file", zap.Error(err))
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	} else {
 		_ = json.Unmarshal([]byte(buf), &index)
@@ -672,6 +678,7 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	hash := sha256.Sum256(buf)
 	if hex.EncodeToString(hash[:]) != rp.IndexHash {
 		s.logger.Error("index.json is corrupted", zap.Error(err))
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 

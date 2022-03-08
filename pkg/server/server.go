@@ -626,35 +626,43 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 		RestoreSessionKey: restoreSessionKey,
 	}
 
+	s.logger.Sugar().Info("Get credential storage vault", storageVaultID)
 	vault, err := s.backupClient.GetCredentialStorageVault(storageVaultID, actionID, restoreKey)
 	if err != nil {
 		s.logger.Error("Get credential storage vault error", zap.Error(err))
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 	storageVault, _ := s.NewStorageVault(*vault, actionID, limitUpload, limitDownload)
 
+	s.logger.Sugar().Info("Get recovery point info", recoveryPointID)
 	rp, err := s.backupClient.GetRecoveryPointInfo(recoveryPointID)
 	if err != nil {
 		s.logger.Error("Error get recoveryPointInfo", zap.Error(err))
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 
 	_, err = os.Stat(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
+			s.logger.Sugar().Info("Get index.json from storage", zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
 			buf, err := storageVault.GetObject(filepath.Join(machineID, recoveryPointID, "index.json"))
 			if err == nil {
 				_ = os.MkdirAll(filepath.Join(cachePath, machineID, recoveryPointID), 0700)
 				if err := ioutil.WriteFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"), buf, 0700); err != nil {
-					s.logger.Error("Error writing index file", zap.Error(err))
+					s.logger.Error("Error writing index.json file", zap.Error(err), zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
+					s.notifyStatusFailed(rp.ID, err.Error())
 					return err
 				}
 			} else {
-				s.logger.Error("Error downloading index from storage", zap.Error(err))
+				s.logger.Error("Error get index.json from storage", zap.Error(err), zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
+				s.notifyStatusFailed(rp.ID, err.Error())
 				return err
 			}
 		} else {
-			s.logger.Error("Error stat index file", zap.Error(err))
+			s.logger.Error("Error stat index.json file", zap.Error(err))
+			s.notifyStatusFailed(rp.ID, err.Error())
 			return err
 		}
 	}
@@ -663,7 +671,8 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 
 	buf, err := ioutil.ReadFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"))
 	if err != nil {
-		s.logger.Error("Error read index file", zap.Error(err))
+		s.logger.Error("Error read index.json file", zap.Error(err), zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	} else {
 		_ = json.Unmarshal([]byte(buf), &index)
@@ -672,6 +681,7 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	hash := sha256.Sum256(buf)
 	if hex.EncodeToString(hash[:]) != rp.IndexHash {
 		s.logger.Error("index.json is corrupted", zap.Error(err))
+		s.notifyStatusFailed(rp.ID, err.Error())
 		return err
 	}
 
@@ -690,6 +700,7 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	}
 	progressRestore := s.newDownloadProgress(recoveryPointID, itemTodo)
 
+	s.logger.Sugar().Info("Restore directory", filepath.Clean(destDir))
 	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVault, restoreKey, progressRestore); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
@@ -812,7 +823,9 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		s.logger.Info("Backup directory ID: ", zap.String("backupDirectoryID", backupDirectoryID), zap.String("policyID", policyID), zap.String("name", name), zap.String("recoveryPointType", recoveryPointType))
 
 		ctx := context.Background()
+
 		// Get BackupDirectory
+		s.logger.Sugar().Info("Get backup directory", zap.String("backupDirectoryID", backupDirectoryID))
 		bd, err := s.backupClient.GetBackupDirectory(backupDirectoryID)
 		if err != nil {
 			s.logger.Error("GetBackupDirectory error", zap.Error(err))
@@ -821,6 +834,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Create recovery point
+		s.logger.Sugar().Info("Create recovery point", zap.String("backupDirectoryID", backupDirectoryID))
 		rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
 			PolicyID:          policyID,
 			Name:              name,
@@ -833,6 +847,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Get latest recovery point
+		s.logger.Sugar().Info("Get latest recovery point", zap.String("backupDirectoryID", backupDirectoryID))
 		lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
 		if err != nil {
 			s.notifyStatusFailed(rp.ID, err.Error())
@@ -1022,6 +1037,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Put chunks
+		s.logger.Sugar().Info("Put chunk.json to storage", zap.String("key", filepath.Join(mcID, rpID, "chunk.json")))
 		errPutChunks := s.putChunks(cachePath, mcID, rpID, chunkFailedPath, storageVault)
 		if errPutChunks != nil {
 			s.notifyStatusFailed(rp.ID, errPutChunks.Error())
@@ -1030,6 +1046,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Put file.csv
+		s.logger.Sugar().Info("Put file.csv to storage", zap.String("key", filepath.Join(mcID, rpID, "file.csv")))
 		errPutFiles := s.putFiles(cachePath, mcID, rpID, fileFailedPath, storageVault)
 		if errPutFiles != nil {
 			s.notifyStatusFailed(rp.ID, errPutFiles.Error())
@@ -1066,6 +1083,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		// Put indexs
+		s.logger.Sugar().Info("Put index.json to storage", zap.String("key", filepath.Join(mcID, rpID, "index.json")))
 		indexHash, errPutIndexs := s.putIndexs(storageVault, latestIndex, cachePath, mcID, rpID)
 		if errPutIndexs != nil {
 			s.notifyStatusFailed(rp.ID, errPutIndexs.Error())

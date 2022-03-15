@@ -455,9 +455,11 @@ func (s *Server) subscribeBrokerLoop(ctx context.Context) {
 		}
 		if err := s.b.Connect(); err == nil {
 			break
+		} else {
+			s.logger.Error("connect to broker failed", zap.Error(err))
+			time.Sleep(b.Duration())
+			continue
 		}
-		time.Sleep(b.Duration())
-		continue
 	}
 	msg := map[string]string{"status": "ONLINE", "event_type": broker.StatusNotify}
 	payload, _ := json.Marshal(msg)

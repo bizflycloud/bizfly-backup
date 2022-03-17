@@ -69,6 +69,23 @@ func (m *MQTTBroker) opts() *mqtt.ClientOptions {
 	opts.SetPassword(password)
 	opts.SetClientID(m.clientID)
 	opts.SetCleanSession(false)
+
+	var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
+		m.logger.Info("Connected to broker")
+	}
+
+	var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
+		m.logger.Error("Connection lost with broker: ", zap.Error(err))
+	}
+
+	var reconnectHandler mqtt.ReconnectHandler = func(client mqtt.Client, opts *mqtt.ClientOptions) {
+		m.logger.Error("Trying reconnect with broker")
+	}
+
+	opts.OnConnectionLost = connectLostHandler
+	opts.OnReconnecting = reconnectHandler
+	opts.OnConnect = connectHandler
+
 	opts.SetWill("agent/"+m.clientID, lastWillTestatement, 0, false)
 	return opts
 }

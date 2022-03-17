@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"reflect"
@@ -62,6 +63,11 @@ const (
 
 const (
 	maxCacheAgeDefault = 24 * time.Hour * 30
+)
+
+const (
+	intervalTimeCheckUpgrade     = 86400 * time.Second
+	intervalTimeCheckTaskRunning = 50 * time.Second
 )
 
 // Server defines parameters for running BizFly Backup HTTP server.
@@ -373,11 +379,11 @@ func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) doUpgrade() error {
-	//TODO: do not upgrade when there are running jobs
 	if Version == "dev" {
 		// Do not upgrade dev version
 		return nil
 	}
+
 	lv, err := s.backupClient.LatestVersion()
 	if err != nil {
 		s.logger.Error("err ", zap.Error(err))
@@ -387,9 +393,10 @@ func (s *Server) doUpgrade() error {
 	currentVer := "v" + Version
 	fields := []zap.Field{zap.String("current_version", currentVer), zap.String("latest_version", latestVer)}
 	if semver.Compare(latestVer, currentVer) != 1 {
-		s.logger.Warn("Current version is not less than latest version, do nothing", fields...)
+		s.logger.Warn("Current version is latest version.", fields...)
 		return nil
 	}
+
 	var binURL string
 	switch runtime.GOOS {
 	case "linux":
@@ -404,27 +411,80 @@ func (s *Server) doUpgrade() error {
 	if binURL == "" {
 		return errors.New("failed to get download url")
 	}
+
 	s.logger.Info("Detect new version, downloading...", fields...)
+
 	resp, err := http.Get(binURL)
 	if err != nil {
 		s.logger.Error("err ", zap.Error(err))
 		return err
 	}
 	defer resp.Body.Close()
+
 	s.logger.Info("Finish downloading, perform upgrading...")
 	_ = update.Apply(resp.Body, update.Options{})
-	s.logger.Info("Upgrading done! TODO: self restart? For now, call os.Exit so service manager will restart us!")
-	if s.useUnixSock {
-		//	Remove socket and exit
-		os.Remove(s.Addr)
+
+	// check running backup task to do not auto upgrade
+	totalWait := 0 * time.Second
+	for s.chunkPool.Running() > 0 || s.pool.Running() > 0 || s.poolDir.Running() > 0 {
+		s.logger.Debug("Waiting all task done to auto restart")
+		totalWait += intervalTimeCheckTaskRunning
+		if totalWait >= intervalTimeCheckUpgrade {
+			return nil
+		}
+		time.Sleep(intervalTimeCheckTaskRunning)
 	}
-	os.Exit(0)
-	return err
+
+	s.logger.Info("Cleaning...")
+	if s.useUnixSock {
+		//	Remove socket
+		err := os.Remove(s.Addr)
+		if err != nil {
+			s.logger.Error("err ", zap.Error(err))
+		}
+	}
+
+	// do action restart application
+	s.logger.Info("Restarting...")
+	err = restartByExec()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// restartByExec calls `syscall.Exec()` to restart app
+func restartByExec() error {
+	executableArgs := os.Args
+	executableEnvs := os.Environ()
+
+	// searches for an executable path
+	executablePath, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		return err
+	}
+
+	// searches for an executable file in path
+	binary, err := exec.LookPath(executablePath)
+	if err != nil {
+		return err
+	}
+
+	time.Sleep(1 * time.Second)
+
+	// calls `syscall.Exec()` to restart app
+	err = syscall.Exec(binary, executableArgs, executableEnvs)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Server) upgradeLoop(ctx context.Context) {
-	ticker := time.NewTicker(86400 * time.Second)
+	ticker := time.NewTicker(intervalTimeCheckUpgrade)
 	defer ticker.Stop()
+
 	s.logger.Debug("Start auto upgrade loop.")
 	for {
 		select {

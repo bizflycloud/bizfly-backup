@@ -19,12 +19,19 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"os"
+	"strings"
+)
+
+const (
+	defaultPort = 9000
+	httpPrefix  = "http://"
+	localhost   = "localhost"
+	tcpProtocol = "tcp"
 )
 
 var (
@@ -62,7 +69,7 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.bizfly-backup.yaml)")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug (default is false)")
-	rootCmd.PersistentFlags().StringVar(&addr, "addr", defaultAddr, "listening address of agent server.")
+	rootCmd.PersistentFlags().StringVar(&addr, "addr", "", "listening address of agent server.")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -92,10 +99,18 @@ func initConfig() {
 		viper.SetConfigName(".bizfly-backup")
 	}
 
+	// Set default value for config
+	viper.SetDefault("port", defaultPort)
+
 	viper.AutomaticEnv() // read in environment variables that match
 
 	// If a config file is found, read it in.
 	if err := viper.ReadInConfig(); err == nil {
 		logger.Info("Using config file: " + viper.ConfigFileUsed())
+	}
+
+	// Set value
+	if addr == "" {
+		addr = httpPrefix + strings.Join([]string{localhost, viper.GetString("port")}, ":")
 	}
 }

@@ -39,13 +39,19 @@ var restoreCmd = &cobra.Command{
 	Use:   "restore",
 	Short: "Restore a backup.",
 	Run: func(cmd *cobra.Command, args []string) {
+		// make url
+		urlRequest := strings.Join([]string{addr, "recovery-points", recoveryPointID, "restore"}, "/")
+
+		// create client
 		httpc := http.Client{
 			Transport: &http.Transport{
 				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+					return net.Dial(tcpProtocol, strings.TrimPrefix(addr, httpPrefix))
 				},
 			},
 		}
+
+		// init body
 		if restoreDir == "" {
 			restoreDir = recoveryPointID
 		}
@@ -55,12 +61,22 @@ var restoreCmd = &cobra.Command{
 		body.Path = restoreDir
 		buf, _ := json.Marshal(body)
 
-		resp, err := httpc.Post("http://unix/recovery-points/"+recoveryPointID+"/restore", postContentType, bytes.NewBuffer(buf))
+		// make request
+		req, err := http.NewRequest(http.MethodGet, urlRequest, bytes.NewBuffer(buf))
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
 		}
+
+		// call request
+		resp, err := httpc.Do(req)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+
 		defer resp.Body.Close()
+
 		_, _ = io.Copy(os.Stderr, resp.Body)
 	},
 }

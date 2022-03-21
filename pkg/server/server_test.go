@@ -7,7 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"path/filepath"
+	"strconv"
 	"syscall"
 	"testing"
 	"time"
@@ -26,6 +26,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.uber.org/zap"
+)
+
+const (
+	defaultTestPort = 9000
 )
 
 var (
@@ -73,8 +77,7 @@ func TestServerRun(t *testing.T) {
 	tests := []struct {
 		addr string
 	}{
-		{"unix://" + filepath.Join(os.TempDir(), "bizfly-backup-test-server.sock")},
-		{":1810"},
+		{"http://localhost:" + strconv.Itoa(defaultTestPort)},
 	}
 	for _, tc := range tests {
 		s, err := New(WithAddr(tc.addr), WithBroker(b))
@@ -94,7 +97,7 @@ func TestServerRun(t *testing.T) {
 }
 
 func TestServerEventHandler(t *testing.T) {
-	addr := "unix://" + filepath.Join(os.TempDir(), "bizfly-backup-test-server.sock")
+	addr := "http://localhost:" + strconv.Itoa(defaultTestPort)
 	s, err := New(WithAddr(addr), WithBroker(b))
 	require.NoError(t, err)
 
@@ -266,7 +269,7 @@ func TestServer_storeFiles(t *testing.T) {
 		{
 			name: "test witer file csv",
 			fields: fields{
-				Addr: "unix://" + filepath.Join(os.TempDir(), "bizfly-backup-test-server.sock"),
+				Addr: "http://localhost:" + strconv.Itoa(defaultTestPort),
 			},
 			args: args{
 				cachePath: "cache",

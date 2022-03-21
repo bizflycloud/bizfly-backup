@@ -65,24 +65,40 @@ var backupListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all current backups.",
 	Run: func(cmd *cobra.Command, args []string) {
+		// make url
+		urlRequest := strings.Join([]string{addr, "backups"}, "/")
+
+		// create client
 		httpc := http.Client{
 			Transport: &http.Transport{
 				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+					return net.Dial(tcpProtocol, strings.TrimPrefix(addr, httpPrefix))
 				},
 			},
 		}
-		resp, err := httpc.Get("http://unix/backups")
+
+		// make request
+		req, err := http.NewRequest(http.MethodGet, urlRequest, nil)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
 		}
+
+		// call request
+		resp, err := httpc.Do(req)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+
 		defer resp.Body.Close()
+
 		var c backupapi.Config
 		if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
 		}
+
 		var data [][]string
 		for _, bd := range c.BackupDirectories {
 			if len(bd.Policies) == 0 {
@@ -90,12 +106,14 @@ var backupListCmd = &cobra.Command{
 				row := []string{bd.ID, bd.Name, bd.Path, "", "", activated}
 				data = append(data, row)
 			}
+
 			for _, policy := range bd.Policies {
 				activated := fmt.Sprintf("%v", bd.Activated)
 				row := []string{bd.ID, bd.Name, bd.Path, policy.ID, policy.SchedulePattern, strconv.Itoa(policy.LimitUpload), policy.Retentions, activated}
 				data = append(data, row)
 			}
 		}
+
 		formatter.Output(listBackupHeaders, data)
 	},
 }
@@ -104,28 +122,45 @@ var backupListRecoveryPointCmd = &cobra.Command{
 	Use:   "list-recovery-points",
 	Short: "List all recovery points of a directory.",
 	Run: func(cmd *cobra.Command, args []string) {
+		// make url
+		urlRequest := strings.Join([]string{addr, "backups", backupID, "recovery-points"}, "/")
+
+		// create client
 		httpc := http.Client{
 			Transport: &http.Transport{
 				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+					return net.Dial(tcpProtocol, strings.TrimPrefix(addr, httpPrefix))
 				},
 			},
 		}
-		resp, err := httpc.Get("http://unix/backups/" + backupID + "/recovery-points")
+
+		// make request
+		req, err := http.NewRequest(http.MethodGet, urlRequest, nil)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
 		}
+
+		// call request
+		resp, err := httpc.Do(req)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+
 		defer resp.Body.Close()
+
 		var rps backupapi.ListRecoveryPointsResponse
 		if err := json.NewDecoder(resp.Body).Decode(&rps); err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
 		}
+
 		data := make([][]string, 0, len(rps.RecoveryPoints))
 		for _, rp := range rps.RecoveryPoints {
 			data = append(data, []string{rp.ID, rp.Name, rp.Status, rp.RecoveryPointType, rp.CreatedAt})
 		}
+
 		formatter.Output(listRecoveryPointsHeaders, data)
 	},
 }
@@ -134,48 +169,62 @@ var backupDownloadRecoveryPointCmd = &cobra.Command{
 	Use:   "download",
 	Short: "Download backup at given recovery point.",
 	Run: func(cmd *cobra.Command, args []string) {
+		// make url
+		urlRequest := strings.Join([]string{addr, "recovery-points", recoveryPointID, "download"}, "/")
+
+		// create client
 		httpc := http.Client{
 			Transport: &http.Transport{
 				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+					return net.Dial(tcpProtocol, strings.TrimPrefix(addr, httpPrefix))
 				},
 			},
 		}
 
-		req, err := http.NewRequest(http.MethodGet, "http://unix/recovery-points/"+recoveryPointID+"/download", nil)
+		// make request
+		req, err := http.NewRequest(http.MethodGet, urlRequest, nil)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
 		}
+
+		// update require header
 		machineID := viper.GetString("machine_id")
 		secretKey := viper.GetString("secret_key")
 		if machineID == "" || secretKey == "" {
 			logger.Error("The machine ID and secret key is required")
 			os.Exit(1)
 		}
+
 		createdAt := time.Now().UTC().Format(http.TimeFormat)
 		req.Header.Add("X-Session-Created-At", createdAt)
 		req.Header.Add("X-Restore-Session-Key", restoreSessionKey(secretKey, machineID, createdAt, recoveryPointID))
 
+		// call request
 		resp, err := httpc.Do(req)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
 		}
+
 		defer resp.Body.Close()
+
 		if backupDownloadOutFile == "" {
 			backupDownloadOutFile = recoveryPointID + ".zip"
 		}
+
 		f, err := os.Create(backupDownloadOutFile)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+
 		pw := backupapi.NewProgressWriter(os.Stderr)
 		if _, err := io.Copy(f, io.TeeReader(resp.Body, pw)); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+
 		if err := f.Close(); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -188,13 +237,19 @@ var backupRunCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Run a backup immediately.",
 	Run: func(cmd *cobra.Command, args []string) {
+		// make url
+		urlRequest := strings.Join([]string{addr, "backups"}, "/")
+
+		// create client
 		httpc := http.Client{
 			Transport: &http.Transport{
 				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+					return net.Dial(tcpProtocol, strings.TrimPrefix(addr, httpPrefix))
 				},
 			},
 		}
+
+		// init body
 		var body struct {
 			ID          string `json:"id"`
 			BackupName  string `json:"name"`
@@ -205,12 +260,25 @@ var backupRunCmd = &cobra.Command{
 		body.StorageType = "S3"
 		buf, _ := json.Marshal(body)
 
-		resp, err := httpc.Post("http://unix/backups", postContentType, bytes.NewBuffer(buf))
+		// make request
+		req, err := http.NewRequest(http.MethodPost, urlRequest, bytes.NewBuffer(buf))
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
 		}
+
+		// update header
+		req.Header.Set("Content-Type", postContentType)
+
+		// call request
+		resp, err := httpc.Do(req)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+
 		defer resp.Body.Close()
+
 		_, _ = io.Copy(os.Stderr, resp.Body)
 	},
 }
@@ -219,20 +287,37 @@ var backupSyncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Sync backup config from server.",
 	Run: func(cmd *cobra.Command, args []string) {
+		// make url
+		urlRequest := strings.Join([]string{addr, "backups", "sync"}, "/")
+
+		// create client
 		httpc := http.Client{
 			Transport: &http.Transport{
 				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+					return net.Dial(tcpProtocol, strings.TrimPrefix(addr, httpPrefix))
 				},
 			},
 		}
 
-		resp, err := httpc.Post("http://unix/backups/sync", postContentType, nil)
+		// make request
+		req, err := http.NewRequest(http.MethodPost, urlRequest, nil)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
 		}
+
+		// update header
+		req.Header.Set("Content-Type", postContentType)
+
+		// call request
+		resp, err := httpc.Do(req)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+
 		defer resp.Body.Close()
+
 		_, _ = io.Copy(ioutil.Discard, resp.Body)
 	},
 }

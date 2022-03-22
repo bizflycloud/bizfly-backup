@@ -25,7 +25,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -38,8 +37,6 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/broker/mqtt"
 	"github.com/bizflycloud/bizfly-backup/pkg/server"
 )
-
-var defaultAddr = "unix://" + filepath.Join(os.TempDir(), "bizfly-backup.sock")
 
 // agentCmd represents the agent command
 var agentCmd = &cobra.Command{
@@ -112,26 +109,40 @@ var agentVersionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show version of agent server.",
 	Run: func(cmd *cobra.Command, args []string) {
+		// make url
+		urlRequest := strings.Join([]string{addr, "version"}, "/")
+
+		// create client
 		httpc := http.Client{
 			Transport: &http.Transport{
 				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+					return net.Dial(tcpProtocol, strings.TrimPrefix(addr, httpPrefix))
 				},
 			},
 		}
 
-		req, err := http.NewRequest(http.MethodPost, "http://unix/version", nil)
+		// make request
+		req, err := http.NewRequest(http.MethodPost, urlRequest, nil)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
 		}
+
+		// call request
 		resp, err := httpc.Do(req)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
 		}
+
 		defer resp.Body.Close()
-		b, _ := ioutil.ReadAll(resp.Body)
+
+		b, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+
 		fmt.Println(string(b))
 	},
 }

@@ -120,8 +120,13 @@ func New(opts ...Option) (*Server, error) {
 	}
 
 	s.setupRoutes()
+
 	s.useUnixSock = strings.HasPrefix(s.Addr, "unix://")
-	s.Addr = strings.TrimPrefix(s.Addr, "unix://")
+	trimPrefix := "unix://"
+	if !s.useUnixSock {
+		trimPrefix = "http://"
+	}
+	s.Addr = strings.TrimPrefix(s.Addr, trimPrefix)
 
 	var err error
 	numGoroutine := int(float64(runtime.NumCPU()) * PERCENT_PROCESS)

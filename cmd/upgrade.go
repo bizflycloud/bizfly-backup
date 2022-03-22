@@ -32,24 +32,32 @@ var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Upgrade bizfly-backup to latest version.",
 	Run: func(cmd *cobra.Command, args []string) {
+		// make url
+		urlRequest := strings.Join([]string{addr, "upgrade"}, "/")
+
+		// create client
 		httpc := http.Client{
 			Transport: &http.Transport{
 				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-					return net.Dial("unix", strings.TrimPrefix(addr, "unix://"))
+					return net.Dial(tcpProtocol, strings.TrimPrefix(addr, httpPrefix))
 				},
 			},
 		}
 
-		req, err := http.NewRequest(http.MethodPost, "http://unix/upgrade", nil)
+		// make request
+		req, err := http.NewRequest(http.MethodPost, urlRequest, nil)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
 		}
+
+		// call request
 		resp, err := httpc.Do(req)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)
 		}
+
 		defer resp.Body.Close()
 	},
 }

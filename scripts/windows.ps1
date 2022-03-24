@@ -50,6 +50,7 @@ function downloadAgent {
 function runAgentasService {
     if ([System.IO.File]::Exists("C:\progra~1\BizFlyBackup\bizfly-backup.exe") -And [System.IO.File]::Exists("C:\progra~1\BizFlyBackup\nssm.exe")){
         Set-Location -Path "C:\progra~1\BizFlyBackup"
+        Remove-Item "agent.yaml"
         Add-Content -Path "agent.yaml" -Value "access_key: $ACCESS_KEY`napi_url: $API_URL`nmachine_id: $MACHINE_ID`nsecret_key: $SECRET_KEY"
         .\nssm restart BizFlyBackup
     }else {

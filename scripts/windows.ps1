@@ -47,10 +47,20 @@ function downloadAgent {
     Invoke-WebRequest -Method Get -UseBasicParsing -Uri $download_url -OutFile ( New-Item -Path "C:\progra~1\BizFlyBackup\bizfly-backup.exe" )
 }
 
+function updateConfig {
+    if (($ACCESS_KEY -ne $null) -And ($API_URL -ne $null) -And ($MACHINE_ID -ne $null) -And ($SECRET_KEY -ne $null)) {
+        if ([System.IO.File]::Exists("C:\progra~1\BizFlyBackup\agent.yaml"))
+        {
+            Remove-Item "agent.yaml"
+        }
+        Add-Content -Path "agent.yaml" -Value "access_key: $ACCESS_KEY`napi_url: $API_URL`nmachine_id: $MACHINE_ID`nsecret_key: $SECRET_KEY"
+    }
+}
+
 function runAgentasService {
     if ([System.IO.File]::Exists("C:\progra~1\BizFlyBackup\bizfly-backup.exe") -And [System.IO.File]::Exists("C:\progra~1\BizFlyBackup\nssm.exe")){
         Set-Location -Path "C:\progra~1\BizFlyBackup"
-        Add-Content -Path "agent.yaml" -Value "access_key: $ACCESS_KEY`napi_url: $API_URL`nmachine_id: $MACHINE_ID`nsecret_key: $SECRET_KEY"
+        updateConfig
         .\nssm restart BizFlyBackup
     }else {
         $arch = GetArchitecture
@@ -63,7 +73,7 @@ function runAgentasService {
             Copy-Item -Path ".\nssm-2.24\win32\nssm.exe" "C:\progra~1\BizFlyBackup"
         }
         Set-Location -Path "C:\progra~1\BizFlyBackup"
-        Add-Content -Path "agent.yaml" -Value "access_key: $ACCESS_KEY`napi_url: $API_URL`nmachine_id: $MACHINE_ID`nsecret_key: $SECRET_KEY"
+        updateConfig
         .\nssm install BizFlyBackup "C:\progra~1\BizFlyBackup\bizfly-backup.exe"
         .\nssm set BizFlyBackup Application "C:\progra~1\BizFlyBackup\bizfly-backup.exe"
         .\nssm set BizFlyBackup AppParameters "agent --config=C:\progra~1\BizFlyBackup\agent.yaml"

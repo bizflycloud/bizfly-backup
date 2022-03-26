@@ -334,10 +334,11 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 				time.Sleep(time.Duration(n) * time.Second)
 			}
 		}
+		s3.logger.Debug("Head object error. Retrying")
 		s3.logger.Debug("BackOff retry")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
-			s3.logger.Debug("Retry time out")
+			s3.logger.Debug("Retry time out. Head object error ", zap.Error(err))
 			break
 		}
 		s3.logger.Sugar().Info("Retry in ", d)

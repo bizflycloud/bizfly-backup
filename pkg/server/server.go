@@ -680,7 +680,7 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 }
 
 func (s *Server) restore(machineID, actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, storageVaultID string, limitUpload, limitDownload int, progressOutput io.Writer) error {
-	_, _, _, cachePath, err := support.CheckPath()
+	_, cachePath, err := support.CheckPath()
 	if err != nil {
 		return err
 	}
@@ -969,7 +969,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
-		_, _, _, cachePath, err := support.CheckPath()
+		_, cachePath, err := support.CheckPath()
 		if err != nil {
 			errCh <- err
 			return

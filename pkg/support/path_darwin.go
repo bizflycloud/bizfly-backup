@@ -5,26 +5,20 @@ package support
 
 import "os/user"
 
-func CheckPath() (string, string, string, string, error) {
-	var logErrorPath, logDebugPath, logInfoPath, cachePath string
+func CheckPath() (string, string, error) {
+	var logPath, cachePath string
 	user, err := user.Current()
 	if err != nil {
-		return "", "", "", "", err
+		return "", "", err
 	}
 
 	if user.Username == "root" {
-		logErrorPath = "/var/log/bizfly-backup/error.log"
-		logDebugPath = "/var/log/bizfly-backup/debug.log"
-		logInfoPath = "/var/log/bizfly-backup/info.log"
-
+		logPath = "/var/log/bizfly-backup/bizfly-backup.log"
 		cachePath = "/var/lib/bizfly-backup/.cache"
 	} else {
-		logErrorPath = user.HomeDir + "/var/log/bizfly-backup/error.log"
-		logDebugPath = user.HomeDir + "/var/log/bizfly-backup/debug.log"
-		logInfoPath = user.HomeDir + "/var/log/bizfly-backup/info.log"
-
+		logPath = user.HomeDir + "/var/log/bizfly-backup/bizfly-backup.log"
 		cachePath = ".cache"
 	}
 
-	return logErrorPath, logDebugPath, logInfoPath, cachePath, nil
+	return logPath, cachePath, nil
 }

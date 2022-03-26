@@ -202,7 +202,7 @@ func isOld(t time.Time, maxCacheAge time.Duration) bool {
 
 // RemoveOldCache remove old cache after max time exists
 func RemoveOldCache(maxCacheAge time.Duration) error {
-	_, _, _, cachePath, err := support.CheckPath()
+	_, cachePath, err := support.CheckPath()
 	if err != nil {
 		return err
 	}

@@ -138,17 +138,17 @@ func (c *Client) PutObject(storageVault storage_vault.StorageVault, key string, 
 
 				err = storageVault.RefreshCredential(vault.Credential)
 				if err != nil {
-					c.logger.Error("Error refresht credential ", zap.Error(err))
+					c.logger.Error("Error refresh credential ", zap.Error(err))
 					break
 				}
 			}
 		}
 
-		c.logger.Error("Error PutObject", zap.Error(err))
+		c.logger.Debug("Put object error. Retrying")
 		c.logger.Debug("BackOff retry")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
-			c.logger.Debug("Retry time out")
+			c.logger.Debug("Retry time out. Put object error ", zap.Error(err))
 			break
 		}
 		c.logger.Sugar().Info("Retry in ", d)

@@ -33,118 +33,74 @@ func CustomLevelEncoder(level zapcore.Level, enc zapcore.PrimitiveArrayEncoder) 
 	enc.AppendString("[" + level.CapitalString() + "]")
 }
 
-func logErrorWriter() (zapcore.WriteSyncer, error) {
-	path, _, _, _, err := support.CheckPath()
+func logWriter() (zapcore.WriteSyncer, error) {
+	// get path of log file for current os
+	path, _, err := support.CheckPath()
 	if err != nil {
 		return nil, err
 	}
 
-	logErrorPath, err := createLogFile(path, 0700)
-	if err != nil {
-		return nil, err
-	}
-
-	return zapcore.NewMultiWriteSyncer(
-		zapcore.AddSync(&lumberjack.Logger{
-			Filename: logErrorPath.Name(),
-			MaxSize:  500, // megabytes
-			MaxAge:   30,  // days
-		}),
-		zapcore.AddSync(os.Stdout)), nil
-}
-
-func logInfoWriter() (zapcore.WriteSyncer, error) {
-	_, _, path, _, err := support.CheckPath()
-	if err != nil {
-		return nil, err
-	}
-
-	logInfoPath, err := createLogFile(path, 0700)
+	// check if log file exist or not to create
+	logPath, err := createLogFile(path, 0700)
 	if err != nil {
 		return nil, err
 	}
 
 	return zapcore.NewMultiWriteSyncer(
 		zapcore.AddSync(&lumberjack.Logger{
-			Filename: logInfoPath.Name(),
+			Filename: logPath.Name(),
 			MaxSize:  500,
 			MaxAge:   30,
 		}),
 		zapcore.AddSync(os.Stdout)), nil
 }
 
-func logDebugWriter() (zapcore.WriteSyncer, error) {
-	_, path, _, _, err := support.CheckPath()
-	if err != nil {
-		return nil, err
-	}
-
-	logDebugPath, err := createLogFile(path, 0700)
-	if err != nil {
-		return nil, err
-	}
-
-	return zapcore.NewMultiWriteSyncer(
-		zapcore.AddSync(&lumberjack.Logger{
-			Filename: logDebugPath.Name(),
-			MaxSize:  500,
-			MaxAge:   30,
-		}),
-		zapcore.AddSync(os.Stdout)), nil
-}
-
-// Write log to file by level log and console
+// Write log to file
 func WriteLog() (*zap.Logger, error) {
-	highWriteSyncer, errorWriter := logErrorWriter()
+	writeSyncer, errorWriter := logWriter()
 	if errorWriter != nil {
 		return nil, errorWriter
-	}
-	averageWriteSyncer, errorDebugWriter := logDebugWriter()
-	if errorDebugWriter != nil {
-		return nil, errorDebugWriter
-	}
-	lowWriteSyncer, errorInfoWriter := logInfoWriter()
-	if errorInfoWriter != nil {
-		return nil, errorInfoWriter
 	}
 
 	encoder := getEncoder()
 
-	highPriority := zap.LevelEnablerFunc(func(lev zapcore.Level) bool {
-		return lev >= zap.ErrorLevel
+	// enable log sync for all level so we return true
+	logPriority := zap.LevelEnablerFunc(func(lev zapcore.Level) bool {
+		return true
 	})
 
-	lowPriority := zap.LevelEnablerFunc(func(lev zapcore.Level) bool {
-		return lev < zap.ErrorLevel && lev > zap.DebugLevel
-	})
-
-	averagePriority := zap.LevelEnablerFunc(func(lev zapcore.Level) bool {
-		return lev < zap.ErrorLevel && lev < zap.InfoLevel
-	})
-
-	lowCore := zapcore.NewCore(encoder, lowWriteSyncer, lowPriority)
-	averageCore := zapcore.NewCore(encoder, averageWriteSyncer, averagePriority)
-	highCore := zapcore.NewCore(encoder, highWriteSyncer, highPriority)
-
-	logger := zap.New(zapcore.NewTee(lowCore, averageCore, highCore), zap.AddCaller())
+	logCore := zapcore.NewCore(encoder, writeSyncer, logPriority)
+	logger := zap.New(zapcore.NewTee(logCore), zap.AddCaller())
 	return logger, nil
 }
 
 func createLogFile(path string, mode fs.FileMode) (*os.File, error) {
+	// check if folder log exist or not to create
 	dirName := filepath.Dir(path)
 	if _, err := os.Stat(dirName); os.IsNotExist(err) {
 		if err := os.MkdirAll(dirName, mode); err != nil {
 			return nil, err
 		}
 	}
+
+	// check if file log exist or not to create
 	var file *os.File
-	file, err := os.Create(path)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		file, err = os.Create(path)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		file, err = os.Open(path)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err := os.Chmod(path, mode)
 	if err != nil {
 		return nil, err
 	}
-	err = os.Chmod(path, mode)
-	if err != nil {
-		return nil, err
-	}
+
 	return file, nil
 }

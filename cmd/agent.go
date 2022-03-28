@@ -122,7 +122,7 @@ var agentVersionCmd = &cobra.Command{
 		}
 
 		// make request
-		req, err := http.NewRequest(http.MethodPost, urlRequest, nil)
+		req, err := http.NewRequest(http.MethodGet, urlRequest, nil)
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)

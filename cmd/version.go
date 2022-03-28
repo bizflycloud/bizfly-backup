@@ -19,23 +19,21 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/bizflycloud/bizfly-backup/pkg/agentversion"
 
 	"github.com/spf13/cobra"
 )
 
-var (
-	version   string
-	gitCommit string
-)
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print current version.",
 	Run: func(cmd *cobra.Command, args []string) {
-		if version == "" {
-			version = "dev"
+		if agentversion.CurrentVersion == "" {
+			agentversion.CurrentVersion = "dev"
 		}
-		fmt.Println("Version: ", version)
-		fmt.Println("Commit: ", gitCommit)
+		fmt.Println("Version: ", agentversion.CurrentVersion)
+		fmt.Println("Git commit: ", agentversion.GitCommit)
+		fmt.Println("Build: ", agentversion.BuildTime)
 	},
 }
 

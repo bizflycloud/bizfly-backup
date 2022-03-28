@@ -35,6 +35,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/mod/semver"
 
+	"github.com/bizflycloud/bizfly-backup/pkg/agentversion"
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 	"github.com/bizflycloud/bizfly-backup/pkg/cache"
@@ -43,8 +44,6 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault/s3"
 	"github.com/bizflycloud/bizfly-backup/pkg/support"
 )
-
-var Version = "dev"
 
 const (
 	statusUploadFile  = "UPLOADING"
@@ -168,7 +167,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/", s.UpgradeAgent)
 	})
 	s.router.Route("/version", func(r chi.Router) {
-		r.Post("/", s.Version)
+		r.Get("/", s.Version)
 	})
 }
 
@@ -373,7 +372,8 @@ func (s *Server) SyncConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) Version(w http.ResponseWriter, r *http.Request) {
-	_, _ = w.Write([]byte(Version))
+	version := agentversion.Version()
+	_, _ = w.Write([]byte(version))
 }
 
 func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {
@@ -384,7 +384,7 @@ func (s *Server) UpgradeAgent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) doUpgrade() error {
-	if Version == "dev" {
+	if agentversion.CurrentVersion == "dev" {
 		// Do not upgrade dev version
 		return nil
 	}
@@ -395,7 +395,7 @@ func (s *Server) doUpgrade() error {
 		return err
 	}
 	latestVer := "v" + lv.Ver
-	currentVer := "v" + Version
+	currentVer := "v" + agentversion.CurrentVersion
 	fields := []zap.Field{zap.String("current_version", currentVer), zap.String("latest_version", latestVer)}
 	if semver.Compare(latestVer, currentVer) != 1 {
 		s.logger.Warn("Current version is latest version.", fields...)

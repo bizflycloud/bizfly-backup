@@ -3,6 +3,8 @@ PKG := "github.com/bizflycloud/$(PROJECT_NAME)"
 PKG_LIST := $(shell go list ${PKG}/... | grep -v /vendor/)
 GO_FILES := $(shell find . -name '*.go' | grep -v /vendor/ | grep -v _test.go)
 BIZFLY_BACKUP_VERSION ?= "dev"
+GIT_COMMIT := $(shell git rev-parse --short HEAD)
+BUILD_TIME := $(shell date --utc +%FT%T%Z)
 
 .PHONY: all dep lint vet test test-coverage build clean
 
@@ -25,7 +27,7 @@ test-coverage: ## Run tests with coverage
 	@cat cover.out >> coverage.txt
 
 build: dep ## Build the binary file
-	@go build -ldflags="-X github.com/bizflycloud/bizfly-backup/cmd.version=$(BIZFLY_BACKUP_VERSION) -X github.com/bizflycloud/bizfly-backup/cmd.gitCommit=$(shell git rev-parse --short HEAD)" -o build/main main.go
+	@go build -ldflags="-X $(PKG)/pkg/agentversion.CurrentVersion=$(BIZFLY_BACKUP_VERSION) -X $(PKG)/pkg/agentversion.GitCommit=${GIT_COMMIT} -X $(PKG)/pkg/agentversion.BuildTime=${BUILD_TIME}" -o build/main main.go
 	## $(PKG)
 
 clean: ## Remove previous build

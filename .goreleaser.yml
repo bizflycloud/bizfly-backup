@@ -19,9 +19,9 @@ builds:
       - goos: darwin
         goarch: 386
     ldflags:
-      - -X github.com/bizflycloud/bizfly-backup/cmd.version={{ .Version }}
-      - -X github.com/bizflycloud/bizfly-backup/cmd.gitCommit={{ .ShortCommit }}
-      - -X github.com/bizflycloud/bizfly-backup/pkg/server.Version={{ .Version }}
+      - -X github.com/bizflycloud/bizfly-backup/pkg/agentversion.CurrentVersion={{ .Version }}
+      - -X github.com/bizflycloud/bizfly-backup/pkg/agentversion.GitCommit={{ .ShortCommit }}
+      - -X github.com/bizflycloud/bizfly-backup/pkg/agentversion.BuildTime={{ .Date }}
     main: main.go
     binary: bizfly-backup
     hooks:

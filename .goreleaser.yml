@@ -22,6 +22,9 @@ builds:
       - -X github.com/bizflycloud/bizfly-backup/cmd.version={{ .Version }}
       - -X github.com/bizflycloud/bizfly-backup/cmd.gitCommit={{ .ShortCommit }}
       - -X github.com/bizflycloud/bizfly-backup/pkg/server.Version={{ .Version }}
+      - -X github.com/bizflycloud/bizfly-backup/pkg/agentversion.version={{ .Version }}
+      - -X github.com/bizflycloud/bizfly-backup/pkg/agentversion.commit={{ .ShortCommit }}
+      - -X github.com/bizflycloud/bizfly-backup/pkg/agentversion.buildTime={{ .Date }}
     main: main.go
     binary: bizfly-backup
     hooks:

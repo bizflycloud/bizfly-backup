@@ -25,7 +25,7 @@ test-coverage: ## Run tests with coverage
 	@cat cover.out >> coverage.txt
 
 build: dep ## Build the binary file
-	@go build -ldflags="-X github.com/bizflycloud/bizfly-backup/cmd.version=$(BIZFLY_BACKUP_VERSION) -X github.com/bizflycloud/bizfly-backup/cmd.gitCommit=$(shell git rev-parse --short HEAD)" -o build/main main.go
+	@go build -ldflags="-X github.com/bizflycloud/bizfly-backup/cmd.version=$(BIZFLY_BACKUP_VERSION) -X github.com/bizflycloud/bizfly-backup/cmd.gitCommit=$(shell git rev-parse --short HEAD) -X github.com/bizflycloud/bizfly-backup/pkg/agentversion.version=$(BIZFLY_BACKUP_VERSION) -X github.com/bizflycloud/bizfly-backup/pkg/agentversion.commit=$(shell git rev-parse --short HEAD) -X github.com/bizflycloud/bizfly-backup/pkg/agentversion.buildTime=$(shell date --utc +%FT%T%Z)" -o build/main main.go
 	## $(PKG)
 
 clean: ## Remove previous build

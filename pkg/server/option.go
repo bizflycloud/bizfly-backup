@@ -1,6 +1,8 @@
 package server
 
 import (
+	"go.uber.org/zap"
+
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
 )
@@ -31,7 +33,7 @@ func WithSubscribeTopics(topics ...string) Option {
 	}
 }
 
-// WithPublishTopic returns an Option which set the server topic that server broker will publish message.
+// WithPublishTopics returns an Option which set the server topic that server broker will publish message.
 func WithPublishTopics(topics ...string) Option {
 	return func(s *Server) error {
 		s.publishTopics = topics
@@ -43,6 +45,14 @@ func WithPublishTopics(topics ...string) Option {
 func WithBackupClient(c *backupapi.Client) Option {
 	return func(s *Server) error {
 		s.backupClient = c
+		return nil
+	}
+}
+
+// WithLogger returns an Option which set the logger for Server.
+func WithLogger(logger *zap.Logger) Option {
+	return func(s *Server) error {
+		s.logger = logger
 		return nil
 	}
 }

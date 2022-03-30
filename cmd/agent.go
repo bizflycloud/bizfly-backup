@@ -43,10 +43,17 @@ var agentCmd = &cobra.Command{
 	Use:   "agent",
 	Short: "Run agent.",
 	Run: func(cmd *cobra.Command, args []string) {
+		// create logger
+		logger, err := backupapi.WriteLog()
+		if err != nil {
+			panic(err)
+		}
+
 		machineID := viper.GetString("machine_id")
 		accessKey := viper.GetString("access_key")
 		secretKey := viper.GetString("secret_key")
 		apiUrl := viper.GetString("api_url")
+
 		backupClient, err := backupapi.NewClient(
 			backupapi.WithAccessKey(accessKey),
 			backupapi.WithSecretKey(secretKey),
@@ -80,6 +87,7 @@ var agentCmd = &cobra.Command{
 			mqtt.WithClientID(agentID),
 			mqtt.WithUsername(accessKey),
 			mqtt.WithPassword(secretKey),
+			mqtt.WithLogger(logger),
 		)
 		if err != nil {
 			logger.Fatal("failed to create broker", zap.Error(err))
@@ -93,6 +101,7 @@ var agentCmd = &cobra.Command{
 			server.WithSubscribeTopics("agent/default", "agent/"+agentID),
 			server.WithPublishTopics("agent/"+agentID, "agent/recovery-points/"+agentID),
 			server.WithBackupClient(backupClient),
+			server.WithLogger(logger),
 		)
 		if err != nil {
 			logger.Fatal("failed to create new server", zap.Error(err))

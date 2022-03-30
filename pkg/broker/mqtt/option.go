@@ -3,6 +3,8 @@ package mqtt
 import (
 	"errors"
 	"net/url"
+
+	"go.uber.org/zap"
 )
 
 type Option func(m *MQTTBroker) error
@@ -22,7 +24,7 @@ func WithURL(u string) Option {
 	}
 }
 
-// WitClientID returns an Option which set the broker client id.
+// WithClientID returns an Option which set the broker client id.
 func WithClientID(id string) Option {
 	return func(m *MQTTBroker) error {
 		m.clientID = id
@@ -42,6 +44,14 @@ func WithUsername(username string) Option {
 func WithPassword(password string) Option {
 	return func(m *MQTTBroker) error {
 		m.password = password
+		return nil
+	}
+}
+
+// WithLogger returns an Option which set the logger to use when connect to server.
+func WithLogger(logger *zap.Logger) Option {
+	return func(m *MQTTBroker) error {
+		m.logger = logger
 		return nil
 	}
 }

@@ -518,7 +518,7 @@ func (s *Server) subscribeBrokerLoop(ctx context.Context) {
 			return
 		default:
 		}
-		if err := s.b.Connect(); err == nil {
+		if err := s.b.ConnectAndSubscribe(s.handleBrokerEvent, s.subscribeTopics); err == nil {
 			break
 		} else {
 			s.logger.Error("connect to broker failed", zap.Error(err))
@@ -526,13 +526,12 @@ func (s *Server) subscribeBrokerLoop(ctx context.Context) {
 			continue
 		}
 	}
+
+	// publish message to notify online status
 	msg := map[string]string{"status": "ONLINE", "event_type": broker.StatusNotify}
 	payload, _ := json.Marshal(msg)
 	if err := s.b.Publish(s.publishTopics[0], payload); err != nil {
 		s.logger.Error("failed to notify server status online", zap.Error(err))
-	}
-	if err := s.b.Subscribe(s.subscribeTopics, s.handleBrokerEvent); err != nil {
-		s.logger.Error("Subscribe to subscribeTopics return error", zap.Error(err), zap.Strings("subscribeTopics", s.subscribeTopics))
 	}
 }
 

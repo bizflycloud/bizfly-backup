@@ -3,6 +3,7 @@ package broker
 // Broker is the interface to perform async messaging.
 type Broker interface {
 	Connect() error
+	ConnectAndSubscribe(subHandler Handler, subTopics []string) error
 	Disconnect() error
 	Publish(topic string, payload interface{}) error
 	Subscribe(topics []string, h Handler) error

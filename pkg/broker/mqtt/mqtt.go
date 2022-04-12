@@ -33,6 +33,10 @@ type MQTTBroker struct {
 	qos      byte
 	retained bool
 	logger   *zap.Logger
+
+	// Option for resubscribe when OnConnect
+	subscribeTopics  []string
+	subscribeHandler broker.Handler
 }
 
 // NewBroker creates new mqtt broker.
@@ -72,6 +76,14 @@ func (m *MQTTBroker) opts() *mqtt.ClientOptions {
 
 	var connectHandler mqtt.OnConnectHandler = func(client mqtt.Client) {
 		m.logger.Info("Connected to broker")
+
+		// resubscribe when connected or reconnected with broker
+		if m.subscribeHandler != nil && m.subscribeTopics != nil {
+			if err := m.Subscribe(m.subscribeTopics, m.subscribeHandler); err != nil {
+				m.logger.Error("Subscribe to subscribeTopics return error", zap.Error(err), zap.Strings("subscribeTopics", m.subscribeTopics))
+			}
+			m.logger.Sugar().Debugf("Agent subscribe to topic %s successful", m.subscribeTopics)
+		}
 	}
 
 	var connectLostHandler mqtt.ConnectionLostHandler = func(client mqtt.Client, err error) {
@@ -88,6 +100,15 @@ func (m *MQTTBroker) opts() *mqtt.ClientOptions {
 
 	opts.SetWill("agent/"+m.clientID, lastWillTestatement, 0, false)
 	return opts
+}
+
+// connect and update option to auto resubscribe with option OnConnect
+func (m *MQTTBroker) ConnectAndSubscribe(subHandler broker.Handler, subTopics []string) error {
+	// update subscribe option
+	m.subscribeHandler = subHandler
+	m.subscribeTopics = subTopics
+
+	return m.Connect()
 }
 
 func (m *MQTTBroker) Connect() error {

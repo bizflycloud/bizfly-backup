@@ -41,9 +41,10 @@ type UpdateMachineResponse struct {
 func osName() string {
 	switch runtime.GOOS {
 	case "windows":
-		command := "(Get-ComputerInfo).WindowsProductName"
+		command := "systeminfo | findstr /c:'OS Name'"
 		name, _ := exec.Command("powershell", "-Command", command).Output()
-		return string(name)
+		osName := strings.Split(string(name), ":")
+		return strings.Replace(osName[1], "Microsoft ", "", -1)
 	case "darwin":
 		out, _ := exec.Command("bash", "-c", "sw_vers -productName").Output()
 		names := strings.Split(string(out), "\n")

@@ -98,6 +98,13 @@ func (m *MQTTBroker) opts() *mqtt.ClientOptions {
 	opts.OnReconnecting = reconnectHandler
 	opts.OnConnect = connectHandler
 
+	// Set the message callback handler
+	var publishHandler mqtt.MessageHandler = func(client mqtt.Client, msg mqtt.Message) {
+		m.logger.Sugar().Debugf("SEND MESSAGE: %s TO TOPIC: %s", msg.Payload(), msg.Topic())
+	}
+
+	opts.SetDefaultPublishHandler(publishHandler)
+
 	opts.SetWill("agent/"+m.clientID, lastWillTestatement, 0, false)
 	return opts
 }

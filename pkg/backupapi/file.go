@@ -29,6 +29,7 @@ import (
 
 	"github.com/panjf2000/ants/v2"
 	"github.com/restic/chunker"
+	"github.com/spf13/viper"
 )
 
 const ChunkUploadLowerBound = 8 * 1000 * 1000
@@ -219,9 +220,12 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 func (c *Client) RestoreDirectory(index cache.Index, destDir string, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) error {
 	p.Start()
 	s := progress.Stat{}
-	numGoroutine := int(float64(runtime.NumCPU()) * 0.2)
-	if numGoroutine <= 1 {
-		numGoroutine = 2
+	numGoroutine := viper.GetInt("num_goroutine")
+	if numGoroutine == 0 {
+		numGoroutine = int(float64(runtime.NumCPU()) * 0.2)
+		if numGoroutine <= 1 {
+			numGoroutine = 2
+		}
 	}
 	sem := semaphore.NewWeighted(int64(numGoroutine))
 	ctx, cancel := context.WithCancel(context.Background())

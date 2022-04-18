@@ -7,3 +7,5 @@ limit_upload: <Upload KiB>
 limit_download: <Download KiB>
 
 port: <Service port>
+
+num_goroutine: <Quantity goroutine>

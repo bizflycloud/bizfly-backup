@@ -1281,18 +1281,20 @@ func (s *Server) storeFiles(cachePath, mcID string, rpID string, index *cache.In
 	defer file.Close()
 	writerCSV := csv.NewWriter(file)
 	defer writerCSV.Flush()
-	errWriteCSV := writerCSV.Write([]string{"name", "hash", "path", "size", "type"})
+	errWriteCSV := writerCSV.Write([]string{"name", "hash", "path", "size", "type", "modify_time"})
 	if errWriteCSV != nil {
 		return errWriteCSV
 	}
 	for _, itemInfo := range index.Items {
 		itemHash := ""
 		var itemSize uint64
+		var itemModifiedTime string
 		if itemInfo.Type == "file" {
 			itemHash = itemInfo.Sha256Hash.String()
 			itemSize = itemInfo.Size
+			itemModifiedTime = itemInfo.ModTime.String()
 		}
-		err := writerCSV.Write([]string{itemInfo.Name, itemHash, itemInfo.AbsolutePath, strconv.FormatUint(itemSize, 10), itemInfo.Type})
+		err := writerCSV.Write([]string{itemInfo.Name, itemHash, itemInfo.AbsolutePath, strconv.FormatUint(itemSize, 10), itemInfo.Type, itemModifiedTime})
 		if err != nil {
 			s.logger.Error("Err writer file.csv", zap.Error(err))
 			return err

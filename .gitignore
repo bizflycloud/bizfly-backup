@@ -26,3 +26,6 @@
 # End of https://www.gitignore.io/api/go
 bizfly-backup
 .idea/
+
+# Cached created when run binary for test
+.cache

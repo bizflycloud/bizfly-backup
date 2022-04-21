@@ -129,9 +129,12 @@ func New(opts ...Option) (*Server, error) {
 	s.Addr = strings.TrimPrefix(s.Addr, trimPrefix)
 
 	var err error
-	numGoroutine := int(float64(runtime.NumCPU()) * PERCENT_PROCESS)
-	if numGoroutine <= 1 {
-		numGoroutine = 2
+	numGoroutine := viper.GetInt("num_goroutine")
+	if numGoroutine == 0 {
+		numGoroutine = int(float64(runtime.NumCPU()) * PERCENT_PROCESS)
+		if numGoroutine <= 1 {
+			numGoroutine = 2
+		}
 	}
 	s.poolDir, err = ants.NewPool(numGoroutine)
 	if err != nil {

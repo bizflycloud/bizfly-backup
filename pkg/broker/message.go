@@ -20,6 +20,7 @@ const (
 	ConfigUpdateActionAddDirectory      = "add_directory"
 	ConfigUpdateActionDelDirectory      = "del_directory"
 	StatusNotify                        = "status_notify"
+	StopAction                          = "stop_action"
 )
 
 // ErrUnknownEventType is raised when receiving unhandled event from broker.

@@ -182,6 +182,36 @@ func (s *Server) setupRoutes() {
 	s.router.Route("/version", func(r chi.Router) {
 		r.Post("/", s.Version)
 	})
+	s.router.Route("/actions", func(r chi.Router) {
+		r.Get("/", s.ListAction)
+		r.Delete("/{actionID}", s.StopAction)
+	})
+}
+
+func (s *Server) ListAction(w http.ResponseWriter, r *http.Request) {
+	c, err := s.backupClient.ListActivity(r.Context(), s.backupClient.Id, []string{statusDownloading, statusUploadFile})
+	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+	_ = json.NewEncoder(w).Encode(c)
+}
+
+func (s *Server) StopAction(w http.ResponseWriter, r *http.Request) {
+	actionID := chi.URLParam(r, "actionID")
+
+	msg := map[string]string{"event_type": broker.StopAction, "action_id": actionID}
+	payload, _ := json.Marshal(msg)
+	err := s.b.Publish("agent/"+s.backupClient.Id, payload)
+	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+	_, _ = w.Write([]byte("Success"))
 }
 
 func (s *Server) handleBrokerEvent(e broker.Event) error {

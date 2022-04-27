@@ -30,6 +30,7 @@ type RecoveryPoint struct {
 	RecoveryPointType string `json:"recovery_point_type"`
 	Status            string `json:"status"`
 	PolicyID          string `json:"policy_id"`
+	Progress          string `json:"progress"`
 	BackupDirectoryID string `json:"backup_directory_id"`
 	CreatedAt         string `json:"created_at"`
 	UpdatedAt         string `json:"updated_at"`

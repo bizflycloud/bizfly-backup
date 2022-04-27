@@ -682,8 +682,12 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 }
 
 func (s *Server) restore(machineID, actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, storageVaultID string, limitUpload, limitDownload int, progressOutput io.Writer) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	_, cachePath, err := support.CheckPath()
 	if err != nil {
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 
@@ -770,19 +774,26 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	progressRestore := s.newDownloadProgress(recoveryPointID, itemTodo)
 
 	s.logger.Sugar().Info("Restore directory", filepath.Clean(destDir))
-	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVault, restoreKey, progressRestore); err != nil {
+	if err := s.backupClient.RestoreDirectory(ctx, index, filepath.Clean(destDir), storageVault, restoreKey, progressRestore); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
+		cancel()
 		s.notifyStatusFailed(actionID, err.Error())
 		progressRestore.Done()
 		return err
 	}
 
-	s.reportRestoreCompleted(progressOutput)
-	progressRestore.Done()
-	s.notifyMsg(map[string]string{
-		"action_id": actionID,
-		"status":    statusComplete,
-	})
+	select {
+	case <-ctx.Done():
+		return backupapi.ErrorGotCancelRequest
+	default:
+		s.reportRestoreCompleted(progressOutput)
+		progressRestore.Done()
+		s.notifyMsg(map[string]string{
+			"action_id": actionID,
+			"status":    statusComplete,
+		})
+	}
+
 	return nil
 }
 
@@ -891,7 +902,8 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 	return func() {
 		s.logger.Info("Backup directory ID: ", zap.String("backupDirectoryID", backupDirectoryID), zap.String("policyID", policyID), zap.String("name", name), zap.String("recoveryPointType", recoveryPointType))
 
-		ctx := context.Background()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 		// Get BackupDirectory
 		s.logger.Sugar().Info("Get backup directory", zap.String("backupDirectoryID", backupDirectoryID))
@@ -1042,25 +1054,30 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		var storageSize uint64
 		var errFileWorker error
 		progressUpload := s.newUploadProgress(rpID, itemTodo)
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
+
 		var wg sync.WaitGroup
 		for _, itemInfo := range index.Items {
-			if errFileWorker != nil {
-				s.logger.Error("uploadFileWorker error", zap.Error(errFileWorker))
-				err = errFileWorker
-				cancel()
+			select {
+			case <-ctx.Done():
+				s.logger.Sugar().Info("Stopping worker %s", actionCreateRP.ID)
 				break
-			}
-			progressUpload.Start()
-			st := progress.Stat{}
-			st.Items = 1
-			progressUpload.Report(st)
+			default:
+				if errFileWorker != nil {
+					s.logger.Error("uploadFileWorker error", zap.Error(errFileWorker))
+					err = errFileWorker
+					cancel()
+					break
+				}
+				progressUpload.Start()
+				st := progress.Stat{}
+				st.Items = 1
+				progressUpload.Report(st)
 
-			if itemInfo.Type == "file" {
-				lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
-				wg.Add(1)
-				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, cacheWriter, storageVault, &wg, &storageSize, &errFileWorker, progressUpload, pipe, rpID, bdID))
+				if itemInfo.Type == "file" {
+					lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
+					wg.Add(1)
+					_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, cacheWriter, storageVault, &wg, &storageSize, &errFileWorker, progressUpload, pipe, rpID, bdID))
+				}
 			}
 		}
 		go func() {
@@ -1167,17 +1184,23 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 
-		s.reportUploadCompleted(progressOutput)
-		progressUpload.Done()
-		s.notifyMsg(map[string]string{
-			"action_id":    actionCreateRP.ID,
-			"status":       statusComplete,
-			"index_hash":   indexHash,
-			"storage_size": strconv.FormatUint(storageSize, 10),
-			"total":        strconv.FormatUint(itemTodo.Bytes, 10),
-			"total_files":  strconv.Itoa(int(totalFiles)),
-		})
-
+		// check if context done before return --> got cancel request
+		// else report done
+		select {
+		case <-ctx.Done():
+			errCh <- backupapi.ErrorGotCancelRequest
+		default:
+			s.reportUploadCompleted(progressOutput)
+			progressUpload.Done()
+			s.notifyMsg(map[string]string{
+				"action_id":    actionCreateRP.ID,
+				"status":       statusComplete,
+				"index_hash":   indexHash,
+				"storage_size": strconv.FormatUint(storageSize, 10),
+				"total":        strconv.FormatUint(itemTodo.Bytes, 10),
+				"total_files":  strconv.Itoa(int(totalFiles)),
+			})
+		}
 		errCh <- nil
 	}
 }

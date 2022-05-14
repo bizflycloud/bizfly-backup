@@ -646,9 +646,9 @@ func (s *Server) notifyMsgProgress(recoverypointID string, msg map[string]string
 	}
 }
 
-func (s *Server) notifyStatusFailed(recoveryPointID, reason string) {
+func (s *Server) notifyStatusFailed(actionID, reason string) {
 	s.notifyMsg(map[string]string{
-		"action_id": recoveryPointID,
+		"action_id": actionID,
 		"status":    statusFailed,
 		"reason":    reason,
 	})
@@ -682,8 +682,12 @@ func (s *Server) reportRestoreCompleted(w io.Writer) {
 }
 
 func (s *Server) restore(machineID, actionID string, createdAt string, restoreSessionKey string, recoveryPointID string, destDir string, storageVaultID string, limitUpload, limitDownload int, progressOutput io.Writer) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	_, cachePath, err := support.CheckPath()
 	if err != nil {
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 
@@ -708,7 +712,7 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	rp, err := s.backupClient.GetRecoveryPointInfo(recoveryPointID)
 	if err != nil {
 		s.logger.Error("Error get recoveryPointInfo", zap.Error(err))
-		s.notifyStatusFailed(rp.ID, err.Error())
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 
@@ -721,17 +725,17 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 				_ = os.MkdirAll(filepath.Join(cachePath, machineID, recoveryPointID), 0700)
 				if err := ioutil.WriteFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"), buf, 0700); err != nil {
 					s.logger.Error("Error writing index.json file", zap.Error(err), zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
-					s.notifyStatusFailed(rp.ID, err.Error())
+					s.notifyStatusFailed(actionID, err.Error())
 					return err
 				}
 			} else {
 				s.logger.Error("Error get index.json from storage", zap.Error(err), zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
-				s.notifyStatusFailed(rp.ID, err.Error())
+				s.notifyStatusFailed(actionID, err.Error())
 				return err
 			}
 		} else {
 			s.logger.Error("Error stat index.json file", zap.Error(err))
-			s.notifyStatusFailed(rp.ID, err.Error())
+			s.notifyStatusFailed(actionID, err.Error())
 			return err
 		}
 	}
@@ -741,7 +745,7 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	buf, err := ioutil.ReadFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"))
 	if err != nil {
 		s.logger.Error("Error read index.json file", zap.Error(err), zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
-		s.notifyStatusFailed(rp.ID, err.Error())
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	} else {
 		_ = json.Unmarshal([]byte(buf), &index)
@@ -750,7 +754,7 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	hash := sha256.Sum256(buf)
 	if hex.EncodeToString(hash[:]) != rp.IndexHash {
 		s.logger.Error("index.json is corrupted", zap.Error(err))
-		s.notifyStatusFailed(rp.ID, err.Error())
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 
@@ -764,25 +768,32 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	progressScan := s.newProgressScanDir(recoveryPointID)
 	itemTodo, err := WalkerItem(&index, progressScan)
 	if err != nil {
-		s.notifyStatusFailed(rp.ID, err.Error())
+		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 	progressRestore := s.newDownloadProgress(recoveryPointID, itemTodo)
 
 	s.logger.Sugar().Info("Restore directory", filepath.Clean(destDir))
-	if err := s.backupClient.RestoreDirectory(index, filepath.Clean(destDir), storageVault, restoreKey, progressRestore); err != nil {
+	if err := s.backupClient.RestoreDirectory(ctx, index, filepath.Clean(destDir), storageVault, restoreKey, progressRestore); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
+		cancel()
 		s.notifyStatusFailed(actionID, err.Error())
 		progressRestore.Done()
 		return err
 	}
 
-	s.reportRestoreCompleted(progressOutput)
-	progressRestore.Done()
-	s.notifyMsg(map[string]string{
-		"action_id": actionID,
-		"status":    statusComplete,
-	})
+	select {
+	case <-ctx.Done():
+		return backupapi.ErrorGotCancelRequest
+	default:
+		s.reportRestoreCompleted(progressOutput)
+		progressRestore.Done()
+		s.notifyMsg(map[string]string{
+			"action_id": actionID,
+			"status":    statusComplete,
+		})
+	}
+
 	return nil
 }
 
@@ -891,7 +902,8 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 	return func() {
 		s.logger.Info("Backup directory ID: ", zap.String("backupDirectoryID", backupDirectoryID), zap.String("policyID", policyID), zap.String("name", name), zap.String("recoveryPointType", recoveryPointType))
 
-		ctx := context.Background()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 		// Get BackupDirectory
 		s.logger.Sugar().Info("Get backup directory", zap.String("backupDirectoryID", backupDirectoryID))
@@ -904,7 +916,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		// Create recovery point
 		s.logger.Sugar().Info("Create recovery point", zap.String("backupDirectoryID", backupDirectoryID))
-		rp, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
+		actionCreateRP, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
 			PolicyID:          policyID,
 			Name:              name,
 			RecoveryPointType: recoveryPointType,
@@ -919,14 +931,14 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		s.logger.Sugar().Info("Get latest recovery point", zap.String("backupDirectoryID", backupDirectoryID))
 		lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
 		if err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
+			s.notifyStatusFailed(actionCreateRP.ID, err.Error())
 			s.logger.Error("GetLatestRecoveryPointID error", zap.Error(err))
 			errCh <- err
 			return
 		}
 
 		// Get storage vault
-		storageVault, err := s.NewStorageVault(*rp.StorageVault, rp.ID, limitUpload, limitDownload)
+		storageVault, err := s.NewStorageVault(*actionCreateRP.StorageVault, actionCreateRP.ID, limitUpload, limitDownload)
 		if err != nil {
 			s.logger.Error("NewStorageVault error", zap.Error(err))
 			errCh <- err
@@ -953,11 +965,11 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		}
 
 		s.notifyMsg(map[string]string{
-			"action_id": rp.ID,
+			"action_id": actionCreateRP.ID,
 			"status":    statusUploadFile,
 		})
 		mcID := s.backupClient.Id
-		rpID := rp.RecoveryPoint.ID
+		rpID := actionCreateRP.RecoveryPoint.ID
 		bdID := bd.ID
 		progressScan := s.newProgressScanDir(rpID)
 
@@ -965,7 +977,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		chunks := cache.NewChunk(bdID, rpID)
 		itemTodo, totalFiles, err := WalkerDir(bd.Path, index, progressScan)
 		if err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
+			s.notifyStatusFailed(actionCreateRP.ID, err.Error())
 			s.logger.Error("WalkerDir error", zap.Error(err))
 			errCh <- err
 			return
@@ -987,7 +999,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			// Store index
 			errStoreIndexs := s.storeIndexs(cachePath, mcID, lrp, storageVault)
 			if errStoreIndexs != nil {
-				s.notifyStatusFailed(rp.ID, errStoreIndexs.Error())
+				s.notifyStatusFailed(actionCreateRP.ID, errStoreIndexs.Error())
 				errCh <- errStoreIndexs
 				return
 			}
@@ -1026,7 +1038,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 						s.logger.Sugar().Info("Save chunk to chunk.json ", key)
 						errSaveChunks := cacheWriter.SaveChunk(chunks)
 						if errSaveChunks != nil {
-							s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
+							s.notifyStatusFailed(actionCreateRP.ID, errSaveChunks.Error())
 							errCh <- errSaveChunks
 							return
 						}
@@ -1042,25 +1054,30 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		var storageSize uint64
 		var errFileWorker error
 		progressUpload := s.newUploadProgress(rpID, itemTodo)
-		ctx, cancel := context.WithCancel(ctx)
-		defer cancel()
+
 		var wg sync.WaitGroup
 		for _, itemInfo := range index.Items {
-			if errFileWorker != nil {
-				s.logger.Error("uploadFileWorker error", zap.Error(errFileWorker))
-				err = errFileWorker
-				cancel()
+			select {
+			case <-ctx.Done():
+				s.logger.Sugar().Info("Stopping worker %s", actionCreateRP.ID)
 				break
-			}
-			progressUpload.Start()
-			st := progress.Stat{}
-			st.Items = 1
-			progressUpload.Report(st)
+			default:
+				if errFileWorker != nil {
+					s.logger.Error("uploadFileWorker error", zap.Error(errFileWorker))
+					err = errFileWorker
+					cancel()
+					break
+				}
+				progressUpload.Start()
+				st := progress.Stat{}
+				st.Items = 1
+				progressUpload.Report(st)
 
-			if itemInfo.Type == "file" {
-				lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
-				wg.Add(1)
-				_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, cacheWriter, storageVault, &wg, &storageSize, &errFileWorker, progressUpload, pipe, rpID, bdID))
+				if itemInfo.Type == "file" {
+					lastInfo := latestIndex.Items[itemInfo.AbsolutePath]
+					wg.Add(1)
+					_ = s.pool.Submit(s.uploadFileWorker(ctx, itemInfo, lastInfo, cacheWriter, storageVault, &wg, &storageSize, &errFileWorker, progressUpload, pipe, rpID, bdID))
+				}
 			}
 		}
 		go func() {
@@ -1072,7 +1089,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		s.logger.Sugar().Info("Save all chunks to chunk.json")
 		errSaveChunks := cacheWriter.SaveChunk(chunks)
 		if errSaveChunks != nil {
-			s.notifyStatusFailed(rp.ID, errSaveChunks.Error())
+			s.notifyStatusFailed(actionCreateRP.ID, errSaveChunks.Error())
 			errCh <- errSaveChunks
 			return
 		}
@@ -1080,7 +1097,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		// Store files
 		errWriterCSV := s.storeFiles(cachePath, mcID, rpID, index, storageVault)
 		if errWriterCSV != nil {
-			s.notifyStatusFailed(rp.ID, errWriterCSV.Error())
+			s.notifyStatusFailed(actionCreateRP.ID, errWriterCSV.Error())
 			errCh <- errWriterCSV
 			return
 		}
@@ -1109,7 +1126,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		s.logger.Sugar().Info("Put chunk.json to storage", zap.String("key", filepath.Join(mcID, rpID, "chunk.json")))
 		errPutChunks := s.putChunks(cachePath, mcID, rpID, chunkFailedPath, storageVault)
 		if errPutChunks != nil {
-			s.notifyStatusFailed(rp.ID, errPutChunks.Error())
+			s.notifyStatusFailed(actionCreateRP.ID, errPutChunks.Error())
 			errCh <- errPutChunks
 			return
 		}
@@ -1118,7 +1135,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		s.logger.Sugar().Info("Put file.csv to storage", zap.String("key", filepath.Join(mcID, rpID, "file.csv")))
 		errPutFiles := s.putFiles(cachePath, mcID, rpID, fileFailedPath, storageVault)
 		if errPutFiles != nil {
-			s.notifyStatusFailed(rp.ID, errPutFiles.Error())
+			s.notifyStatusFailed(actionCreateRP.ID, errPutFiles.Error())
 			errCh <- errPutFiles
 			return
 		}
@@ -1133,9 +1150,9 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 
 		if errFileWorker != nil {
 			if err != nil {
-				s.notifyStatusFailed(rp.ID, err.Error())
+				s.notifyStatusFailed(actionCreateRP.ID, err.Error())
 			} else {
-				s.notifyStatusFailed(rp.ID, errFileWorker.Error())
+				s.notifyStatusFailed(actionCreateRP.ID, errFileWorker.Error())
 			}
 			s.logger.Error("Error uploadFileWorker error", zap.Error(errFileWorker))
 			progressUpload.Done()
@@ -1146,7 +1163,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		// Save Indexs
 		err = cacheWriter.SaveIndex(index)
 		if err != nil {
-			s.notifyStatusFailed(rp.ID, err.Error())
+			s.notifyStatusFailed(actionCreateRP.ID, err.Error())
 			errCh <- err
 			return
 		}
@@ -1155,7 +1172,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		s.logger.Sugar().Info("Put index.json to storage", zap.String("key", filepath.Join(mcID, rpID, "index.json")))
 		indexHash, errPutIndexs := s.putIndexs(storageVault, latestIndex, cachePath, mcID, rpID)
 		if errPutIndexs != nil {
-			s.notifyStatusFailed(rp.ID, errPutIndexs.Error())
+			s.notifyStatusFailed(actionCreateRP.ID, errPutIndexs.Error())
 			errCh <- errPutIndexs
 			return
 		}
@@ -1167,17 +1184,23 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 
-		s.reportUploadCompleted(progressOutput)
-		progressUpload.Done()
-		s.notifyMsg(map[string]string{
-			"action_id":    rp.ID,
-			"status":       statusComplete,
-			"index_hash":   indexHash,
-			"storage_size": strconv.FormatUint(storageSize, 10),
-			"total":        strconv.FormatUint(itemTodo.Bytes, 10),
-			"total_files":  strconv.Itoa(int(totalFiles)),
-		})
-
+		// check if context done before return --> got cancel request
+		// else report done
+		select {
+		case <-ctx.Done():
+			errCh <- backupapi.ErrorGotCancelRequest
+		default:
+			s.reportUploadCompleted(progressOutput)
+			progressUpload.Done()
+			s.notifyMsg(map[string]string{
+				"action_id":    actionCreateRP.ID,
+				"status":       statusComplete,
+				"index_hash":   indexHash,
+				"storage_size": strconv.FormatUint(storageSize, 10),
+				"total":        strconv.FormatUint(itemTodo.Bytes, 10),
+				"total_files":  strconv.Itoa(int(totalFiles)),
+			})
+		}
 		errCh <- nil
 	}
 }

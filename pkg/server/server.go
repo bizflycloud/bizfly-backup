@@ -70,6 +70,11 @@ const (
 	intervalTimeCheckTaskRunning = 50 * time.Second
 )
 
+type contextStruct struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+}
+
 // Server defines parameters for running BizFly Backup HTTP server.
 type Server struct {
 	Addr            string
@@ -94,6 +99,9 @@ type Server struct {
 	chunkPool *ants.Pool
 
 	logger *zap.Logger
+
+	// map contains context of running worker
+	mapActionContext map[string]contextStruct
 }
 
 // New creates new server instance.
@@ -110,6 +118,7 @@ func New(opts ...Option) (*Server, error) {
 		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)))
 	s.cronManager.Start()
 	s.mappingToCronEntryID = make(map[string]cron.EntryID)
+	s.mapActionContext = make(map[string]contextStruct)
 
 	if s.logger == nil {
 		l, err := backupapi.WriteLog()
@@ -213,6 +222,12 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 
 		// schedule update size of directory on machine after 15 minutes
 		s.schedule(15*time.Minute, 2)
+	case broker.StopAction:
+		// Done context of running action
+		if actionContext, ok := s.mapActionContext[msg.ActionId]; ok {
+			actionContext.cancel()
+		}
+		s.notifyStatusFailed(msg.ActionId, backupapi.ErrorGotCancelRequest.Error())
 	default:
 		s.logger.Debug("Got unknown event", zap.Any("message", msg))
 	}
@@ -685,6 +700,9 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Save context of worker to map for manage
+	s.mapActionContext[actionID] = contextStruct{ctx: ctx, cancel: cancel}
+
 	_, cachePath, err := support.CheckPath()
 	if err != nil {
 		s.notifyStatusFailed(actionID, err.Error())
@@ -781,6 +799,9 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 		progressRestore.Done()
 		return err
 	}
+
+	// remove worker out of manage context mapping
+	delete(s.mapActionContext, actionID)
 
 	select {
 	case <-ctx.Done():
@@ -927,6 +948,9 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			return
 		}
 
+		// Save context of worker to map for manage
+		s.mapActionContext[actionCreateRP.ID] = contextStruct{ctx: ctx, cancel: cancel}
+
 		// Get latest recovery point
 		s.logger.Sugar().Info("Get latest recovery point", zap.String("backupDirectoryID", backupDirectoryID))
 		lrp, err := s.backupClient.GetLatestRecoveryPointID(backupDirectoryID)
@@ -1059,7 +1083,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 		for _, itemInfo := range index.Items {
 			select {
 			case <-ctx.Done():
-				s.logger.Sugar().Info("Stopping worker %s", actionCreateRP.ID)
+				s.logger.Sugar().Infof("Stopping worker %s", actionCreateRP.ID)
 				break
 			default:
 				if errFileWorker != nil {
@@ -1184,6 +1208,9 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			}
 		}
 
+		// remove worker out of manage context mapping
+		delete(s.mapActionContext, actionCreateRP.ID)
+
 		// check if context done before return --> got cancel request
 		// else report done
 		select {
@@ -1201,6 +1228,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 				"total_files":  strconv.Itoa(int(totalFiles)),
 			})
 		}
+
 		errCh <- nil
 	}
 }

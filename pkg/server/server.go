@@ -1372,11 +1372,10 @@ func (s *Server) storeFiles(cachePath, mcID string, rpID string, index *cache.In
 	for _, itemInfo := range index.Items {
 		itemHash := ""
 		var itemSize uint64
-		var itemModifiedTime string
+		itemModifiedTime := itemInfo.ModTime.String()
 		if itemInfo.Type == "file" {
 			itemHash = itemInfo.Sha256Hash.String()
 			itemSize = itemInfo.Size
-			itemModifiedTime = itemInfo.ModTime.String()
 		}
 		err := writerCSV.Write([]string{itemInfo.Name, itemHash, itemInfo.AbsolutePath, strconv.FormatUint(itemSize, 10), itemInfo.Type, itemModifiedTime})
 		if err != nil {

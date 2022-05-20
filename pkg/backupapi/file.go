@@ -231,6 +231,7 @@ func (c *Client) RestoreDirectory(ctx context.Context, index cache.Index, destDi
 		select {
 		case <-ctx.Done():
 			c.logger.Sugar().Infof("Stopping worker restore %s", restoreKey.ActionID)
+			p.Cancel()
 			break
 		default:
 			item := item

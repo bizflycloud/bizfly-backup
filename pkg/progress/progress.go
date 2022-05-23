@@ -12,6 +12,7 @@ type Progress struct {
 	OnStart   func()
 	OnUpdate  ProgressFunc
 	OnDone    ProgressFunc
+	OnCancel  ProgressFunc
 	funcMutex sync.Mutex
 
 	currentStat  Stat
@@ -140,6 +141,23 @@ func (p *Progress) Done() {
 	if p.OnDone != nil {
 		p.funcMutex.Lock()
 		p.OnDone(cur, time.Since(p.startTime), false)
+		p.funcMutex.Unlock()
+	}
+}
+
+func (p *Progress) Cancel() {
+	if p == nil || !p.running {
+		return
+	}
+
+	p.running = false
+	p.once.Do(func() {
+		close(p.cancel)
+	})
+	cur := p.currentStat
+	if p.OnCancel != nil {
+		p.funcMutex.Lock()
+		p.OnCancel(cur, time.Since(p.startTime), false)
 		p.funcMutex.Unlock()
 	}
 }

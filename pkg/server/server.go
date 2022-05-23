@@ -1114,6 +1114,7 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			select {
 			case <-ctx.Done():
 				s.logger.Sugar().Infof("Stopping worker %s", actionCreateRP.ID)
+				progressUpload.Cancel()
 				break
 			default:
 				if errFileWorker != nil {
@@ -1463,6 +1464,13 @@ func (s *Server) newUploadProgress(recoveryPointID string, todo progress.Stat) *
 			"COMPLETE UPLOAD": message,
 		})
 	}
+
+	p.OnCancel = func(stat progress.Stat, d time.Duration, ticker bool) {
+		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
+		s.notifyMsgProgress(recoveryPointID, map[string]string{
+			"CANCELED UPLOAD": message,
+		})
+	}
 	return p
 }
 
@@ -1507,6 +1515,13 @@ func (s *Server) newDownloadProgress(recoveryPointID string, todo progress.Stat)
 		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
 		s.notifyMsgProgress(recoveryPointID, map[string]string{
 			"COMPLETE DOWNLOAD": message,
+		})
+	}
+
+	p.OnCancel = func(stat progress.Stat, d time.Duration, ticker bool) {
+		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
+		s.notifyMsgProgress(recoveryPointID, map[string]string{
+			"CANCELED DOWNLOAD": message,
 		})
 	}
 	return p

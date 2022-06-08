@@ -12,6 +12,7 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.3.5
 	github.com/go-chi/chi v4.1.2+incompatible
 	github.com/go-chi/valve v0.0.0-20170920024740-9e45288364f4
+	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-openapi/errors v0.20.2 // indirect
 	github.com/go-openapi/strfmt v0.21.2 // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
@@ -39,6 +40,7 @@ require (
 	golang.org/x/mod v0.5.1
 	golang.org/x/net v0.0.0-20220526153639-5463443f8c37 // indirect
 	golang.org/x/sync v0.0.0-20220513210516-0976fa681c29
+	golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 	gopkg.in/yaml.v2 v2.4.0
 )

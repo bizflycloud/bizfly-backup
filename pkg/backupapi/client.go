@@ -28,11 +28,12 @@ const (
 
 // Client is the client for interacting with BackupService API server.
 type Client struct {
-	client    *http.Client
-	ServerURL *url.URL
-	Id        string
-	accessKey string
-	secretKey string
+	client       *http.Client
+	ServerURL    *url.URL
+	Id           string
+	accessKey    string
+	secretKey    string
+	numGoroutine int
 
 	userAgent string
 
@@ -122,6 +123,14 @@ func WithAccessKey(accessKey string) ClientOption {
 func WithSecretKey(secretKey string) ClientOption {
 	return func(c *Client) error {
 		c.secretKey = secretKey
+		return nil
+	}
+}
+
+// WithNumGoroutine sets the secret key for Client.
+func WithNumGoroutine(num int) ClientOption {
+	return func(c *Client) error {
+		c.numGoroutine = num
 		return nil
 	}
 }

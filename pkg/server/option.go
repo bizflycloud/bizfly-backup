@@ -56,3 +56,11 @@ func WithLogger(logger *zap.Logger) Option {
 		return nil
 	}
 }
+
+// WithLogger returns an Option which set the logger for Server.
+func WithNumGoroutine(num int) Option {
+	return func(s *Server) error {
+		s.numGoroutine = num
+		return nil
+	}
+}

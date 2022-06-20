@@ -53,12 +53,14 @@ var agentCmd = &cobra.Command{
 		accessKey := viper.GetString("access_key")
 		secretKey := viper.GetString("secret_key")
 		apiUrl := viper.GetString("api_url")
+		numGoroutine := viper.GetInt("num_goroutine")
 
 		backupClient, err := backupapi.NewClient(
 			backupapi.WithAccessKey(accessKey),
 			backupapi.WithSecretKey(secretKey),
 			backupapi.WithServerURL(apiUrl),
 			backupapi.WithID(machineID),
+			backupapi.WithNumGoroutine(numGoroutine),
 		)
 		if err != nil {
 			logger.Error("failed to create new backup client", zap.Error(err))
@@ -70,6 +72,7 @@ var agentCmd = &cobra.Command{
 			umr, err := backupClient.UpdateMachine()
 			if err == nil {
 				brokerUrl = umr.BrokerUrl
+				numGoroutine = umr.NumGoroutine
 				break
 			}
 			logger.Error("failed to update machine info", zap.Error(err))
@@ -102,6 +105,7 @@ var agentCmd = &cobra.Command{
 			server.WithPublishTopics("agent/"+agentID, "agent/recovery-points/"+agentID),
 			server.WithBackupClient(backupClient),
 			server.WithLogger(logger),
+			server.WithNumGoroutine(numGoroutine),
 		)
 		if err != nil {
 			logger.Fatal("failed to create new server", zap.Error(err))

@@ -21,6 +21,7 @@ const (
 	ConfigUpdateActionDelDirectory      = "del_directory"
 	StatusNotify                        = "status_notify"
 	StopAction                          = "stop_action"
+	UpdateNumGoroutine                  = "update_num_goroutine"
 )
 
 // ErrUnknownEventType is raised when receiving unhandled event from broker.
@@ -54,4 +55,5 @@ type Message struct {
 	// For config update
 	BackupDirectories []backupapi.BackupDirectoryConfig `json:"backup_directories"`
 	Action            string                            `json:"action"`
+	NumGoroutine      int                               `json:"num_goroutine"`
 }

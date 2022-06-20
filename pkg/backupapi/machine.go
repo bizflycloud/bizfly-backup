@@ -30,11 +30,13 @@ type Machine struct {
 	AgentVersion string `json:"agent_version"`
 	TenantID     string `json:"tenant_id"`
 	OSMachineID  string `json:"os_machine_id"`
+	NumGoroutine int    `json:"num_goroutine"`
 }
 
 // UpdateMachineResponse is the server response when update machine info
 type UpdateMachineResponse struct {
-	BrokerUrl string `json:"broker_url"`
+	BrokerUrl    string `json:"broker_url"`
+	NumGoroutine int    `json:"num_goroutine"`
 }
 
 // Get OS Name
@@ -70,6 +72,7 @@ func (c *Client) UpdateMachine() (*UpdateMachineResponse, error) {
 		OSVersion:    osName(),
 		AgentVersion: agentversion.Version(),
 		IPAddress:    getOutboundIP(),
+		NumGoroutine: c.numGoroutine,
 	}
 
 	req, err := c.NewRequest(http.MethodPatch, updateMachinePath, m)

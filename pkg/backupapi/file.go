@@ -22,6 +22,7 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/progress"
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 	"github.com/bizflycloud/bizfly-backup/pkg/support"
+	"github.com/bizflycloud/bizfly-backup/pkg/vss"
 
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -93,6 +94,25 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		var errBackupChunk error
 
 		file, err := os.Open(itemInfo.AbsolutePath)
+
+		// Try to create vss snapshot of file to back up if open error
+		if err != nil && viper.GetBool("force") {
+			if errPrivileges := vss.HasSufficientPrivilegesForVSS(); errPrivileges == nil {
+				errorHandler := func(item string, err error) error {
+					c.logger.Error("Create VSS snapshot error: ", zap.Error(err))
+					return err
+				}
+
+				messageHandler := func(msg string, args ...interface{}) {
+					c.logger.Sugar().Infof(msg, args)
+				}
+
+				localVss := vss.NewLocalVss(errorHandler, messageHandler)
+				defer localVss.DeleteSnapshots()
+				file, err = os.Open(localVss.SnapshotPath(itemInfo.AbsolutePath))
+			}
+		}
+
 		if err != nil {
 			if os.IsNotExist(err) {
 				s.ItemName = append(s.ItemName, itemInfo.AbsolutePath)
@@ -104,6 +124,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 				return 0, err
 			}
 		}
+
 		chk := chunker.New(file, 0x3dea92648f6e83)
 		buf := make([]byte, ChunkUploadLowerBound)
 		var stat uint64

@@ -38,6 +38,7 @@ var (
 	cfgFile string
 	addr    string
 	debug   bool
+	force   bool
 	logger  *zap.Logger
 )
 
@@ -70,6 +71,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.bizfly-backup.yaml)")
 	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug (default is false)")
 	rootCmd.PersistentFlags().StringVar(&addr, "addr", "", "listening address of agent server.")
+	rootCmd.PersistentFlags().BoolVar(&force, "force", false, "force backup (may cause full disk).")
 }
 
 // initConfig reads in config file and ENV variables if set.
@@ -101,6 +103,9 @@ func initConfig() {
 
 	// Set default value for config
 	viper.SetDefault("port", defaultPort)
+
+	// set value for force
+	viper.Set("force", force)
 
 	viper.AutomaticEnv() // read in environment variables that match
 

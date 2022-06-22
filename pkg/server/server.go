@@ -98,6 +98,9 @@ type Server struct {
 	pool      *ants.Pool
 	chunkPool *ants.Pool
 
+	// Num goroutine
+	numGoroutine int
+
 	logger *zap.Logger
 
 	// map contains context of running worker
@@ -130,6 +133,13 @@ func New(opts ...Option) (*Server, error) {
 
 	s.setupRoutes()
 
+	if s.numGoroutine == 0 {
+		s.numGoroutine = int(float64(runtime.NumCPU()) * PERCENT_PROCESS)
+		if s.numGoroutine <= 1 {
+			s.numGoroutine = 2
+		}
+	}
+
 	s.useUnixSock = strings.HasPrefix(s.Addr, "unix://")
 	trimPrefix := "unix://"
 	if !s.useUnixSock {
@@ -138,25 +148,18 @@ func New(opts ...Option) (*Server, error) {
 	s.Addr = strings.TrimPrefix(s.Addr, trimPrefix)
 
 	var err error
-	numGoroutine := viper.GetInt("num_goroutine")
-	if numGoroutine == 0 {
-		numGoroutine = int(float64(runtime.NumCPU()) * PERCENT_PROCESS)
-		if numGoroutine <= 1 {
-			numGoroutine = 2
-		}
-	}
-	s.poolDir, err = ants.NewPool(numGoroutine)
+	s.poolDir, err = ants.NewPool(s.numGoroutine)
 	if err != nil {
 		s.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 
-	s.pool, err = ants.NewPool(numGoroutine)
+	s.pool, err = ants.NewPool(s.numGoroutine)
 	if err != nil {
 		s.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
-	s.chunkPool, err = ants.NewPool(numGoroutine)
+	s.chunkPool, err = ants.NewPool(s.numGoroutine)
 	if err != nil {
 		s.logger.Error("err ", zap.Error(err))
 		return nil, err
@@ -240,7 +243,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 		}()
 		return err
 	case broker.ConfigUpdate:
-		return s.handleConfigUpdate(msg.Action, msg.BackupDirectories)
+		return s.handleConfigUpdate(msg)
 	case broker.ConfigRefresh:
 		return s.handleConfigRefresh(msg.BackupDirectories)
 	case broker.AgentUpgrade:
@@ -264,20 +267,31 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	return nil
 }
 
-func (s *Server) handleConfigUpdate(action string, backupDirectories []backupapi.BackupDirectoryConfig) error {
-	switch action {
+func (s *Server) handleConfigUpdate(config broker.Message) error {
+	switch config.Action {
 	case broker.ConfigUpdateActionAddPolicy,
 		broker.ConfigUpdateActionUpdatePolicy,
 		broker.ConfigUpdateActionActiveDirectory,
 		broker.ConfigUpdateActionAddDirectory:
-		s.removeFromCronManager(backupDirectories)
-		s.addToCronManager(backupDirectories)
+		s.removeFromCronManager(config.BackupDirectories)
+		s.addToCronManager(config.BackupDirectories)
 	case broker.ConfigUpdateActionDelPolicy,
 		broker.ConfigUpdateActionDeactiveDirectory,
 		broker.ConfigUpdateActionDelDirectory:
-		s.removeFromCronManager(backupDirectories)
+		s.removeFromCronManager(config.BackupDirectories)
+
+	case broker.UpdateNumGoroutine:
+		if config.NumGoroutine == 0 {
+			return nil
+		}
+		s.logger.Sugar().Debugf("handleConfigUpdate: updating num_goroutine to %d", config.NumGoroutine)
+		viper.Set("num_goroutine", config.NumGoroutine)
+		s.chunkPool.Tune(config.NumGoroutine)
+		s.pool.Tune(config.NumGoroutine)
+		s.poolDir.Tune(config.NumGoroutine)
+
 	default:
-		return fmt.Errorf("unhandled action: %s", action)
+		return fmt.Errorf("unhandled action: %s", config.Action)
 	}
 	return nil
 }

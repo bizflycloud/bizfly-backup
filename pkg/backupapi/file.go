@@ -152,7 +152,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 			hash.Write(temp)
 			itemInfo.Content = append(itemInfo.Content, &chunkToBackup)
 			wg.Add(1)
-			_ = pool.Submit(c.backupChunkJob(ctx, &wg, &errBackupChunk, &stat, temp, &chunkToBackup, cacheWriter, storageVault, p, pipe, rpID, bdID))
+			_ = pool.Submit(c.backupChunkJob(ctx, cancel, &wg, &errBackupChunk, &stat, temp, &chunkToBackup, cacheWriter, storageVault, p, pipe, rpID, bdID))
 		}
 		wg.Wait()
 
@@ -167,18 +167,19 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 
 type chunkJob func()
 
-func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *error, size *uint64,
+func (c *Client) backupChunkJob(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, chErr *error, size *uint64,
 	data []byte, chunk *cache.ChunkInfo, cacheWriter *cache.Repository, storageVault storage_vault.StorageVault, p *progress.Progress, pipe chan<- *cache.Chunk, rpID, bdID string) chunkJob {
 	return func() {
 		p.Start()
 		defer func() {
-			c.logger.Sugar().Info("Done task ", chunk.Start)
 			wg.Done()
 		}()
 		select {
 		case <-ctx.Done():
+			c.logger.Sugar().Debug("Stopping task ", chunk.Start)
 			return
 		default:
+			c.logger.Sugar().Debug("Doing task ", chunk.Start)
 			s := progress.Stat{}
 			saveSize, err := c.backupChunk(ctx, data, chunk, cacheWriter, storageVault, pipe, rpID, bdID)
 			if err != nil {
@@ -186,12 +187,14 @@ func (c *Client) backupChunkJob(ctx context.Context, wg *sync.WaitGroup, chErr *
 				*chErr = err
 				s.Errors = true
 				p.Report(s)
+				cancel()
 				return
 			}
 			s.Storage = saveSize
 			s.Bytes = uint64(chunk.Length)
 			p.Report(s)
 			*size += saveSize
+			c.logger.Sugar().Debug("Done task ", chunk.Start)
 		}
 	}
 }

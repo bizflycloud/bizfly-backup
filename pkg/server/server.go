@@ -47,6 +47,7 @@ import (
 var Version = "dev"
 
 const (
+	statusPendingFile = "PENDING"
 	statusUploadFile  = "UPLOADING"
 	statusComplete    = "COMPLETED"
 	statusDownloading = "DOWNLOADING"
@@ -716,7 +717,35 @@ func (s *Server) notifyStatusFailed(actionID, reason string) {
 // backup performs backup flow.
 func (s *Server) backup(backupDirectoryID string, policyID string, name string, limitUpload, limitDownload int, recoveryPointType string, progressOutput io.Writer) error {
 	chErr := make(chan error, 1)
-	_ = s.poolDir.Submit(s.backupWorker(backupDirectoryID, policyID, name, limitUpload, limitDownload, recoveryPointType, progressOutput, chErr))
+
+	s.logger.Info("Backup directory ID: ", zap.String("backupDirectoryID", backupDirectoryID), zap.String("policyID", policyID), zap.String("name", name), zap.String("recoveryPointType", recoveryPointType))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create recovery point
+	s.logger.Sugar().Infof("Creating recovery point %s", backupDirectoryID)
+	actionCreateRP, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
+		PolicyID:          policyID,
+		Name:              name,
+		RecoveryPointType: recoveryPointType,
+	})
+	if err != nil {
+		s.logger.Error("CreateRecoveryPoint error", zap.Error(err))
+		chErr <- err
+		return <-chErr
+	}
+
+	// Save context of worker to map for manage
+	s.mapActionContext[actionCreateRP.ID] = contextStruct{ctx: ctx, cancel: cancel}
+
+	// Notify status pending to backend
+	s.notifyMsg(map[string]string{
+		"action_id": actionCreateRP.ID,
+		"status":    statusPendingFile,
+	})
+
+	_ = s.poolDir.Submit(s.backupWorker(ctx, actionCreateRP, backupDirectoryID, limitUpload, limitDownload, progressOutput, chErr))
 	return <-chErr
 }
 
@@ -963,11 +992,9 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 	}
 }
 
-func (s *Server) backupWorker(backupDirectoryID string, policyID string, name string, limitUpload, limitDownload int, recoveryPointType string, progressOutput io.Writer, errCh chan<- error) backupJob {
+func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.CreateRecoveryPointResponse, backupDirectoryID string, limitUpload, limitDownload int, progressOutput io.Writer, errCh chan<- error) backupJob {
 	return func() {
-		s.logger.Info("Backup directory ID: ", zap.String("backupDirectoryID", backupDirectoryID), zap.String("policyID", policyID), zap.String("name", name), zap.String("recoveryPointType", recoveryPointType))
-
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
 		// Get BackupDirectory
@@ -978,22 +1005,6 @@ func (s *Server) backupWorker(backupDirectoryID string, policyID string, name st
 			errCh <- err
 			return
 		}
-
-		// Create recovery point
-		s.logger.Sugar().Info("Create recovery point", zap.String("backupDirectoryID", backupDirectoryID))
-		actionCreateRP, err := s.backupClient.CreateRecoveryPoint(ctx, backupDirectoryID, &backupapi.CreateRecoveryPointRequest{
-			PolicyID:          policyID,
-			Name:              name,
-			RecoveryPointType: recoveryPointType,
-		})
-		if err != nil {
-			s.logger.Error("CreateRecoveryPoint error", zap.Error(err))
-			errCh <- err
-			return
-		}
-
-		// Save context of worker to map for manage
-		s.mapActionContext[actionCreateRP.ID] = contextStruct{ctx: ctx, cancel: cancel}
 
 		// Get latest recovery point
 		s.logger.Sugar().Info("Get latest recovery point", zap.String("backupDirectoryID", backupDirectoryID))

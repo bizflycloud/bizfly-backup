@@ -30,7 +30,7 @@ import (
 const (
 	defaultPort = 9000
 	httpPrefix  = "http://"
-	localhost   = "localhost"
+	localhost   = "127.0.0.1"
 	tcpProtocol = "tcp"
 )
 

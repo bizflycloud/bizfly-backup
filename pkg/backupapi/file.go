@@ -249,12 +249,16 @@ func (c *Client) RestoreDirectory(ctx context.Context, index cache.Index, destDi
 		}
 	}
 	sem := semaphore.NewWeighted(int64(numGoroutine))
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	group, ctx := errgroup.WithContext(ctx)
 
 	for _, item := range index.Items {
 		select {
 		case <-ctx.Done():
-			c.logger.Sugar().Infof("Stopping worker restore %s", restoreKey.ActionID)
+			c.logger.Sugar().Debugf("Stopping worker restore %s", restoreKey.ActionID)
 			p.Cancel()
 			break
 		default:
@@ -271,6 +275,7 @@ func (c *Client) RestoreDirectory(ctx context.Context, index cache.Index, destDi
 					c.logger.Error("Restore file error ", zap.Error(err), zap.String("item name", item.AbsolutePath))
 					s.Errors = true
 					p.Report(s)
+					cancel()
 					return err
 				}
 				return nil

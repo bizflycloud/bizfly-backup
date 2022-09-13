@@ -878,6 +878,9 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 
 	select {
 	case <-ctx.Done():
+		if err != nil {
+			return err
+		}
 		return backupapi.ErrorGotCancelRequest
 	default:
 		s.reportRestoreCompleted(progressOutput)
@@ -1138,7 +1141,7 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 		for _, itemInfo := range index.Items {
 			select {
 			case <-ctx.Done():
-				s.logger.Sugar().Infof("Stopping worker %s", actionCreateRP.ID)
+				s.logger.Sugar().Debugf("Stopping worker %s", actionCreateRP.ID)
 				progressUpload.Cancel()
 				break
 			default:

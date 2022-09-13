@@ -1,4 +1,11 @@
-access_key: GMWR7FNOUZ8QAT98VEHX
-api_url: https://backup-staging.bizflycloud.vn
-machine_id: d1bfa61a-b0a6-4e64-b9f7-61d68037693a
-secret_key: db80645ec3abb9c29e7efd7b685cf00cf23a25d5d2eda96b24f5c67990ca56ab
+machine_id: foo
+access_key: <Access Key>
+secret_key: <Secret Key>
+api_url: <API URL>
+
+limit_upload: <Upload KiB>
+limit_download: <Download KiB>
+
+port: <Service port>
+
+num_goroutine: <Quantity goroutine>

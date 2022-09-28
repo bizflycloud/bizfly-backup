@@ -177,6 +177,7 @@ func (s *Server) setupRoutes() {
 	})
 
 	s.router.Route("/recovery-points", func(r chi.Router) {
+		r.Delete("/{recoveryPointID}", s.DeleteRecoveryPoints)
 		r.Post("/{recoveryPointID}/restore", s.RequestRestore)
 	})
 
@@ -397,6 +398,17 @@ func (s *Server) ListRecoveryPoints(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(rps)
+}
+
+func (s *Server) DeleteRecoveryPoints(w http.ResponseWriter, r *http.Request) {
+	recoveryPointID := chi.URLParam(r, "recoveryPointID")
+	err := s.backupClient.DeleteRecoveryPoints(r.Context(), recoveryPointID)
+	if err != nil {
+		s.logger.Error("err ", zap.Error(err))
+		_, _ = w.Write([]byte(err.Error()))
+		return
+	}
+	_, _ = w.Write([]byte("Delete recovery point successfully"))
 }
 
 func (s *Server) RequestRestore(w http.ResponseWriter, r *http.Request) {

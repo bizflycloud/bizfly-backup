@@ -197,6 +197,28 @@ func (c *Client) ListRecoveryPoints(ctx context.Context, backupDirectoryID strin
 	return &rps, nil
 }
 
+// DeleteRecoveryPoints delete a recovery points.
+func (c *Client) DeleteRecoveryPoints(ctx context.Context, recoveryPointID string) error {
+	req, err := c.NewRequest(http.MethodDelete, c.recoveryPointInfo(recoveryPointID), nil)
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+
+	resp, err := c.Do(req.WithContext(ctx))
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+	if err := checkResponse(resp); err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+	defer resp.Body.Close()
+
+	return nil
+}
+
 // RequestRestore requests restore
 func (c *Client) RequestRestore(recoveryPointID string, crr *CreateRestoreRequest) error {
 	req, err := c.NewRequest(http.MethodPost, c.recoveryPointActionPath(recoveryPointID), crr)

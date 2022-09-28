@@ -165,6 +165,42 @@ var backupListRecoveryPointCmd = &cobra.Command{
 	},
 }
 
+var backupDeleteRecoveryPointCmd = &cobra.Command{
+	Use:   "delete-recovery-points",
+	Short: "Delete a recovery points.",
+	Run: func(cmd *cobra.Command, args []string) {
+		// make url
+		urlRequest := strings.Join([]string{addr, "recovery-points", recoveryPointID}, "/")
+
+		// create client
+		httpc := http.Client{
+			Transport: &http.Transport{
+				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+					return net.Dial(tcpProtocol, strings.TrimPrefix(addr, httpPrefix))
+				},
+			},
+		}
+
+		// make request
+		req, err := http.NewRequest(http.MethodDelete, urlRequest, nil)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+
+		// call request
+		resp, err := httpc.Do(req)
+		if err != nil {
+			logger.Error(err.Error())
+			os.Exit(1)
+		}
+
+		defer resp.Body.Close()
+
+		_, _ = io.Copy(os.Stderr, resp.Body)
+	},
+}
+
 var backupDownloadRecoveryPointCmd = &cobra.Command{
 	Use:   "download",
 	Short: "Download backup at given recovery point.",
@@ -329,6 +365,10 @@ func init() {
 
 	backupListRecoveryPointCmd.PersistentFlags().StringVar(&backupID, "backup-id", "", "The ID of backup directory")
 	_ = backupListRecoveryPointCmd.MarkPersistentFlagRequired("backup-id")
+
+	backupDeleteRecoveryPointCmd.PersistentFlags().StringVar(&recoveryPointID, "recovery-point-id", "", "The ID of recovery point")
+	_ = backupDeleteRecoveryPointCmd.MarkPersistentFlagRequired("recovery-point-id")
+	backupCmd.AddCommand(backupDeleteRecoveryPointCmd)
 
 	backupDownloadRecoveryPointCmd.PersistentFlags().StringVar(&recoveryPointID, "recovery-point-id", "", "The ID of recovery point")
 	backupDownloadRecoveryPointCmd.PersistentFlags().StringVar(&backupDownloadOutFile, "outfile", "", "Output backup download to file")

@@ -106,13 +106,10 @@ func (p *Progress) reporter() {
 // Report adds the statistics from s to the current state and tries to report
 // the accumulated statistics via the feedback channel.
 func (p *Progress) Report(s Stat) {
-	if p == nil {
+	if p == nil || !p.running {
 		return
 	}
 
-	if !p.running {
-		panic("reporting in a non-running Progress")
-	}
 	p.currentMutex.Lock()
 	p.currentStat.Add(s)
 	current := p.currentStat

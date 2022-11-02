@@ -25,6 +25,9 @@ import (
 	"syscall"
 	"time"
 
+	"go.uber.org/zap"
+	"golang.org/x/mod/semver"
+
 	"github.com/go-chi/chi"
 	"github.com/go-chi/valve"
 	"github.com/inconshreveable/go-update"
@@ -32,8 +35,6 @@ import (
 	"github.com/panjf2000/ants/v2"
 	"github.com/robfig/cron/v3"
 	"github.com/spf13/viper"
-	"go.uber.org/zap"
-	"golang.org/x/mod/semver"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/backupapi"
 	"github.com/bizflycloud/bizfly-backup/pkg/broker"
@@ -1006,6 +1007,11 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 
 func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.CreateRecoveryPointResponse, backupDirectoryID string, limitUpload, limitDownload int, progressOutput io.Writer, errCh chan<- error) backupJob {
 	return func() {
+		s.notifyMsg(map[string]string{
+			"action_id": actionCreateRP.ID,
+			"status":    statusUploadFile,
+		})
+
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
@@ -1055,10 +1061,6 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 			}
 		}
 
-		s.notifyMsg(map[string]string{
-			"action_id": actionCreateRP.ID,
-			"status":    statusUploadFile,
-		})
 		mcID := s.backupClient.Id
 		rpID := actionCreateRP.RecoveryPoint.ID
 		bdID := bd.ID

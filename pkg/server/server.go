@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math"
 	"net"
 	"net/http"
 	"os"
@@ -70,6 +69,7 @@ const (
 const (
 	intervalTimeCheckUpgrade     = 86400 * time.Second
 	intervalTimeCheckTaskRunning = 50 * time.Second
+	intervalPushProgress         = 20 * time.Second
 )
 
 type contextStruct struct {
@@ -709,10 +709,9 @@ func (s *Server) notifyMsg(msg interface{}) {
 func (s *Server) notifyMsgProgress(recoverypointID string, msg map[string]string) {
 	payload, _ := json.Marshal(msg)
 	floatPercent, _ := strconv.ParseFloat(strings.ReplaceAll(msg["percent"], "%", ""), 64)
-	percent := int(math.Ceil(floatPercent))
 
-	if percent > 0 && percent%5 == 0 {
-		s.logger.Sugar().Info("Progress ", msg)
+	if floatPercent > 0 {
+		s.logger.Sugar().Infof("notifyMsgProgress: %s", msg)
 		if err := s.b.Publish(s.publishTopics[1]+"/"+recoverypointID, payload); err != nil {
 			s.logger.Warn("failed to notify server", zap.Error(err), zap.Any("message", msg))
 		}
@@ -870,12 +869,14 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	s.reportStartDownload(progressOutput)
 
 	progressScan := s.newProgressScanDir(recoveryPointID)
-	itemTodo, err := WalkerItem(&index, progressScan)
+	itemTodo, err := WalkerItem(&index, progressScan, s.logger)
 	if err != nil {
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
 	progressRestore := s.newDownloadProgress(recoveryPointID, itemTodo)
+	progressRestore.Start()
+	defer progressRestore.Done()
 
 	s.logger.Sugar().Info("Restore directory", filepath.Clean(destDir))
 	if err := s.backupClient.RestoreDirectory(ctx, index, filepath.Clean(destDir), storageVault, restoreKey, progressRestore); err != nil {
@@ -928,12 +929,18 @@ func (s *Server) NewStorageVault(storageVault backupapi.StorageVault, actionID s
 	}
 }
 
-func WalkerItem(index *cache.Index, p *progress.Progress) (progress.Stat, error) {
+func WalkerItem(index *cache.Index, p *progress.Progress, logger *zap.Logger) (progress.Stat, error) {
 	p.Start()
 	defer p.Done()
+	var lastDir string
 
 	var st progress.Stat
 	for _, itemInfo := range index.Items {
+		if filepath.Dir(itemInfo.AbsolutePath) != lastDir {
+			lastDir = filepath.Dir(itemInfo.AbsolutePath)
+			logger.Sugar().Infof("WalkerItem scanning: %s", lastDir)
+		}
+
 		s := progress.Stat{
 			Items: 1,
 			Bytes: uint64(itemInfo.Size),
@@ -944,14 +951,21 @@ func WalkerItem(index *cache.Index, p *progress.Progress) (progress.Stat, error)
 	return st, nil
 }
 
-func WalkerDir(dir string, index *cache.Index, p *progress.Progress) (progress.Stat, int64, error) {
+func WalkerDir(dir string, index *cache.Index, p *progress.Progress, logger *zap.Logger) (progress.Stat, int64, error) {
 	p.Start()
 	defer p.Done()
+
+	var lastDir string
 
 	var st progress.Stat
 	err := filepath.Walk(dir, func(path string, fi os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+
+		if filepath.Dir(path) != lastDir {
+			lastDir = filepath.Dir(path)
+			logger.Sugar().Infof("WalkerDir scanning: %s", lastDir)
 		}
 
 		s := progress.Stat{
@@ -989,7 +1003,6 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 		case <-ctx.Done():
 			return
 		default:
-			p.Start()
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, cacheWriter, storageVault, p, pipe, rpID, bdID)
@@ -1043,7 +1056,7 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 		}
 
 		// Scaning failed backup list
-		s.logger.Sugar().Info("Scaning failed backup list")
+		s.logger.Sugar().Info("Scanning failed backup list")
 		listBackupFailed, errScanListBackupFailed := scanListBackupFailed()
 		if errScanListBackupFailed != nil {
 			s.logger.Error("Err scan failed backup list", zap.Error(errScanListBackupFailed))
@@ -1068,7 +1081,9 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 
 		index := cache.NewIndex(bd.ID, rpID)
 		chunks := cache.NewChunk(bdID, rpID)
-		itemTodo, totalFiles, err := WalkerDir(bd.Path, index, progressScan)
+
+		s.logger.Sugar().Infof("Scanning directory %s", backupDirectoryID)
+		itemTodo, totalFiles, err := WalkerDir(bd.Path, index, progressScan, s.logger)
 		if err != nil {
 			s.notifyStatusFailed(actionCreateRP.ID, err.Error())
 			s.logger.Error("WalkerDir error", zap.Error(err))
@@ -1115,7 +1130,6 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 				receiver, more := <-pipe
 				if more {
 					key := reflect.ValueOf(receiver.Chunks).MapKeys()[0].Interface().(string)
-					s.logger.Sugar().Info("Received chunk ", key)
 					if value, ok := chunks.Chunks[key]; ok {
 						count, errParseInt := strconv.Atoi(strings.Split(value[0], "-")[0])
 						if errParseInt != nil {
@@ -1128,7 +1142,6 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 
 					if time.Now().Minute()%5 == 0 && time.Now().Second() == 0 {
 						// Save chunks to chunk.json
-						s.logger.Sugar().Info("Save chunk to chunk.json ", key)
 						errSaveChunks := cacheWriter.SaveChunk(chunks)
 						if errSaveChunks != nil {
 							s.notifyStatusFailed(actionCreateRP.ID, errSaveChunks.Error())
@@ -1149,10 +1162,13 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 		progressUpload := s.newUploadProgress(rpID, itemTodo)
 
 		var wg sync.WaitGroup
+
+		progressUpload.Start()
+		defer progressUpload.Cancel()
+
 		for _, itemInfo := range index.Items {
 			select {
 			case <-ctx.Done():
-				s.logger.Sugar().Infof("Stopping worker %s", actionCreateRP.ID)
 				progressUpload.Cancel()
 				break
 			default:
@@ -1461,7 +1477,7 @@ func (s *Server) newProgressScanDir(recoverypointID string) *progress.Progress {
 }
 
 func (s *Server) newUploadProgress(recoveryPointID string, todo progress.Stat) *progress.Progress {
-	p := progress.NewProgress(time.Second * 2)
+	p := progress.NewProgress(intervalPushProgress)
 
 	var bps, eta uint64
 	itemsTodo := todo.Items
@@ -1514,7 +1530,7 @@ func (s *Server) newUploadProgress(recoveryPointID string, todo progress.Stat) *
 }
 
 func (s *Server) newDownloadProgress(recoveryPointID string, todo progress.Stat) *progress.Progress {
-	p := progress.NewProgress(time.Second * 2)
+	p := progress.NewProgress(intervalPushProgress)
 
 	var bps, eta uint64
 	itemsTodo := todo.Items

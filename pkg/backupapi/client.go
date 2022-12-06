@@ -15,8 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cenkalti/backoff"
 	"go.uber.org/zap"
+
+	"github.com/cenkalti/backoff"
 )
 
 const (
@@ -181,13 +182,13 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		} else {
 			c.logger.Error("Request error ", zap.Error(err))
 		}
-		c.logger.Debug("BackOff retry")
+		c.logger.Debug("Do http request error. Retrying")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
-			c.logger.Debug("Retry time out")
+			c.logger.Debug("Do http request error. Retry time out")
 			break
 		}
-		c.logger.Sugar().Info("Retry in ", d)
+		c.logger.Sugar().Info("Do http request error. Retry in ", d)
 		time.Sleep(d)
 	}
 

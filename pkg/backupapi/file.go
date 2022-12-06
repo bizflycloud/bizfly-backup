@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"hash"
 	"io"
 	"io/fs"
 	"net/url"
@@ -23,6 +24,7 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 	"github.com/bizflycloud/bizfly-backup/pkg/support"
 	"github.com/bizflycloud/bizfly-backup/pkg/vss"
+	"github.com/cenkalti/backoff"
 
 	"go.uber.org/zap"
 	"golang.org/x/sync/errgroup"
@@ -68,7 +70,6 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 		chunks.Chunks[key] = []string{strconv.Itoa(1), strconv.Itoa(int(chunk.Length))}
 
 		// Put object
-		c.logger.Sugar().Info("Scan chunk ", key)
 		err := c.PutObject(storageVault, key, data)
 		if err != nil {
 			c.logger.Error("err put object", zap.Error(err))
@@ -81,6 +82,30 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 	}
 }
 
+func (c *Client) OpenFile(ctx context.Context, path string) (io.ReadCloser, error) {
+	file, err := os.Open(path)
+
+	// Try to create vss snapshot of file to back up if open error
+	if err != nil && viper.GetBool("force") {
+		if errPrivileges := vss.HasSufficientPrivilegesForVSS(); errPrivileges == nil {
+			errorHandler := func(item string, err error) error {
+				c.logger.Error("Create VSS snapshot error: ", zap.Error(err))
+				return err
+			}
+
+			messageHandler := func(msg string, args ...interface{}) {
+				c.logger.Sugar().Infof(msg, args)
+			}
+
+			localVss := vss.NewLocalVss(errorHandler, messageHandler)
+			defer localVss.DeleteSnapshots()
+			file, err = os.Open(localVss.SnapshotPath(path))
+		}
+	}
+
+	return file, err
+}
+
 func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node, cacheWriter *cache.Repository,
 	storageVault storage_vault.StorageVault, p *progress.Progress, pipe chan<- *cache.Chunk, rpID, bdID string) (uint64, error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -89,78 +114,87 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 	case <-ctx.Done():
 		return 0, ErrorGotCancelRequest
 	default:
-		p.Start()
 		s := progress.Stat{}
+
 		var errBackupChunk error
-
-		file, err := os.Open(itemInfo.AbsolutePath)
-
-		// Try to create vss snapshot of file to back up if open error
-		if err != nil && viper.GetBool("force") {
-			if errPrivileges := vss.HasSufficientPrivilegesForVSS(); errPrivileges == nil {
-				errorHandler := func(item string, err error) error {
-					c.logger.Error("Create VSS snapshot error: ", zap.Error(err))
-					return err
-				}
-
-				messageHandler := func(msg string, args ...interface{}) {
-					c.logger.Sugar().Infof(msg, args)
-				}
-
-				localVss := vss.NewLocalVss(errorHandler, messageHandler)
-				defer localVss.DeleteSnapshots()
-				file, err = os.Open(localVss.SnapshotPath(itemInfo.AbsolutePath))
-			}
-		}
-
-		if err != nil {
-			if os.IsNotExist(err) {
-				s.ItemName = append(s.ItemName, itemInfo.AbsolutePath)
-				s.Errors = true
-				p.Report(s)
-				return 0, nil
-			} else {
-				c.logger.Error("err ", zap.Error(err))
-				return 0, err
-			}
-		}
-
-		chk := chunker.New(file, 0x3dea92648f6e83)
-		buf := make([]byte, ChunkUploadLowerBound)
-		var stat uint64
-		hash := sha256.New()
 		var wg sync.WaitGroup
+		var stat uint64
+		var chunk chunker.Chunk
+		var fileHash hash.Hash
+		var errChunk error
+
+		bo := backoff.NewExponentialBackOff()
+		bo.MaxInterval = maxRetry
+		bo.MaxElapsedTime = maxRetry
+
 		for {
-			chunk, err := chk.Next(buf)
-			if err == io.EOF {
-				break
-			}
+			file, err := c.OpenFile(ctx, itemInfo.AbsolutePath)
+
 			if err != nil {
-				c.logger.Error("err ", zap.Error(err))
-				return 0, err
+				if os.IsNotExist(err) {
+					s.ItemName = append(s.ItemName, itemInfo.AbsolutePath)
+					s.Errors = true
+					p.Report(s)
+					return 0, nil
+				} else {
+					c.logger.Error("err ", zap.Error(err))
+					return 0, err
+				}
 			}
 
-			temp := make([]byte, chunk.Length)
-			length := copy(temp, chunk.Data)
-			if uint(length) != chunk.Length {
-				return 0, errors.New("copy chunk data error")
+			chk := chunker.New(file, 0x3dea92648f6e83)
+			buf := make([]byte, ChunkUploadLowerBound)
+			fileHash = sha256.New()
+			for {
+				chunk, err = chk.Next(buf)
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					c.logger.Error("next chunk err ", zap.Error(err))
+					break
+				}
+
+				temp := make([]byte, chunk.Length)
+				length := copy(temp, chunk.Data)
+				if uint(length) != chunk.Length {
+					c.logger.Error("compare error: ", zap.Uint("length", uint(length)), zap.Uint("chunk length", chunk.Length))
+					err = errors.New("copy chunk data error")
+					break
+				}
+				chunkToBackup := cache.ChunkInfo{
+					Start:  chunk.Start,
+					Length: chunk.Length,
+				}
+				fileHash.Write(temp)
+				itemInfo.Content = append(itemInfo.Content, &chunkToBackup)
+				wg.Add(1)
+				_ = pool.Submit(c.backupChunkJob(ctx, cancel, &wg, &errBackupChunk, &stat, temp, &chunkToBackup, cacheWriter, storageVault, p, pipe, rpID, bdID))
 			}
-			chunkToBackup := cache.ChunkInfo{
-				Start:  chunk.Start,
-				Length: chunk.Length,
+
+			if err != nil && err != io.EOF {
+				d := bo.NextBackOff()
+				if d == backoff.Stop {
+					c.logger.Sugar().Debugf("chunk file error: %s, Retry time out", err)
+					errChunk = err
+					break
+				}
+				c.logger.Sugar().Errorf("chunk file error: %s, retrying...", err)
+				continue
 			}
-			hash.Write(temp)
-			itemInfo.Content = append(itemInfo.Content, &chunkToBackup)
-			wg.Add(1)
-			_ = pool.Submit(c.backupChunkJob(ctx, cancel, &wg, &errBackupChunk, &stat, temp, &chunkToBackup, cacheWriter, storageVault, p, pipe, rpID, bdID))
+			break
 		}
 		wg.Wait()
+
+		if errChunk != nil {
+			return 0, errChunk
+		}
 
 		if errBackupChunk != nil {
 			c.logger.Error("err backup chunk ", zap.Error(errBackupChunk))
 			return 0, errBackupChunk
 		}
-		itemInfo.Sha256Hash = hash.Sum(nil)
+		itemInfo.Sha256Hash = fileHash.Sum(nil)
 		return stat, nil
 	}
 }
@@ -170,20 +204,18 @@ type chunkJob func()
 func (c *Client) backupChunkJob(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, chErr *error, size *uint64,
 	data []byte, chunk *cache.ChunkInfo, cacheWriter *cache.Repository, storageVault storage_vault.StorageVault, p *progress.Progress, pipe chan<- *cache.Chunk, rpID, bdID string) chunkJob {
 	return func() {
-		p.Start()
 		defer func() {
 			wg.Done()
 		}()
+
 		select {
 		case <-ctx.Done():
-			c.logger.Sugar().Debug("Stopping task ", chunk.Start)
 			return
 		default:
-			c.logger.Sugar().Debug("Doing task ", chunk.Start)
 			s := progress.Stat{}
 			saveSize, err := c.backupChunk(ctx, data, chunk, cacheWriter, storageVault, pipe, rpID, bdID)
 			if err != nil {
-				c.logger.Error("err ", zap.Error(err))
+				c.logger.Error("backupChunk err ", zap.Error(err))
 				*chErr = err
 				s.Errors = true
 				p.Report(s)
@@ -194,7 +226,6 @@ func (c *Client) backupChunkJob(ctx context.Context, cancel context.CancelFunc, 
 			s.Bytes = uint64(chunk.Length)
 			p.Report(s)
 			*size += saveSize
-			c.logger.Sugar().Debug("Done task ", chunk.Start)
 		}
 	}
 }
@@ -206,13 +237,10 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 	case <-ctx.Done():
 		return 0, ErrorGotCancelRequest
 	default:
-
 		s := progress.Stat{}
 
 		// backup item with item change mtime
 		if lastInfo == nil || !strings.EqualFold(timeToString(lastInfo.ModTime), timeToString(itemInfo.ModTime)) {
-			c.logger.Info("backup item with item change mtime, ctime")
-
 			storageSize, err := c.ChunkFileToBackup(ctx, pool, itemInfo, cacheWriter, storageVault, p, pipe, rpID, bdID)
 			if err != nil {
 				c.logger.Error("c.ChunkFileToBackup ", zap.Error(err))
@@ -223,7 +251,6 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 			p.Report(s)
 			return storageSize, nil
 		} else {
-			c.logger.Info("backup item with item no change mtime, ctime")
 			for _, content := range lastInfo.Content {
 				chunks := cache.NewChunk(bdID, rpID)
 				chunks.Chunks[content.Etag] = []string{strconv.Itoa(1), strconv.Itoa(int(content.Length))}
@@ -239,7 +266,6 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 }
 
 func (c *Client) RestoreDirectory(ctx context.Context, index cache.Index, destDir string, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) error {
-	p.Start()
 	s := progress.Stat{}
 	numGoroutine := viper.GetInt("num_goroutine")
 	if numGoroutine == 0 {
@@ -254,7 +280,6 @@ func (c *Client) RestoreDirectory(ctx context.Context, index cache.Index, destDi
 	for _, item := range index.Items {
 		select {
 		case <-ctx.Done():
-			c.logger.Sugar().Infof("Stopping worker restore %s", restoreKey.ActionID)
 			p.Cancel()
 			break
 		default:
@@ -290,7 +315,6 @@ func (c *Client) RestoreItem(ctx context.Context, destDir string, item cache.Nod
 	case <-ctx.Done():
 		return ErrorGotCancelRequest
 	default:
-		p.Start()
 		s := progress.Stat{}
 		var pathItem string
 		if destDir == item.BasePath {
@@ -338,7 +362,6 @@ func (c *Client) restoreSymlink(ctx context.Context, target string, item cache.N
 	case <-ctx.Done():
 		return errors.New("context restore item done")
 	default:
-		p.Start()
 		s := progress.Stat{}
 		fi, err := os.Stat(target)
 		if err != nil {
@@ -380,7 +403,6 @@ func (c *Client) restoreDirectory(ctx context.Context, target string, item cache
 	case <-ctx.Done():
 		return nil
 	default:
-		p.Start()
 		s := progress.Stat{}
 		fi, err := os.Stat(target)
 		if err != nil {
@@ -422,7 +444,6 @@ func (c *Client) restoreFile(ctx context.Context, target string, item cache.Node
 	case <-ctx.Done():
 		return ErrorGotCancelRequest
 	default:
-		p.Start()
 		s := progress.Stat{}
 		fi, err := os.Stat(target)
 		if err != nil {
@@ -507,7 +528,6 @@ func (c *Client) restoreFile(ctx context.Context, target string, item cache.Node
 }
 
 func (c *Client) downloadFile(ctx context.Context, file *os.File, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) error {
-	p.Start()
 	s := progress.Stat{}
 	for _, info := range item.Content {
 		select {

@@ -144,7 +144,12 @@ func (s3 *S3) VerifyObject(key string) (bool, bool, string, error) {
 			break
 		}
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() == "Forbidden" && s3.Type().CredentialType == "DEFAULT" {
+			if aerr.Code() == "NotFound" {
+				err = nil
+				break
+			}
+			s3.logger.Sugar().Errorf("VerifyObject error: %s %s", aerr.Code(), aerr.Message())
+			if (aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden") && s3.Type().CredentialType == "DEFAULT" {
 				s3.logger.Sugar().Info("GetCredential in head object ", key)
 				storageVaultID, actID := s3.ID()
 				vault, err := s3.backupClient.GetCredentialStorageVault(storageVaultID, actID, nil)
@@ -155,23 +160,19 @@ func (s3 *S3) VerifyObject(key string) (bool, bool, string, error) {
 
 				err = s3.RefreshCredential(vault.Credential)
 				if err != nil {
-					s3.logger.Error("Error refresht credential ", zap.Error(err))
+					s3.logger.Error("Error refresh credential ", zap.Error(err))
 					break
 				}
-			} else if aerr.Code() == "NotFound" {
-				err = nil
-				break
 			}
 		}
 
-		s3.logger.Error("Error head object", zap.Error(err))
-		s3.logger.Debug("BackOff retry")
+		s3.logger.Error("VerifyObject. Retrying", zap.Error(err))
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
-			s3.logger.Debug("Retry time out")
+			s3.logger.Debug("VerifyObject. Retry time out")
 			break
 		}
-		s3.logger.Sugar().Info("Retry in ", d)
+		s3.logger.Sugar().Info("VerifyObject. Retry in ", d)
 	}
 	return isExist, integrity, etag, err
 }
@@ -183,10 +184,9 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 	bo.MaxInterval = maxRetry
 	bo.MaxElapsedTime = maxRetry
 	for {
-		isExist, integrity, etag, _ := s3.VerifyObject(key)
+		isExist, integrity, _, _ := s3.VerifyObject(key)
 		if isExist {
 			if !integrity {
-				s3.logger.Info("Exist, not integrity, put object ", zap.String("key", key))
 				_, err = s3.S3Session.PutObject(&storage.PutObjectInput{
 					Bucket: aws.String(s3.StorageBucket),
 					Key:    aws.String(key),
@@ -196,21 +196,18 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 					break
 				}
 			} else {
-				s3.logger.Info("Exist and integrity ", zap.String("etag", etag), zap.String("key", key))
 				break
 			}
 		} else {
-			s3.logger.Info("Not exist, put ", zap.String("key", key))
 			_, err = s3.S3Session.PutObject(&storage.PutObjectInput{
 				Bucket: aws.String(s3.StorageBucket),
 				Key:    aws.String(key),
 				Body:   bytes.NewReader(data),
 			})
 			if !strings.Contains(key, "chunk.json") && !strings.Contains(key, "index.json") && !strings.Contains(key, "file.csv") {
-				isExist, integrity, etag, _ := s3.VerifyObject(key)
+				isExist, integrity, _, _ = s3.VerifyObject(key)
 				if isExist {
 					if !integrity {
-						s3.logger.Info("Exist, not integrity, put ", zap.String("key", key))
 						_, err = s3.S3Session.PutObject(&storage.PutObjectInput{
 							Bucket: aws.String(s3.StorageBucket),
 							Key:    aws.String(key),
@@ -220,7 +217,6 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 							break
 						}
 					} else {
-						s3.logger.Info("Exist and integrity ", zap.String("etag", etag), zap.String("key", key))
 						break
 					}
 				}
@@ -230,7 +226,8 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 			}
 		}
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() == "Forbidden" {
+			s3.logger.Sugar().Errorf("PutObject error: %s %s", aerr.Code(), aerr.Message())
+			if aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden" {
 				if once {
 					s3.logger.Error("Return false cause in put object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return err
@@ -242,13 +239,13 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 				time.Sleep(time.Duration(n) * time.Second)
 			}
 		}
-		s3.logger.Debug("BackOff retry")
+		s3.logger.Debug("PutObject error. Retrying")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
-			s3.logger.Debug("Retry time out")
+			s3.logger.Debug("PutObject error. Retry time out")
 			break
 		}
-		s3.logger.Sugar().Info("Retry in ", d)
+		s3.logger.Sugar().Info("PutObject error. Retry in ", d)
 		time.Sleep(d)
 	}
 
@@ -272,7 +269,12 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 		}
 
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() == "AccessDenied" {
+			if aerr.Code() == "NoSuchKey" {
+				return nil, err
+			}
+
+			s3.logger.Sugar().Errorf("GetObject error: %s %s", aerr.Code(), aerr.Message())
+			if aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden" {
 				if once {
 					s3.logger.Error("Return false cause in get object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return nil, err
@@ -286,13 +288,13 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 				return nil, err
 			}
 		}
-		s3.logger.Debug("BackOff retry")
+		s3.logger.Debug("GetObject error. Retrying")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
-			s3.logger.Debug("Retry time out")
+			s3.logger.Debug("GetObject error. Retry time out")
 			break
 		}
-		s3.logger.Sugar().Info("Retry in ", d)
+		s3.logger.Sugar().Info("GetObject error. Retry in ", d)
 		time.Sleep(d)
 	}
 
@@ -322,7 +324,8 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 				return false, "", err
 			}
 
-			if aerr.Code() == "Forbidden" {
+			s3.logger.Sugar().Errorf("HeadObject error: %s %s", aerr.Code(), aerr.Message())
+			if aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden" {
 				if once {
 					s3.logger.Error("Return false cause in head object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return false, "", err
@@ -335,13 +338,12 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 			}
 		}
 		s3.logger.Debug("Head object error. Retrying")
-		s3.logger.Debug("BackOff retry")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
-			s3.logger.Debug("Retry time out. Head object error ", zap.Error(err))
+			s3.logger.Debug("Head object error. Retry time out", zap.Error(err))
 			break
 		}
-		s3.logger.Sugar().Info("Retry in ", d)
+		s3.logger.Sugar().Info("Head object error. Retry in ", d)
 		time.Sleep(d)
 
 	}
@@ -391,5 +393,6 @@ func (s3 *S3) RefreshCredential(credential storage_vault.Credential) error {
 		HTTPClient:       &http.Client{Transport: rt},
 	})))
 	s3.S3Session = sess
+	s3.logger.Info("Refresh credential success")
 	return nil
 }

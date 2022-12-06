@@ -76,13 +76,13 @@ func (c *Client) GetCredentialStorageVault(storageVaultID string, actionID strin
 				break
 			}
 
-			c.logger.Debug("BackOff retry")
+			c.logger.Debug("GetCredentialStorageVault. Retrying")
 			d := bo.NextBackOff()
 			if d == backoff.Stop {
-				c.logger.Debug("Retry time out")
+				c.logger.Debug("GetCredentialStorageVault. Retry time out")
 				break
 			}
-			c.logger.Sugar().Info("Retry in ", d)
+			c.logger.Sugar().Info("GetCredentialStorageVault. Retry in ", d)
 		}
 	} else {
 		req, err := c.NewRequest(http.MethodGet, c.credentialStorageVaultPath(storageVaultID, actionID), nil)
@@ -126,7 +126,7 @@ func (c *Client) PutObject(storageVault storage_vault.StorageVault, key string, 
 			break
 		}
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() == "Forbidden" && storageVault.Type().CredentialType == "DEFAULT" {
+			if (aerr.Code() == "Forbidden" || aerr.Code() == "AccessDenied") && storageVault.Type().CredentialType == "DEFAULT" {
 				c.logger.Sugar().Info("GetCredential for refreshing session s3")
 				storageVaultID, actID := storageVault.ID()
 
@@ -145,13 +145,12 @@ func (c *Client) PutObject(storageVault storage_vault.StorageVault, key string, 
 		}
 
 		c.logger.Debug("Put object error. Retrying")
-		c.logger.Debug("BackOff retry")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
-			c.logger.Debug("Retry time out. Put object error ", zap.Error(err))
+			c.logger.Debug("Put object error. Retry time out.", zap.Error(err))
 			break
 		}
-		c.logger.Sugar().Info("Retry in ", d)
+		c.logger.Sugar().Info("Put object error. Retry in ", d)
 	}
 	return err
 }
@@ -169,7 +168,7 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 			return data, nil
 		}
 		if aerr, ok := err.(awserr.Error); ok {
-			if aerr.Code() == "AccessDenied" && storageVault.Type().CredentialType == "DEFAULT" {
+			if (aerr.Code() == "Forbidden" || aerr.Code() == "AccessDenied") && storageVault.Type().CredentialType == "DEFAULT" {
 				storageVaultID, actID := storageVault.ID()
 
 				// get new restore session key
@@ -200,13 +199,13 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 			}
 		}
 
-		c.logger.Debug("BackOff retry")
+		c.logger.Debug("GetObject error. Retrying")
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
-			c.logger.Debug("Retry time out")
+			c.logger.Debug("GetObject error. Retry time out")
 			break
 		}
-		c.logger.Sugar().Info("Retry in ", d)
+		c.logger.Sugar().Info("GetObject error. Retry in ", d)
 	}
 	return nil, err
 }

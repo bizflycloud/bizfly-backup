@@ -35,7 +35,11 @@ import (
 	"github.com/spf13/viper"
 )
 
-const ChunkUploadLowerBound = 8 * 1000 * 1000
+const (
+	ChunkUploadLowerBound  = chunker.MaxSize
+	IntervalTimeRetryChunk = 30 * time.Second
+	MaxTimesRetryChunk     = 3
+)
 
 var (
 	ErrorGotCancelRequest = errors.New("got cancel request")
@@ -123,9 +127,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		var fileHash hash.Hash
 		var errChunk error
 
-		bo := backoff.NewExponentialBackOff()
-		bo.MaxInterval = maxRetry
-		bo.MaxElapsedTime = maxRetry
+		bo := backoff.WithMaxRetries(backoff.NewConstantBackOff(IntervalTimeRetryChunk), MaxTimesRetryChunk)
 
 		for {
 			file, err := c.OpenFile(ctx, itemInfo.AbsolutePath)
@@ -159,6 +161,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 				length := copy(temp, chunk.Data)
 				if uint(length) != chunk.Length {
 					c.logger.Error("compare error: ", zap.Uint("length", uint(length)), zap.Uint("chunk length", chunk.Length))
+					c.logger.Sugar().Errorf("compare error when chunk file %s", itemInfo.AbsolutePath)
 					err = errors.New("copy chunk data error")
 					break
 				}

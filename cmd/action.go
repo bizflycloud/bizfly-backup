@@ -148,8 +148,8 @@ var stopActionCmd = &cobra.Command{
 }
 
 func init() {
-	restoreCmd.PersistentFlags().StringVar(&actionID, "action_id", "", "The action_id of action want stop.")
-	_ = restoreCmd.MarkPersistentFlagRequired("action_id")
+	actionCmd.PersistentFlags().StringVar(&actionID, "action_id", "", "The action_id of action want stop.")
+	_ = actionCmd.MarkPersistentFlagRequired("action_id")
 	actionCmd.AddCommand(listActionCmd)
 	actionCmd.AddCommand(stopActionCmd)
 	rootCmd.AddCommand(actionCmd)

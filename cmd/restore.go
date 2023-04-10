@@ -53,16 +53,15 @@ var restoreCmd = &cobra.Command{
 
 		// init body
 		if restoreDir == "" {
-			restoreDir = recoveryPointID
+			restoreDir = strings.Join([]string{"bizfly-restore", recoveryPointID}, "/")
 		}
 		var body struct {
 			Path string `json:"path"`
 		}
 		body.Path = restoreDir
 		buf, _ := json.Marshal(body)
-
 		// make request
-		req, err := http.NewRequest(http.MethodGet, urlRequest, bytes.NewBuffer(buf))
+		req, err := http.NewRequest(http.MethodPost, urlRequest, bytes.NewBuffer(buf))
 		if err != nil {
 			logger.Error(err.Error())
 			os.Exit(1)

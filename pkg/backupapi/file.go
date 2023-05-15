@@ -88,7 +88,6 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 
 func (c *Client) OpenFile(ctx context.Context, path string) (io.ReadCloser, error) {
 	file, err := os.Open(path)
-
 	// Try to create vss snapshot of file to back up if open error
 	if err != nil && viper.GetBool("force") {
 		if errPrivileges := vss.HasSufficientPrivilegesForVSS(); errPrivileges == nil {
@@ -143,7 +142,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 					return 0, err
 				}
 			}
-
+			defer file.Close()
 			chk := chunker.New(file, 0x3dea92648f6e83)
 			buf := make([]byte, ChunkUploadLowerBound)
 			fileHash = sha256.New()

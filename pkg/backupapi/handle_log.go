@@ -95,6 +95,7 @@ func createLogFile(path string, mode fs.FileMode) (*os.File, error) {
 		if err != nil {
 			return nil, err
 		}
+		defer file.Close()
 	}
 
 	err := os.Chmod(path, mode)

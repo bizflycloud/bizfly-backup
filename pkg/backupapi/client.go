@@ -39,6 +39,8 @@ type Client struct {
 	userAgent string
 
 	logger *zap.Logger
+	// Database
+	dataBase *Database
 }
 
 // NewClient creates a Client with given options.
@@ -132,6 +134,14 @@ func WithSecretKey(secretKey string) ClientOption {
 func WithNumGoroutine(num int) ClientOption {
 	return func(c *Client) error {
 		c.numGoroutine = num
+		return nil
+	}
+}
+
+// WithDatabase sets the database for Client.
+func WithDatabase(db *Database) ClientOption {
+	return func(c *Client) error {
+		c.dataBase = db
 		return nil
 	}
 }

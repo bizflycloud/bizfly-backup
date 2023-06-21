@@ -22,6 +22,7 @@ const (
 	StatusNotify                        = "status_notify"
 	StopAction                          = "stop_action"
 	UpdateNumGoroutine                  = "update_num_goroutine"
+	BackupPostgres                      = "backup_postgres"
 )
 
 // ErrUnknownEventType is raised when receiving unhandled event from broker.

@@ -234,8 +234,9 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	case broker.BackupManual:
 		limitDownload = 0
 		var err error
+		reason := ""
 		go func() {
-			err = s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, limitUpload, limitDownload, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+			err = s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, limitUpload, limitDownload, backupapi.RecoveryPointTypeInitialReplica, reason, ioutil.Discard)
 		}()
 		return err
 	case broker.RestoreManual:
@@ -245,6 +246,8 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 			err = s.restore(msg.MachineID, msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.StorageVaultId, limitUpload, limitDownload, ioutil.Discard)
 		}()
 		return err
+	case broker.BackupPostgres:
+		return s.backupFilter(broker.BackupPostgres, msg.BackupDirectoryID, msg.PolicyID, msg.Name, limitUpload, limitDownload, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
 	case broker.ConfigUpdate:
 		return s.handleConfigUpdate(msg)
 	case broker.ConfigRefresh:
@@ -342,7 +345,8 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 				name := "auto-" + time.Now().Format(time.RFC3339)
 				// improve when support incremental backup
 				recoveryPointType := backupapi.RecoveryPointTypeInitialReplica
-				if err := s.backup(directoryID, policyID, name, limitUpload, limitDownload, recoveryPointType, ioutil.Discard); err != nil {
+				reason := ""
+				if err := s.backup(directoryID, policyID, name, limitUpload, limitDownload, recoveryPointType, reason, ioutil.Discard); err != nil {
 					zapFields := []zap.Field{
 						zap.Error(err),
 						zap.String("service", "cron"),
@@ -726,8 +730,30 @@ func (s *Server) notifyStatusFailed(actionID, reason string) {
 	})
 }
 
+func (s *Server) backupFilter(Type string, backupDirectoryID string, policyID string, name string, limitUpload int, limitDownload int, recoveryPointType string, progressOutput io.Writer) error {
+	switch Type {
+	case "backup_manual":
+		return nil
+	case "backup_postgres":
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		err, reason := s.backupClient.BackupPostgres(ctx)
+		go func() {
+			err = s.backup(backupDirectoryID, policyID, name, limitUpload, limitDownload, recoveryPointType, reason, progressOutput)
+		}()
+		return err
+	case "backup_mongodb":
+		return nil
+	case "backup_mysql":
+		return nil
+	case "backup_redis":
+		return nil
+	}
+	return nil
+}
+
 // backup performs backup flow.
-func (s *Server) backup(backupDirectoryID string, policyID string, name string, limitUpload, limitDownload int, recoveryPointType string, progressOutput io.Writer) error {
+func (s *Server) backup(backupDirectoryID string, policyID string, name string, limitUpload int, limitDownload int, recoveryPointType string, reason string, progressOutput io.Writer) error {
 	chErr := make(chan error, 1)
 
 	s.logger.Info("Backup directory ID: ", zap.String("backupDirectoryID", backupDirectoryID), zap.String("policyID", policyID), zap.String("name", name), zap.String("recoveryPointType", recoveryPointType))
@@ -756,6 +782,14 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		"action_id": actionCreateRP.ID,
 		"status":    statusPendingFile,
 	})
+
+	// Notify status FAILED when backup database failed
+	fmt.Println(reason)
+	if reason != "" {
+		s.notifyStatusFailed(actionCreateRP.ID, reason)
+		fmt.Println("aaaaaaaaaaaaaaaaaaaa")
+		return err
+	}
 
 	_ = s.poolDir.Submit(s.backupWorker(ctx, actionCreateRP, backupDirectoryID, limitUpload, limitDownload, progressOutput, chErr))
 	return <-chErr

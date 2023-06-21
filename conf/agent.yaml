@@ -1,11 +1,9 @@
-machine_id: foo
-access_key: <Access Key>
-secret_key: <Secret Key>
-api_url: <API URL>
-
-limit_upload: <Upload KiB>
-limit_download: <Download KiB>
-
-port: <Service port>
-
-num_goroutine: <Quantity goroutine>
+access_key: DXVAOMNDGJ3ZRJMG12XA
+api_url: http://localhost:5000
+machine_id: 9379b3d9-aa75-4662-bbe3-df618d41c845
+secret_key: 3cec4aadd7d52d67ee6ad86b9219b81b9de66adc5605c9c0f8dcce04c665f6a8
+db_host: 10.3.94.8
+db_port: 5432
+db_database: cloud-backup-staging
+db_username: cloud-backup
+db_password: 24haTD5xS5K6jUTb

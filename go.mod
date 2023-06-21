@@ -18,6 +18,7 @@ require (
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/google/uuid v1.2.0 // indirect
 	github.com/gorilla/websocket v1.5.0 // indirect
+	github.com/habx/pg-commands v0.6.1 // indirect
 	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf
 	github.com/jpillora/backoff v1.0.0
 	github.com/juju/ratelimit v1.0.1

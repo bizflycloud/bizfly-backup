@@ -25,6 +25,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -54,6 +55,19 @@ var agentCmd = &cobra.Command{
 		secretKey := viper.GetString("secret_key")
 		apiUrl := viper.GetString("api_url")
 		numGoroutine := viper.GetInt("num_goroutine")
+		Host := viper.GetString("db_host")
+		Port, _ := strconv.Atoi(viper.GetString("db_port"))
+		Database := viper.GetString("db_database")
+		Username := viper.GetString("db_username")
+		Password := viper.GetString("db_password")
+
+		dataBase := backupapi.Database{
+			Host:     Host,
+			Port:     Port,
+			Database: Database,
+			Username: Username,
+			Password: Password,
+		}
 
 		backupClient, err := backupapi.NewClient(
 			backupapi.WithAccessKey(accessKey),
@@ -61,6 +75,7 @@ var agentCmd = &cobra.Command{
 			backupapi.WithServerURL(apiUrl),
 			backupapi.WithID(machineID),
 			backupapi.WithNumGoroutine(numGoroutine),
+			backupapi.WithDatabase(&dataBase),
 		)
 		if err != nil {
 			logger.Error("failed to create new backup client", zap.Error(err))
@@ -84,6 +99,7 @@ var agentCmd = &cobra.Command{
 		}
 
 		mqttUrl := brokerUrl
+		fmt.Println(mqttUrl)
 		agentID := machineID
 		b, err := mqtt.NewBroker(
 			mqtt.WithURL(mqttUrl),

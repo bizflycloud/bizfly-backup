@@ -784,10 +784,8 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 	})
 
 	// Notify status FAILED when backup database failed
-	fmt.Println(reason)
 	if reason != "" {
 		s.notifyStatusFailed(actionCreateRP.ID, reason)
-		fmt.Println("aaaaaaaaaaaaaaaaaaaa")
 		return err
 	}
 

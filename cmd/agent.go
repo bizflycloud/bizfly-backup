@@ -99,7 +99,6 @@ var agentCmd = &cobra.Command{
 		}
 
 		mqttUrl := brokerUrl
-		fmt.Println(mqttUrl)
 		agentID := machineID
 		b, err := mqtt.NewBroker(
 			mqtt.WithURL(mqttUrl),

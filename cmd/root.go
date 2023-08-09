@@ -19,16 +19,17 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strings"
+
 	homedir "github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
-	"os"
-	"strings"
 )
 
 const (
-	defaultPort = 9000
+	defaultPort = 29999
 	httpPrefix  = "http://"
 	localhost   = "127.0.0.1"
 	tcpProtocol = "tcp"

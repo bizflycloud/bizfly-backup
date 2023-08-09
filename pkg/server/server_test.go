@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	defaultTestPort = 9000
+	defaultTestPort = 29999
 )
 
 var (

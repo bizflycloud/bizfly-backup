@@ -40,7 +40,7 @@ Usage:
   bizfly-backup agent [flags]
 
 Flags:
-      --addr string   listening address of server. (default "http://localhost:9000")
+      --addr string   listening address of server. (default "http://localhost:29999")
   -h, --help          help for agent
 
 Global Flags:
@@ -52,7 +52,7 @@ Global Flags:
 ```shell script
 $ ./bizfly-backup agent --debug=true --config=./conf/agent.yaml
 2020-06-08T09:14:26.552+0700	INFO	cmd/root.go:96	Using config file: ./agent.yaml
-2020-06-08T09:14:26.559+0700	DEBUG	cmd/agent.go:50	Listening address: http://localhost:9000
+2020-06-08T09:14:26.559+0700	DEBUG	cmd/agent.go:50	Listening address: http://localhost:29999
 ```
 
 # Configuration Options
@@ -65,7 +65,7 @@ $ ./bizfly-backup agent --debug=true --config=./conf/agent.yaml
 | api_url | None          | api_url is provided when create machine.                                                                                               |
 | limit_upload | unlimited     | limit_upload is used to limit upload bandwidth.                                                                                      |
 | limit_download | unlimited     | limit_download is used to limit download bandwidth.                                                                                  |
-| port | 9000          | port is used change the default port.                                                                                                |
+| port | 29999          | port is used change the default port.                                                                                                |
 | num_goroutine | calculated    | Quantity goroutine run at the same time. <br/>Default is caculated base on the number of logical CPUs usable by the current process. |
 
 ## Example
@@ -79,7 +79,7 @@ secret_key: ef09a0fc5f013f0cac10f5c97ad04040bd72b4cc5a8e49b55ca1b644ea8779ff
 limit_upload: 20000
 limit_download: 30000
 
-port: 9001
+port: 29998
 
 num_goroutine: 3
 ```

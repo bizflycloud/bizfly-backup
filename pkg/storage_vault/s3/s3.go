@@ -109,6 +109,7 @@ func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, li
 		Endpoint:         aws.String(vault.Credential.AwsLocation),
 		Region:           aws.String(vault.Credential.Region),
 		S3ForcePathStyle: aws.Bool(true),
+		LogLevel: 		  aws.LogLevel(aws.LogDebug),
 		HTTPClient:       &http.Client{Transport: rt},
 	})))
 	s3.S3Session = sess

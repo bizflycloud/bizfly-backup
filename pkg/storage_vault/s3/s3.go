@@ -290,7 +290,8 @@ func (s3 *S3) putObjectMultiPart(key string, data []byte) (error) {
 			fmt.Println(err.Error())
 			err := s3.abortMultiPartUpload(respMPU)
 			if err != nil {
-				fmt.Println(err.Error())
+				s3.logger.Sugar().Error(err.Error())
+				return err
 			}
 			return nil
 		}
@@ -301,7 +302,7 @@ func (s3 *S3) putObjectMultiPart(key string, data []byte) (error) {
 
 	completeResponse, err := s3.completeMultiPartUpload(respMPU, completedParts)
 	if err != nil {
-		fmt.Println(err.Error())
+		s3.logger.Sugar().Error(err.Error())
 		return err
 	}
 

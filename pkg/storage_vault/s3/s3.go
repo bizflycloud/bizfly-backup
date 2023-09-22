@@ -149,7 +149,7 @@ func (s3 *S3) VerifyObject(key string) (bool, bool, string, error) {
 				break
 			}
 			s3.logger.Sugar().Errorf("VerifyObject error: %s %s", aerr.Code(), aerr.Message())
-			if (aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden") && s3.Type().CredentialType == "DEFAULT" {
+			if (aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden" || aerr.Code() == "SignatureDoesNotMatch" ) && s3.Type().CredentialType == "DEFAULT" {
 				s3.logger.Sugar().Info("GetCredential in head object ", key)
 				storageVaultID, actID := s3.ID()
 				vault, err := s3.backupClient.GetCredentialStorageVault(storageVaultID, actID, nil)
@@ -227,7 +227,7 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 		}
 		if aerr, ok := err.(awserr.Error); ok {
 			s3.logger.Sugar().Errorf("PutObject error: %s %s", aerr.Code(), aerr.Message())
-			if aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden" {
+			if aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden" || aerr.Code() == "SignatureDoesNotMatch" {
 				if once {
 					s3.logger.Error("Return false cause in put object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return err
@@ -274,7 +274,7 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 			}
 
 			s3.logger.Sugar().Errorf("GetObject error: %s %s", aerr.Code(), aerr.Message())
-			if aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden" {
+			if aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden" || aerr.Code() == "SignatureDoesNotMatch" {
 				if once {
 					s3.logger.Error("Return false cause in get object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return nil, err
@@ -325,7 +325,7 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 			}
 
 			s3.logger.Sugar().Errorf("HeadObject error: %s %s", aerr.Code(), aerr.Message())
-			if aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden" {
+			if aerr.Code() == "AccessDenied" || aerr.Code() == "Forbidden" || aerr.Code() == "SignatureDoesNotMatch" {
 				if once {
 					s3.logger.Error("Return false cause in head object: ", zap.Error(err), zap.String("code", aerr.Code()), zap.String("key", key))
 					return false, "", err

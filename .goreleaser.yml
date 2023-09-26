@@ -47,7 +47,6 @@ archives:
 
 source:
   enabled: true
-  rlcp: true
   name_template: '{{ .ProjectName }}'
   format: 'tar'
 release:

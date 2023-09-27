@@ -199,7 +199,7 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 			}
 		}
 
-		c.logger.Debug("GetObject error. Retrying")
+		c.logger.Sugar().Info("GetObject error. Retrying", key)
 		d := bo.NextBackOff()
 		if d == backoff.Stop {
 			c.logger.Debug("GetObject error. Retry time out")

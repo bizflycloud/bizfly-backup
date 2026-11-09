@@ -9,14 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -27,7 +25,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/mod/semver"
 
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/valve"
 	"github.com/inconshreveable/go-update"
 	"github.com/jpillora/backoff"
@@ -107,6 +105,13 @@ type Server struct {
 
 	// map contains context of running worker
 	mapActionContext map[string]contextStruct
+
+	// shutdownCtx is cancelled when the server stops; background goroutines
+	// (schedule tickers, broker-triggered backups) MUST watch this to exit cleanly.
+	shutdownCtx    context.Context
+	shutdownCancel context.CancelFunc
+	bgWG           sync.WaitGroup
+	scheduleOnce   sync.Map
 }
 
 // New creates new server instance.
@@ -124,6 +129,7 @@ func New(opts ...Option) (*Server, error) {
 	s.cronManager.Start()
 	s.mappingToCronEntryID = make(map[string]cron.EntryID)
 	s.mapActionContext = make(map[string]contextStruct)
+	s.shutdownCtx, s.shutdownCancel = context.WithCancel(context.Background())
 
 	if s.logger == nil {
 		l, err := backupapi.WriteLog()
@@ -233,18 +239,34 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 	switch msg.EventType {
 	case broker.BackupManual:
 		limitDownload = 0
-		var err error
+		s.bgWG.Add(1)
 		go func() {
-			err = s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, limitUpload, limitDownload, backupapi.RecoveryPointTypeInitialReplica, ioutil.Discard)
+			defer s.bgWG.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					s.logger.Sugar().Errorf("BackupManual panic recovered: %v", r)
+				}
+			}()
+			if err := s.backup(msg.BackupDirectoryID, msg.PolicyID, msg.Name, limitUpload, limitDownload, backupapi.RecoveryPointTypeInitialReplica, io.Discard); err != nil {
+				s.logger.Error("BackupManual failed", zap.Error(err))
+			}
 		}()
-		return err
+		return nil
 	case broker.RestoreManual:
 		limitUpload = 0
-		var err error
+		s.bgWG.Add(1)
 		go func() {
-			err = s.restore(msg.MachineID, msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.StorageVaultId, limitUpload, limitDownload, ioutil.Discard)
+			defer s.bgWG.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					s.logger.Sugar().Errorf("RestoreManual panic recovered: %v", r)
+				}
+			}()
+			if err := s.restore(msg.MachineID, msg.ActionId, msg.CreatedAt, msg.RestoreSessionKey, msg.RecoveryPointID, msg.DestinationDirectory, msg.StorageVaultId, limitUpload, limitDownload, io.Discard); err != nil {
+				s.logger.Error("RestoreManual failed", zap.Error(err))
+			}
 		}()
-		return err
+		return nil
 	case broker.ConfigUpdate:
 		return s.handleConfigUpdate(msg)
 	case broker.ConfigRefresh:
@@ -354,7 +376,7 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 				name := autoRecoveryPointName(backupName, time.Now())
 				// improve when support incremental backup
 				recoveryPointType := backupapi.RecoveryPointTypeInitialReplica
-				if err := s.backup(directoryID, policyID, name, limitUpload, limitDownload, recoveryPointType, ioutil.Discard); err != nil {
+				if err := s.backup(directoryID, policyID, name, limitUpload, limitDownload, recoveryPointType, io.Discard); err != nil {
 					zapFields := []zap.Field{
 						zap.Error(err),
 						zap.String("service", "cron"),
@@ -685,7 +707,10 @@ func (s *Server) Run() error {
 	go s.shutdownSignalLoop(baseCtx, valv)
 	go s.upgradeLoop(baseCtx)
 
-	srv := http.Server{Handler: chi.ServerBaseContext(baseCtx, s.router)}
+	srv := http.Server{
+		Handler:     s.router,
+		BaseContext: func(_ net.Listener) context.Context { return baseCtx },
+	}
 
 	c := make(chan os.Signal, 1)
 	if s.testSignalCh != nil {
@@ -838,7 +863,7 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 			buf, err := storageVault.GetObject(filepath.Join(machineID, recoveryPointID, "index.json"))
 			if err == nil {
 				_ = os.MkdirAll(filepath.Join(cachePath, machineID, recoveryPointID), 0700)
-				if err := ioutil.WriteFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"), buf, 0700); err != nil {
+				if err := os.WriteFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"), buf, 0700); err != nil {
 					s.logger.Error("Error writing index.json file", zap.Error(err), zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
 					s.notifyStatusFailed(actionID, err.Error())
 					return err
@@ -857,7 +882,7 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 
 	index := cache.Index{}
 
-	buf, err := ioutil.ReadFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"))
+	buf, err := os.ReadFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"))
 	if err != nil {
 		s.logger.Error("Error read index.json file", zap.Error(err), zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
 		s.notifyStatusFailed(actionID, err.Error())
@@ -937,7 +962,7 @@ func (s *Server) NewStorageVault(storageVault backupapi.StorageVault, actionID s
 		}
 		return newS3Default, nil
 	default:
-		return nil, fmt.Errorf(fmt.Sprintf("storage vault type not supported %s", storageVault.StorageVaultType))
+		return nil, fmt.Errorf("storage vault type not supported %s", storageVault.StorageVaultType)
 	}
 }
 
@@ -1019,7 +1044,7 @@ func (s *Server) uploadFileWorker(ctx context.Context, itemInfo *cache.Node, lat
 			defer cancel()
 			storageSize, err := s.backupClient.UploadFile(ctx, s.chunkPool, latestInfo, itemInfo, cacheWriter, storageVault, p, pipe, rpID, bdID)
 			if err != nil {
-				s.logger.Error("uploadFileWorker error", zap.Error(err))
+				s.logger.Error("uploadFileWorker error", zap.Error(err), zap.String("rp_id", rpID), zap.String("bd_id", bdID))
 				*errCh = err
 				cancel()
 				return
@@ -1127,7 +1152,7 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 
 		latestIndex := cache.Index{}
 		if lrp != nil {
-			buf, err := ioutil.ReadFile(filepath.Join(cachePath, mcID, lrp.ID, "index.json"))
+			buf, err := os.ReadFile(filepath.Join(cachePath, mcID, lrp.ID, "index.json"))
 			if err != nil {
 				lrp = nil
 			} else {
@@ -1135,13 +1160,20 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 			}
 		}
 
-		pipe := make(chan *cache.Chunk)
+		pipe := make(chan *cache.Chunk, 256)
 		done := make(chan bool)
 		go func() {
 			for {
 				receiver, more := <-pipe
 				if more {
-					key := reflect.ValueOf(receiver.Chunks).MapKeys()[0].Interface().(string)
+					var key string
+					for k := range receiver.Chunks {
+						key = k
+						break
+					}
+					if key == "" {
+						continue
+					}
 					if value, ok := chunks.Chunks[key]; ok {
 						count, errParseInt := strconv.Atoi(strings.Split(value[0], "-")[0])
 						if errParseInt != nil {
@@ -1171,7 +1203,7 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 
 		var storageSize uint64
 		var errFileWorker error
-		progressUpload := s.newUploadProgress(rpID, itemTodo)
+		progressUpload := s.newUploadProgress(rpID, bdID, itemTodo)
 
 		var wg sync.WaitGroup
 
@@ -1185,7 +1217,7 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 				break
 			default:
 				if errFileWorker != nil {
-					s.logger.Error("uploadFileWorker error", zap.Error(errFileWorker))
+					s.logger.Error("uploadFileWorker error", zap.Error(errFileWorker), zap.String("rp_id", rpID), zap.String("bd_id", bdID))
 					err = errFileWorker
 					cancel()
 					break
@@ -1338,7 +1370,7 @@ func (s *Server) storeIndexs(cachePath, mcID string, lrp *backupapi.RecoveryPoin
 			buf, err := storageVault.GetObject(filepath.Join(mcID, lrp.ID, "index.json"))
 			if err == nil {
 				_ = os.MkdirAll(filepath.Join(cachePath, mcID, lrp.ID), 0700)
-				if err := ioutil.WriteFile(filepath.Join(cachePath, mcID, lrp.ID, "index.json"), buf, 0700); err != nil {
+				if err := os.WriteFile(filepath.Join(cachePath, mcID, lrp.ID, "index.json"), buf, 0700); err != nil {
 					return err
 				}
 			} else {
@@ -1348,7 +1380,7 @@ func (s *Server) storeIndexs(cachePath, mcID string, lrp *backupapi.RecoveryPoin
 			return err
 		}
 	} else {
-		buf, err := ioutil.ReadFile(filepath.Join(cachePath, mcID, lrp.ID, "index.json"))
+		buf, err := os.ReadFile(filepath.Join(cachePath, mcID, lrp.ID, "index.json"))
 		if err != nil {
 			return err
 		}
@@ -1361,7 +1393,7 @@ func (s *Server) storeIndexs(cachePath, mcID string, lrp *backupapi.RecoveryPoin
 }
 
 func (s *Server) putIndexs(storageVault storage_vault.StorageVault, latestIndex cache.Index, cachePath, mcID, rpID string) (string, error) {
-	buf, err := ioutil.ReadFile(filepath.Join(cachePath, mcID, rpID, "index.json"))
+	buf, err := os.ReadFile(filepath.Join(cachePath, mcID, rpID, "index.json"))
 	if err != nil {
 		s.logger.Error("Read indexs error", zap.Error(err))
 		return "", err
@@ -1384,7 +1416,7 @@ func (s *Server) putChunks(cachePath, mcID, rpID, chunkPath string, storageVault
 	} else {
 		chunkPath = filepath.Join(BACKUP_FAILED_PATH, mcID, rpID, "chunk.json")
 	}
-	buf, err := ioutil.ReadFile(chunkPath)
+	buf, err := os.ReadFile(chunkPath)
 	if err != nil {
 		s.logger.Error("Read chunk.json error", zap.Error(err))
 		return err
@@ -1400,7 +1432,7 @@ func (s *Server) putChunks(cachePath, mcID, rpID, chunkPath string, storageVault
 // Upload list backup failed to storage
 func (s *Server) uploadListBackupFailed(listBackupFailed []string, storageVault storage_vault.StorageVault) error {
 	for _, fileFailed := range listBackupFailed {
-		buf, err := ioutil.ReadFile(filepath.Join(BACKUP_FAILED_PATH, fileFailed))
+		buf, err := os.ReadFile(filepath.Join(BACKUP_FAILED_PATH, fileFailed))
 		if err != nil {
 			s.logger.Error("Read file error ", zap.Error(err))
 			return err
@@ -1460,7 +1492,7 @@ func (s *Server) putFiles(cachePath, mcID, rpID string, filePath string, storage
 	} else {
 		filePath = filepath.Join(BACKUP_FAILED_PATH, mcID, rpID, "file.csv")
 	}
-	buf, err := ioutil.ReadFile(filePath)
+	buf, err := os.ReadFile(filePath)
 	if err != nil {
 		s.logger.Error("Read file.csv error", zap.Error(err))
 		return err
@@ -1488,7 +1520,7 @@ func (s *Server) newProgressScanDir(recoverypointID string) *progress.Progress {
 	return p
 }
 
-func (s *Server) newUploadProgress(recoveryPointID string, todo progress.Stat) *progress.Progress {
+func (s *Server) newUploadProgress(recoveryPointID string, backupDirectoryID string, todo progress.Stat) *progress.Progress {
 	p := progress.NewProgress(intervalPushProgress)
 
 	var bps, eta uint64
@@ -1512,15 +1544,16 @@ func (s *Server) newUploadProgress(recoveryPointID string, todo progress.Stat) *
 			strItemsTodo := strconv.FormatUint(itemsTodo, 10)
 
 			s.notifyMsgProgress(recoveryPointID, map[string]string{
-				"duration":          formatDuration(d),
-				"percent":           formatPercent(stat.Bytes, todo.Bytes),
-				"speed":             formatBytes(bps),
-				"total":             fmt.Sprintf("%s/%s", formatBytes(stat.Bytes), formatBytes(todo.Bytes)),
-				"push_storage":      formatBytes(stat.Storage),
-				"items":             fmt.Sprintf("%s/%s", strItemsDone, strItemsTodo),
-				"erros":             strconv.FormatBool(stat.Errors),
-				"eta":               formatSeconds(eta),
-				"recovery_point_id": recoveryPointID,
+				"duration":            formatDuration(d),
+				"percent":             formatPercent(stat.Bytes, todo.Bytes),
+				"speed":               formatBytes(bps),
+				"total":               fmt.Sprintf("%s/%s", formatBytes(stat.Bytes), formatBytes(todo.Bytes)),
+				"push_storage":        formatBytes(stat.Storage),
+				"items":               fmt.Sprintf("%s/%s", strItemsDone, strItemsTodo),
+				"erros":               strconv.FormatBool(stat.Errors),
+				"eta":                 formatSeconds(eta),
+				"recovery_point_id":   recoveryPointID,
+				"backup_directory_id": backupDirectoryID,
 			})
 		}
 	}
@@ -1528,14 +1561,18 @@ func (s *Server) newUploadProgress(recoveryPointID string, todo progress.Stat) *
 	p.OnDone = func(stat progress.Stat, d time.Duration, ticker bool) {
 		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
 		s.notifyMsgProgress(recoveryPointID, map[string]string{
-			"COMPLETE UPLOAD": message,
+			"COMPLETE UPLOAD":     message,
+			"recovery_point_id":   recoveryPointID,
+			"backup_directory_id": backupDirectoryID,
 		})
 	}
 
 	p.OnCancel = func(stat progress.Stat, d time.Duration, ticker bool) {
 		message := fmt.Sprintf("Duration: %s, %s", d, formatBytes(todo.Storage))
 		s.notifyMsgProgress(recoveryPointID, map[string]string{
-			"CANCELED UPLOAD": message,
+			"CANCELED UPLOAD":     message,
+			"recovery_point_id":   recoveryPointID,
+			"backup_directory_id": backupDirectoryID,
 		})
 	}
 	return p
@@ -1679,7 +1716,7 @@ func scanListBackupFailed() ([]string, error) {
 
 	var listBackupFailed []string
 
-	dirEntries, err := ioutil.ReadDir(BACKUP_FAILED_PATH)
+	dirEntries, err := os.ReadDir(BACKUP_FAILED_PATH)
 	if err != nil {
 		return nil, err
 	}
@@ -1749,21 +1786,31 @@ func (s *Server) getDirectorySize() error {
 }
 
 func (s *Server) schedule(timeSchedule time.Duration, index int) {
+	key := fmt.Sprintf("%d-%s", index, timeSchedule)
+	if _, loaded := s.scheduleOnce.LoadOrStore(key, true); loaded {
+		return
+	}
 	ticker := time.NewTicker(timeSchedule)
+	s.bgWG.Add(1)
 	go func() {
+		defer s.bgWG.Done()
+		defer ticker.Stop()
 		for {
-			switch index {
-			case 1:
-				<-ticker.C
-				s.logger.Sugar().Info("Check old cache directory")
-				if err := cache.RemoveOldCache(maxCacheAgeDefault); err != nil {
-					s.logger.Error(err.Error())
-				}
-			case 2:
-				<-ticker.C
-				s.logger.Sugar().Info("Update size of directory")
-				if err := s.getDirectorySize(); err != nil {
-					s.logger.Error(err.Error())
+			select {
+			case <-s.shutdownCtx.Done():
+				return
+			case <-ticker.C:
+				switch index {
+				case 1:
+					s.logger.Sugar().Info("Check old cache directory")
+					if err := cache.RemoveOldCache(maxCacheAgeDefault); err != nil {
+						s.logger.Error(err.Error())
+					}
+				case 2:
+					s.logger.Sugar().Info("Update size of directory")
+					if err := s.getDirectorySize(); err != nil {
+						s.logger.Error(err.Error())
+					}
 				}
 			}
 		}

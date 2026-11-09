@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -166,14 +165,15 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	bo.MaxInterval = maxRetry
 	bo.MaxElapsedTime = maxRetry
 
-	body, err := ioutil.ReadAll(req.Body)
+	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		return nil, err
 	}
 
 	for {
-		req.Body = ioutil.NopCloser(bytes.NewBuffer(body))
+		req.Body = io.NopCloser(bytes.NewBuffer(body))
 		resp, err = c.do(c.client, req, "application/json")
+		c.logger.Debug("Do http request ", zap.String("Method", req.Method), zap.String("URL", req.URL.String()))
 		if err == nil {
 			if resp.StatusCode < 400 || resp.StatusCode == 404 {
 				return resp, nil
@@ -200,7 +200,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		var b bytes.Buffer
 		_, _ = io.Copy(&b, resp.Body)
 		c.logger.Error("Request error ", zap.Int("StatusCode", resp.StatusCode), zap.String("Body Response", b.String()))
-		return nil, fmt.Errorf(fmt.Sprintf("StatusCode %d Body response %s", resp.StatusCode, b.String()))
+		return nil, fmt.Errorf("StatusCode %d Body response %s", resp.StatusCode, b.String())
 	}
 
 	return resp, nil

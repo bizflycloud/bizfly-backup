@@ -1,7 +1,7 @@
 package backupapi
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -90,7 +90,7 @@ func TestDo(t *testing.T) {
 		t.Fatalf("Do(): %v", err)
 	}
 	require.Nil(t, checkResponse(resp))
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatalf("Do(): %v", err)
 	}

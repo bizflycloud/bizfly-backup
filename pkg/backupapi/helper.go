@@ -46,6 +46,7 @@ func checkResponse(resp *http.Response) error {
 
 	var buf bytes.Buffer
 	_, _ = io.Copy(&buf, resp.Body)
+	_ = resp.Body.Close()
 
 	return errors.New(buf.String())
 }

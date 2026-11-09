@@ -18,7 +18,7 @@ import (
 	"github.com/bizflycloud/bizfly-backup/pkg/cache"
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 
-	"github.com/go-chi/chi"
+	"github.com/go-chi/chi/v5"
 	"github.com/ory/dockertest/v3"
 	"github.com/panjf2000/ants/v2"
 	"github.com/robfig/cron/v3"

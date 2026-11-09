@@ -937,7 +937,7 @@ func (s *Server) NewStorageVault(storageVault backupapi.StorageVault, actionID s
 		}
 		return newS3Default, nil
 	default:
-		return nil, fmt.Errorf(fmt.Sprintf("storage vault type not supported %s", storageVault.StorageVaultType))
+		return nil, fmt.Errorf("storage vault type not supported %s", storageVault.StorageVaultType)
 	}
 }
 

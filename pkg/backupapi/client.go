@@ -200,7 +200,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		var b bytes.Buffer
 		_, _ = io.Copy(&b, resp.Body)
 		c.logger.Error("Request error ", zap.Int("StatusCode", resp.StatusCode), zap.String("Body Response", b.String()))
-		return nil, fmt.Errorf(fmt.Sprintf("StatusCode %d Body response %s", resp.StatusCode, b.String()))
+		return nil, fmt.Errorf("StatusCode %d Body response %s", resp.StatusCode, b.String())
 	}
 
 	return resp, nil

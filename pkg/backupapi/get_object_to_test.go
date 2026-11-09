@@ -713,7 +713,13 @@ func TestClient_restoreFile_ChangedFileReplaced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != node.Mode.Perm() {
+	if runtime.GOOS == "windows" {
+		// Windows only has a read-only attribute: os.Chmod maps the owner write bit to it
+		// and reports every writable file as 0666.
+		if gotW, wantW := fi.Mode().Perm()&0200 != 0, node.Mode.Perm()&0200 != 0; gotW != wantW {
+			t.Errorf("writable = %v, want %v (mode %v)", gotW, wantW, fi.Mode().Perm())
+		}
+	} else if fi.Mode().Perm() != node.Mode.Perm() {
 		t.Errorf("mode = %v, want %v", fi.Mode().Perm(), node.Mode.Perm())
 	}
 	if !fi.ModTime().Equal(node.ModTime) {

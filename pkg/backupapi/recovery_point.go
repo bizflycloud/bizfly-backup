@@ -262,6 +262,7 @@ func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, c
 		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	var restoreRsp RestoreResponse
 	if err := json.NewDecoder(resp.Body).Decode(&restoreRsp); err != nil {

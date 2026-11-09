@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	storage "github.com/aws/aws-sdk-go/service/s3"
+	storage "github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 
@@ -22,7 +22,7 @@ func TestS3_Type(t *testing.T) {
 		StorageVaultType string
 		Location         string
 		Region           string
-		S3Session        *storage.S3
+		S3Session        *storage.Client
 		logger           *zap.Logger
 	}
 	tests := []struct {
@@ -72,7 +72,7 @@ func TestS3_ID(t *testing.T) {
 		StorageVaultType string
 		Location         string
 		Region           string
-		S3Session        *storage.S3
+		S3Session        *storage.Client
 		logger           *zap.Logger
 	}
 	tests := []struct {

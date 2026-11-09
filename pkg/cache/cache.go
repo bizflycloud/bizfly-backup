@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
@@ -76,7 +75,7 @@ func (r *Repository) create() error {
 
 // Return temp directory in correct directory for this repository.
 func (r *Repository) tempFile() (*os.File, error) {
-	return ioutil.TempFile(path.Join(r.path, r.mcID, r.rpID, tempPath), "temp-")
+	return os.CreateTemp(path.Join(r.path, r.mcID, r.rpID, tempPath), "temp-")
 }
 
 // Rename temp file to final name according to type and ID.
@@ -91,51 +90,45 @@ func (r *Repository) filename(t Type) string {
 }
 
 func (r *Repository) SaveIndex(index *Index) error {
-	buf, err := json.Marshal(index)
-	if err != nil {
-		return err
-	}
 	f, err := r.tempFile()
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = f.Write(buf)
-	if err != nil {
+	closed := false
+	defer func() {
+		if !closed {
+			_ = f.Close()
+		}
+	}()
+	if err := json.NewEncoder(f).Encode(index); err != nil {
 		return err
 	}
 	if err := f.Close(); err != nil {
 		return err
 	}
-	err = r.renameFile(f, INDEX)
-	if err != nil {
-		return err
-	}
-	return nil
+	closed = true
+	return r.renameFile(f, INDEX)
 }
 
 func (r *Repository) SaveChunk(chunk *Chunk) error {
-	buf, err := json.Marshal(chunk)
-	if err != nil {
-		return err
-	}
 	f, err := r.tempFile()
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	_, err = f.Write(buf)
-	if err != nil {
+	closed := false
+	defer func() {
+		if !closed {
+			_ = f.Close()
+		}
+	}()
+	if err := json.NewEncoder(f).Encode(chunk); err != nil {
 		return err
 	}
 	if err := f.Close(); err != nil {
 		return err
 	}
-	err = r.renameFile(f, CHUNK)
-	if err != nil {
-		return err
-	}
-	return nil
+	closed = true
+	return r.renameFile(f, CHUNK)
 }
 
 // listCacheDirs returns the list of cache directories.

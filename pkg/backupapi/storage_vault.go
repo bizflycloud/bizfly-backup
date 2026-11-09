@@ -2,10 +2,12 @@ package backupapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
-	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/smithy-go"
 	"github.com/cenkalti/backoff"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
@@ -58,11 +60,16 @@ func (c *Client) GetCredentialStorageVault(storageVaultID string, actionID strin
 			req.Header.Add("X-Session-Created-At", restoreKey.CreatedAt)
 			req.Header.Add("X-Restore-Session-Key", restoreKey.RestoreSessionKey)
 
+			if resp != nil && resp.Body != nil {
+				_ = resp.Body.Close()
+				resp = nil
+			}
+
 			resp, err = c.Do(req)
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
 			}
-			if resp.StatusCode == 401 {
+			if resp != nil && resp.StatusCode == 401 {
 				c.logger.Sugar().Info("GetRestoreSessionKey access denied: ", resp.StatusCode)
 				newSessionKey, err := c.GetRestoreSessionKey(restoreKey.RecoveryPointID, restoreKey.ActionID, restoreKey.CreatedAt)
 				if err != nil {
@@ -72,7 +79,7 @@ func (c *Client) GetCredentialStorageVault(storageVaultID string, actionID strin
 				c.logger.Sugar().Info("new session key: ", newSessionKey)
 				restoreKey.CreatedAt = newSessionKey.CreatedAt
 				restoreKey.RestoreSessionKey = newSessionKey.RestoreSessionKey
-			} else if resp.StatusCode == 200 {
+			} else if resp != nil && resp.StatusCode == 200 {
 				break
 			}
 
@@ -98,15 +105,18 @@ func (c *Client) GetCredentialStorageVault(storageVaultID string, actionID strin
 		}
 	}
 
+	if resp == nil {
+		return nil, errors.New("GetCredentialStorageVault: nil response")
+	}
+
 	if err = checkResponse(resp); err != nil {
 		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	body := resp.Body
 	var vault StorageVault
-	if err := json.NewDecoder(body).Decode(&vault); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&vault); err != nil {
 		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
@@ -125,8 +135,8 @@ func (c *Client) PutObject(storageVault storage_vault.StorageVault, key string, 
 		if err == nil {
 			break
 		}
-		if aerr, ok := err.(awserr.Error); ok {
-			if (aerr.Code() == "Forbidden" || aerr.Code() == "AccessDenied") && storageVault.Type().CredentialType == "DEFAULT" {
+		var aerr smithy.APIError; if errors.As(err, &aerr) {
+			if (aerr.ErrorCode() == "Forbidden" || aerr.ErrorCode() == "AccessDenied") && storageVault.Type().CredentialType == "DEFAULT" {
 				c.logger.Sugar().Info("GetCredential for refreshing session s3")
 				storageVaultID, actID := storageVault.ID()
 
@@ -156,8 +166,7 @@ func (c *Client) PutObject(storageVault storage_vault.StorageVault, key string, 
 }
 
 // GetObject downloads the object by name in storage vault.
-func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, restoreKey *AuthRestore) ([]byte, error) {
-	var err error
+func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, restoreKey *AuthRestore) ([]byte, error) {	var err error
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = maxRetry
 	bo.MaxElapsedTime = maxRetry
@@ -167,8 +176,8 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 		if err == nil {
 			return data, nil
 		}
-		if aerr, ok := err.(awserr.Error); ok {
-			if (aerr.Code() == "Forbidden" || aerr.Code() == "AccessDenied") && storageVault.Type().CredentialType == "DEFAULT" {
+		var aerr smithy.APIError; if errors.As(err, &aerr) {
+			if (aerr.ErrorCode() == "Forbidden" || aerr.ErrorCode() == "AccessDenied") && storageVault.Type().CredentialType == "DEFAULT" {
 				storageVaultID, actID := storageVault.ID()
 
 				// get new restore session key
@@ -208,4 +217,53 @@ func (c *Client) GetObject(storageVault storage_vault.StorageVault, key string, 
 		c.logger.Sugar().Info("GetObject error. Retry in ", d)
 	}
 	return nil, err
+}
+
+// GetObjectTo streams the object body from storage_vault directly to dst.
+// Reuses the same credential-refresh and retry semantics as GetObject.
+func (c *Client) GetObjectTo(storageVault storage_vault.StorageVault, key string, restoreKey *AuthRestore, dst io.Writer) (int64, error) {
+	var err error
+	bo := backoff.NewExponentialBackOff()
+	bo.MaxInterval = maxRetry
+	bo.MaxElapsedTime = maxRetry
+
+	for {
+		n, gerr := storageVault.GetObjectTo(key, dst)
+		if gerr == nil {
+			return n, nil
+		}
+		err = gerr
+		var aerr smithy.APIError
+		if errors.As(err, &aerr) {
+			if (aerr.ErrorCode() == "Forbidden" || aerr.ErrorCode() == "AccessDenied") && storageVault.Type().CredentialType == "DEFAULT" {
+				storageVaultID, actID := storageVault.ID()
+
+				if restoreKey != nil {
+					newSessionKey, skErr := c.GetRestoreSessionKey(restoreKey.RecoveryPointID, restoreKey.ActionID, restoreKey.CreatedAt)
+					if skErr != nil {
+						c.logger.Error("Get restore session key error: ", zap.Error(skErr))
+						return 0, skErr
+					}
+					restoreKey.CreatedAt = newSessionKey.CreatedAt
+					restoreKey.RestoreSessionKey = newSessionKey.RestoreSessionKey
+				}
+
+				vault, vErr := c.GetCredentialStorageVault(storageVaultID, actID, restoreKey)
+				if vErr != nil {
+					c.logger.Error("Error get credential ", zap.Error(vErr))
+					break
+				}
+				if rErr := storageVault.RefreshCredential(vault.Credential); rErr != nil {
+					c.logger.Error("Error refresh credential ", zap.Error(rErr))
+					break
+				}
+			}
+		}
+		d := bo.NextBackOff()
+		if d == backoff.Stop {
+			break
+		}
+		c.logger.Sugar().Info("GetObjectTo error. Retry in ", d)
+	}
+	return 0, err
 }

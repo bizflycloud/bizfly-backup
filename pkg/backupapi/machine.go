@@ -2,7 +2,7 @@ package backupapi
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -97,9 +97,9 @@ func (c *Client) UpdateMachine() (*UpdateMachineResponse, error) {
 		return nil, err
 	}
 
-	buf, err := ioutil.ReadAll(resp.Body)
+	buf, err := io.ReadAll(resp.Body)
 	if err != nil {
-		c.logger.Error("ioutil.ReadAll() ", zap.Error(err))
+		c.logger.Error("io.ReadAll() ", zap.Error(err))
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {

@@ -241,17 +241,20 @@ func (c *Client) RequestRestore(recoveryPointID string, crr *CreateRestoreReques
 }
 
 func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, createdAt string) (*RestoreResponse, error) {
-	reqURL, err := c.urlStringFromRelPath(c.getRestoreSessionKey(recoveryPointID))
-	if err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		return nil, err
-	}
+	return c.getRestoreSessionKeyCtx(context.Background(), recoveryPointID, actionID, createdAt)
+}
 
-	req, err := c.NewRequest(http.MethodGet, reqURL, nil)
+// getRestoreSessionKeyCtx is GetRestoreSessionKey with a context that cancels the request and
+// its retries.
+func (c *Client) getRestoreSessionKeyCtx(ctx context.Context, recoveryPointID string, actionID string, createdAt string) (*RestoreResponse, error) {
+	// NewRequest resolves the relative path against ServerURL itself; resolving it here too
+	// broke the URL whenever ServerURL has a path (e.g. ".../v1").
+	req, err := c.NewRequest(http.MethodGet, c.getRestoreSessionKey(recoveryPointID), nil)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
 		return nil, err
 	}
+	req = req.WithContext(ctx)
 	q := req.URL.Query()
 	q.Add("action_id", actionID)
 	q.Add("created_at", createdAt)
@@ -263,11 +266,19 @@ func (c *Client) GetRestoreSessionKey(recoveryPointID string, actionID string, c
 		return nil, err
 	}
 	defer resp.Body.Close()
+	// Do returns 404 (and any 2xx/3xx) as a response, not an error. Accept only a 200 with
+	// a key: decoding anything else yields an empty session that would replace a valid one.
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("get restore session key: status %d", resp.StatusCode)
+	}
 
 	var restoreRsp RestoreResponse
 	if err := json.NewDecoder(resp.Body).Decode(&restoreRsp); err != nil {
 		c.logger.Error("err ", zap.Error(err))
 		return nil, err
+	}
+	if restoreRsp.RestoreSessionKey == "" {
+		return nil, errors.New("get restore session key: empty restore_session_key in response")
 	}
 	return &restoreRsp, nil
 }

@@ -103,7 +103,10 @@ type Server struct {
 
 	logger *zap.Logger
 
-	// map contains context of running worker
+	// map contains context of running worker. Backup and restore goroutines add and remove
+	// entries while the broker handler cancels them, so it is only used under actionMu
+	// through setActionContext / cancelActionContext / removeActionContext.
+	actionMu         sync.Mutex
 	mapActionContext map[string]contextStruct
 
 	// shutdownCtx is cancelled when the server stops; background goroutines
@@ -282,9 +285,7 @@ func (s *Server) handleBrokerEvent(e broker.Event) error {
 		s.schedule(15*time.Minute, 2)
 	case broker.StopAction:
 		// Done context of running action
-		if actionContext, ok := s.mapActionContext[msg.ActionId]; ok {
-			actionContext.cancel()
-		}
+		s.cancelActionContext(msg.ActionId)
 		s.notifyStatusFailed(msg.ActionId, backupapi.ErrorGotCancelRequest.Error())
 	default:
 		s.logger.Debug("Got unknown event", zap.Any("message", msg))
@@ -785,8 +786,10 @@ func (s *Server) backup(backupDirectoryID string, policyID string, name string, 
 		return <-chErr
 	}
 
-	// Save context of worker to map for manage
-	s.mapActionContext[actionCreateRP.ID] = contextStruct{ctx: ctx, cancel: cancel}
+	// Save context of worker to map for manage. Removed when backup returns, whatever the
+	// outcome, so failed backups do not leave entries behind.
+	s.setActionContext(actionCreateRP.ID, contextStruct{ctx: ctx, cancel: cancel})
+	defer s.removeActionContext(actionCreateRP.ID)
 
 	// Notify status pending to backend
 	s.notifyMsg(map[string]string{
@@ -822,8 +825,10 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Save context of worker to map for manage
-	s.mapActionContext[actionID] = contextStruct{ctx: ctx, cancel: cancel}
+	// Save context of worker to map for manage. Removed when restore returns, whatever the
+	// outcome, so failed restores do not leave entries behind.
+	s.setActionContext(actionID, contextStruct{ctx: ctx, cancel: cancel})
+	defer s.removeActionContext(actionID)
 
 	_, cachePath, err := support.CheckPath()
 	if err != nil {
@@ -846,7 +851,12 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
-	storageVault, _ := s.NewStorageVault(*vault, actionID, limitUpload, limitDownload)
+	storageVault, err := s.NewStorageVault(*vault, actionID, limitUpload, limitDownload)
+	if err != nil {
+		s.logger.Error("Create storage vault error", zap.Error(err))
+		s.notifyStatusFailed(actionID, err.Error())
+		return err
+	}
 
 	s.logger.Sugar().Info("Get recovery point info", recoveryPointID)
 	rp, err := s.backupClient.GetRecoveryPointInfo(recoveryPointID)
@@ -856,44 +866,8 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 		return err
 	}
 
-	_, err = os.Stat(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"))
+	index, err := s.loadRestoreIndex(ctx, storageVault, cachePath, machineID, recoveryPointID, rp.IndexHash)
 	if err != nil {
-		if os.IsNotExist(err) {
-			s.logger.Sugar().Info("Get index.json from storage", zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
-			buf, err := storageVault.GetObject(filepath.Join(machineID, recoveryPointID, "index.json"))
-			if err == nil {
-				_ = os.MkdirAll(filepath.Join(cachePath, machineID, recoveryPointID), 0700)
-				if err := os.WriteFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"), buf, 0700); err != nil {
-					s.logger.Error("Error writing index.json file", zap.Error(err), zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
-					s.notifyStatusFailed(actionID, err.Error())
-					return err
-				}
-			} else {
-				s.logger.Error("Error get index.json from storage", zap.Error(err), zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
-				s.notifyStatusFailed(actionID, err.Error())
-				return err
-			}
-		} else {
-			s.logger.Error("Error stat index.json file", zap.Error(err))
-			s.notifyStatusFailed(actionID, err.Error())
-			return err
-		}
-	}
-
-	index := cache.Index{}
-
-	buf, err := os.ReadFile(filepath.Join(cachePath, machineID, recoveryPointID, "index.json"))
-	if err != nil {
-		s.logger.Error("Error read index.json file", zap.Error(err), zap.String("key", filepath.Join(machineID, recoveryPointID, "index.json")))
-		s.notifyStatusFailed(actionID, err.Error())
-		return err
-	} else {
-		_ = json.Unmarshal([]byte(buf), &index)
-	}
-
-	hash := sha256.Sum256(buf)
-	if hex.EncodeToString(hash[:]) != rp.IndexHash {
-		s.logger.Error("index.json is corrupted", zap.Error(err))
 		s.notifyStatusFailed(actionID, err.Error())
 		return err
 	}
@@ -918,14 +892,17 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	s.logger.Sugar().Info("Restore directory", filepath.Clean(destDir))
 	if err := s.backupClient.RestoreDirectory(ctx, index, filepath.Clean(destDir), storageVault, restoreKey, progressRestore); err != nil {
 		s.logger.Error("failed to download file", zap.Error(err))
+		// ctx is only cancelled by a stop request here, and the StopAction handler has
+		// already reported the action as failed; the error is then just the cancellation
+		// (ErrorGotCancelRequest or context.Canceled from an in-flight download).
+		stopped := ctx.Err() != nil
 		cancel()
-		s.notifyStatusFailed(actionID, err.Error())
+		if !stopped {
+			s.notifyStatusFailed(actionID, err.Error())
+		}
 		progressRestore.Done()
 		return err
 	}
-
-	// remove worker out of manage context mapping
-	delete(s.mapActionContext, actionID)
 
 	select {
 	case <-ctx.Done():
@@ -940,6 +917,89 @@ func (s *Server) restore(machineID, actionID string, createdAt string, restoreSe
 	}
 
 	return nil
+}
+
+// errIndexCorrupted is returned when index.json does not match the recovery point's hash.
+var errIndexCorrupted = errors.New("index.json is corrupted: hash does not match recovery point")
+
+// loadRestoreIndex returns the recovery point's index, verified against indexHash. A cached
+// copy is used when it is intact; a corrupted or unreadable cached copy is deleted and the
+// index downloaded again, so one bad cache file cannot make every later restore fail. A
+// downloaded index is cached only after it has been verified.
+func (s *Server) loadRestoreIndex(ctx context.Context, storageVault storage_vault.StorageVault, cachePath, machineID, recoveryPointID, indexHash string) (cache.Index, error) {
+	cacheDir := filepath.Join(cachePath, machineID, recoveryPointID)
+	cacheFile := filepath.Join(cacheDir, "index.json")
+	key := filepath.Join(machineID, recoveryPointID, "index.json")
+
+	if buf, err := os.ReadFile(cacheFile); err == nil {
+		index, verr := decodeVerifiedIndex(buf, indexHash)
+		if verr == nil {
+			return index, nil
+		}
+		s.logger.Error("Cached index.json unusable, downloading it again", zap.Error(verr), zap.String("path", cacheFile))
+		if rerr := os.Remove(cacheFile); rerr != nil && !os.IsNotExist(rerr) {
+			s.logger.Error("Remove cached index.json", zap.Error(rerr), zap.String("path", cacheFile))
+		}
+	} else if !os.IsNotExist(err) {
+		s.logger.Error("Error read cached index.json, downloading it again", zap.Error(err), zap.String("path", cacheFile))
+	}
+
+	s.logger.Sugar().Info("Get index.json from storage", zap.String("key", key))
+	buf, err := storageVault.GetObject(ctx, key)
+	if err != nil {
+		s.logger.Error("Error get index.json from storage", zap.Error(err), zap.String("key", key))
+		return cache.Index{}, err
+	}
+	index, err := decodeVerifiedIndex(buf, indexHash)
+	if err != nil {
+		s.logger.Error("Downloaded index.json unusable", zap.Error(err), zap.String("key", key))
+		return cache.Index{}, err
+	}
+	if err := os.MkdirAll(cacheDir, 0700); err != nil {
+		s.logger.Error("Error create index cache directory", zap.Error(err), zap.String("path", cacheDir))
+		return cache.Index{}, err
+	}
+	if err := os.WriteFile(cacheFile, buf, 0700); err != nil {
+		s.logger.Error("Error writing index.json file", zap.Error(err), zap.String("path", cacheFile))
+		return cache.Index{}, err
+	}
+	return index, nil
+}
+
+// decodeVerifiedIndex checks buf against the expected sha256 and decodes it.
+func decodeVerifiedIndex(buf []byte, indexHash string) (cache.Index, error) {
+	hash := sha256.Sum256(buf)
+	if got := hex.EncodeToString(hash[:]); got != indexHash {
+		return cache.Index{}, fmt.Errorf("%w (got %s, want %s)", errIndexCorrupted, got, indexHash)
+	}
+	var index cache.Index
+	if err := json.Unmarshal(buf, &index); err != nil {
+		return cache.Index{}, fmt.Errorf("decode index.json: %w", err)
+	}
+	return index, nil
+}
+
+func (s *Server) setActionContext(actionID string, c contextStruct) {
+	s.actionMu.Lock()
+	defer s.actionMu.Unlock()
+	s.mapActionContext[actionID] = c
+}
+
+func (s *Server) removeActionContext(actionID string) {
+	s.actionMu.Lock()
+	defer s.actionMu.Unlock()
+	delete(s.mapActionContext, actionID)
+}
+
+// cancelActionContext cancels the running action, if any. cancel is called outside the
+// lock: it only signals the context and never blocks on the map.
+func (s *Server) cancelActionContext(actionID string) {
+	s.actionMu.Lock()
+	c, ok := s.mapActionContext[actionID]
+	s.actionMu.Unlock()
+	if ok {
+		c.cancel()
+	}
 }
 
 // requestRestore performs a request restore flow.
@@ -1003,6 +1063,12 @@ func WalkerDir(dir string, index *cache.Index, p *progress.Progress, logger *zap
 		if filepath.Dir(path) != lastDir {
 			lastDir = filepath.Dir(path)
 			logger.Sugar().Infof("WalkerDir scanning: %s", lastDir)
+		}
+
+		// Temporary files of an interrupted restore are not user data.
+		if !fi.IsDir() && backupapi.IsRestoreTempFile(fi.Name()) {
+			logger.Sugar().Infof("WalkerDir skip restore temp file: %s", path)
+			return nil
 		}
 
 		s := progress.Stat{
@@ -1339,7 +1405,7 @@ func (s *Server) backupWorker(ctx context.Context, actionCreateRP *backupapi.Cre
 		}
 
 		// remove worker out of manage context mapping
-		delete(s.mapActionContext, actionCreateRP.ID)
+		s.removeActionContext(actionCreateRP.ID)
 
 		// check if context done before return --> got cancel request
 		// else report done
@@ -1367,7 +1433,7 @@ func (s *Server) storeIndexs(cachePath, mcID string, lrp *backupapi.RecoveryPoin
 	_, err := os.Stat(filepath.Join(cachePath, mcID, lrp.ID, "index.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			buf, err := storageVault.GetObject(filepath.Join(mcID, lrp.ID, "index.json"))
+			buf, err := storageVault.GetObject(context.Background(), filepath.Join(mcID, lrp.ID, "index.json"))
 			if err == nil {
 				_ = os.MkdirAll(filepath.Join(cachePath, mcID, lrp.ID), 0700)
 				if err := os.WriteFile(filepath.Join(cachePath, mcID, lrp.ID, "index.json"), buf, 0700); err != nil {
@@ -1398,7 +1464,7 @@ func (s *Server) putIndexs(storageVault storage_vault.StorageVault, latestIndex 
 		s.logger.Error("Read indexs error", zap.Error(err))
 		return "", err
 	}
-	err = storageVault.PutObject(filepath.Join(mcID, rpID, "index.json"), buf)
+	err = storageVault.PutObject(context.Background(), filepath.Join(mcID, rpID, "index.json"), buf)
 	if err != nil {
 		s.logger.Error("Put indexs to storage error", zap.Error(err))
 		os.RemoveAll(filepath.Join(cachePath, mcID, rpID))
@@ -1421,7 +1487,7 @@ func (s *Server) putChunks(cachePath, mcID, rpID, chunkPath string, storageVault
 		s.logger.Error("Read chunk.json error", zap.Error(err))
 		return err
 	}
-	err = storageVault.PutObject(filepath.Join(mcID, rpID, "chunk.json"), buf)
+	err = storageVault.PutObject(context.Background(), filepath.Join(mcID, rpID, "chunk.json"), buf)
 	if err != nil {
 		s.logger.Error("Put chunk.json to storage error", zap.Error(err))
 		return err
@@ -1437,7 +1503,7 @@ func (s *Server) uploadListBackupFailed(listBackupFailed []string, storageVault 
 			s.logger.Error("Read file error ", zap.Error(err))
 			return err
 		}
-		err = storageVault.PutObject(fileFailed, buf)
+		err = storageVault.PutObject(context.Background(), fileFailed, buf)
 		if err != nil {
 			s.logger.Error("Put file to storage error ", zap.Error(err))
 			return err
@@ -1497,7 +1563,7 @@ func (s *Server) putFiles(cachePath, mcID, rpID string, filePath string, storage
 		s.logger.Error("Read file.csv error", zap.Error(err))
 		return err
 	}
-	err = storageVault.PutObject(filepath.Join(mcID, rpID, "file.csv"), buf)
+	err = storageVault.PutObject(context.Background(), filepath.Join(mcID, rpID, "file.csv"), buf)
 	if err != nil {
 		s.logger.Error("Put file.csv error", zap.Error(err))
 		return err

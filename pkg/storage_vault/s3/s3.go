@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -38,7 +39,17 @@ type S3 struct {
 	StorageVaultType string
 	Location         string
 	Region           string
-	S3Session        *awss3.Client
+	// session is the S3 client. RefreshCredential swaps it while restore and backup
+	// goroutines are using it, so it is only accessed through client() / setClient().
+	session atomic.Pointer[awss3.Client]
+	// transport is the base HTTP transport behind session (before the rate limiter wraps
+	// it, which hides CloseIdleConnections). RefreshCredential closes the previous one's
+	// idle connections when it replaces the client.
+	transport atomic.Pointer[http.Transport]
+	// lim limits this vault's throughput. It is created once and reused by
+	// RefreshCredential, so a refresh neither resets the rate budget nor picks up another
+	// vault's limits.
+	lim limiter.Limiter
 
 	// existsCache memoizes successful HEAD-existence checks within a single
 	// agent process to avoid redundant S3 round-trips for chunks that recur
@@ -64,9 +75,26 @@ func (s3 *S3) ID() (string, string) {
 }
 
 var _ storage_vault.StorageVault = (*S3)(nil)
-var uploadKb, downloadKb int
 
 var maxPartSize = int64(50 * 1024 * 1024)
+
+// sleepCtx waits for d, returning early with ctx's error when ctx is cancelled.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// client returns the current S3 client.
+func (s3 *S3) client() *awss3.Client { return s3.session.Load() }
+
+// setClient replaces the S3 client, e.g. after a credential refresh.
+func (s3 *S3) setClient(c *awss3.Client) { s3.session.Store(c) }
 
 // apiErrCode extracts the API error code from an aws-sdk-go-v2 error.
 // Returns empty string when the error is not a smithy API error.
@@ -112,8 +140,6 @@ func newS3Client(endpoint, region, accessKey, secretKey, token string, httpClien
 }
 
 func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, limitDownload int, backupClient *backupapi.Client) (*S3, error) {
-	uploadKb, downloadKb = limitUpload, limitDownload
-
 	s3 := &S3{
 		Id:               vault.ID,
 		ActionID:         actionID,
@@ -150,9 +176,10 @@ func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, li
 		s3.logger.Error("Got an error creating custom HTTP client", zap.Error(err))
 	}
 
+	base, _ := rt.(*http.Transport)
 	// wrap the transport so that the throughput via HTTP is limited
-	lim := limiter.NewStaticLimiter(limitUpload, limitDownload)
-	rt = lim.Transport(rt)
+	s3.lim = limiter.NewStaticLimiter(limitUpload, limitDownload)
+	rt = s3.lim.Transport(rt)
 
 	client, err := newS3Client(
 		vault.Credential.AwsLocation,
@@ -166,7 +193,8 @@ func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, li
 	if err != nil {
 		return nil, err
 	}
-	s3.S3Session = client
+	s3.setClient(client)
+	s3.transport.Store(base)
 
 	go s3.warmConnection()
 
@@ -176,7 +204,7 @@ func NewS3Default(vault backupapi.StorageVault, actionID string, limitUpload, li
 func (s3 *S3) warmConnection() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, _ = s3.S3Session.HeadBucket(ctx, &awss3.HeadBucketInput{
+	_, _ = s3.client().HeadBucket(ctx, &awss3.HeadBucketInput{
 		Bucket: aws.String(s3.StorageBucket),
 	})
 }
@@ -191,7 +219,7 @@ const (
 	maxRetry = 3 * time.Minute
 )
 
-func (s3 *S3) VerifyObject(key string) (bool, bool, string, error) {
+func (s3 *S3) VerifyObject(ctx context.Context, key string) (bool, bool, string, error) {
 	if _, ok := s3.existsCache.Load(key); ok {
 		return true, true, "", nil
 	}
@@ -204,7 +232,7 @@ func (s3 *S3) VerifyObject(key string) (bool, bool, string, error) {
 	bo.MaxElapsedTime = maxRetry
 
 	for {
-		isExist, etag, err = s3.HeadObject(key)
+		isExist, etag, err = s3.HeadObject(ctx, key)
 		if err == nil {
 			if isExist {
 				integrity = strings.Contains(etag, key)
@@ -243,24 +271,30 @@ func (s3 *S3) VerifyObject(key string) (bool, bool, string, error) {
 			break
 		}
 		s3.logger.Sugar().Info("VerifyObject. Retry in ", d)
+		if serr := sleepCtx(ctx, d); serr != nil {
+			return isExist, integrity, etag, serr
+		}
 	}
 	return isExist, integrity, etag, err
 }
 
-func (s3 *S3) PutObject(key string, data []byte) error {
+func (s3 *S3) PutObject(ctx context.Context, key string, data []byte) error {
 	var err error
 	var once bool
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = maxRetry
 	bo.MaxElapsedTime = maxRetry
 	for {
-		isExist, integrity, _, _ := s3.VerifyObject(key)
+		isExist, integrity, _, _ := s3.VerifyObject(ctx, key)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if isExist {
 			if !integrity {
 				if int64(len(data)) > maxPartSize {
-					err = s3.putObjectMultiPart(key, data)
+					err = s3.putObjectMultiPart(ctx, key, data)
 				} else {
-					_, err = s3.S3Session.PutObject(context.Background(), &awss3.PutObjectInput{
+					_, err = s3.client().PutObject(ctx, &awss3.PutObjectInput{
 						Bucket: aws.String(s3.StorageBucket),
 						Key:    aws.String(key),
 						Body:   bytes.NewReader(data),
@@ -276,9 +310,9 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 			}
 		} else {
 			if int64(len(data)) > maxPartSize {
-				err = s3.putObjectMultiPart(key, data)
+				err = s3.putObjectMultiPart(ctx, key, data)
 			} else {
-				_, err = s3.S3Session.PutObject(context.Background(), &awss3.PutObjectInput{
+				_, err = s3.client().PutObject(ctx, &awss3.PutObjectInput{
 					Bucket: aws.String(s3.StorageBucket),
 					Key:    aws.String(key),
 					Body:   bytes.NewReader(data),
@@ -299,7 +333,9 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 				s3.logger.Info("Put object one more time")
 				once = true
 				n := rand.Intn(3)
-				time.Sleep(time.Duration(n) * time.Second)
+				if serr := sleepCtx(ctx, time.Duration(n)*time.Second); serr != nil {
+					return serr
+				}
 			}
 		}
 		s3.logger.Debug("PutObject error. Retrying")
@@ -309,14 +345,16 @@ func (s3 *S3) PutObject(key string, data []byte) error {
 			break
 		}
 		s3.logger.Sugar().Info("PutObject error. Retry in ", d)
-		time.Sleep(d)
+		if serr := sleepCtx(ctx, d); serr != nil {
+			return serr
+		}
 	}
 
 	return err
 }
 
-func (s3 *S3) putObjectMultiPart(key string, data []byte) error {
-	respMPU, err := s3.createMultiPartUpload(key)
+func (s3 *S3) putObjectMultiPart(ctx context.Context, key string, data []byte) error {
+	respMPU, err := s3.createMultiPartUpload(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -351,7 +389,7 @@ func (s3 *S3) putObjectMultiPart(key string, data []byte) error {
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			completedPart, perr := s3.uploadPart(respMPU, data[curr:curr+partLength], partNumber)
+			completedPart, perr := s3.uploadPart(ctx, respMPU, data[curr:curr+partLength], partNumber)
 			if perr != nil {
 				mu.Lock()
 				if firstErr == nil {
@@ -367,14 +405,15 @@ func (s3 *S3) putObjectMultiPart(key string, data []byte) error {
 
 	if firstErr != nil {
 		fmt.Println(firstErr.Error())
-		if aerr := s3.abortMultiPartUpload(respMPU); aerr != nil {
+		// Abort even when ctx is cancelled, so no orphaned parts stay billed in the bucket.
+		if aerr := s3.abortMultiPartUpload(context.WithoutCancel(ctx), respMPU); aerr != nil {
 			s3.logger.Sugar().Error(aerr.Error())
 			return aerr
 		}
 		return firstErr
 	}
 
-	completeResponse, err := s3.completeMultiPartUpload(respMPU, completedParts)
+	completeResponse, err := s3.completeMultiPartUpload(ctx, respMPU, completedParts)
 	if err != nil {
 		s3.logger.Sugar().Error(err.Error())
 		return err
@@ -407,15 +446,15 @@ func (s3 *S3) refreshCredentialIfNeeded(key, op string) bool {
 	return true
 }
 
-func (s3 *S3) GetObject(key string) ([]byte, error) {
+func (s3 *S3) GetObject(ctx context.Context, key string) ([]byte, error) {
 	var err error
-	var once bool
+	var once, refreshed bool
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = maxRetry
 	bo.MaxElapsedTime = maxRetry
 	var obj *awss3.GetObjectOutput
 	for {
-		obj, err = s3.S3Session.GetObject(context.Background(), &awss3.GetObjectInput{
+		obj, err = s3.client().GetObject(ctx, &awss3.GetObjectInput{
 			Bucket: aws.String(s3.StorageBucket),
 			Key:    aws.String(key),
 		})
@@ -433,7 +472,10 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 
 			s3.logger.Sugar().Errorf("GetObject error: %s %s", code, apiErrMessage(err))
 			if code == "AccessDenied" || code == "Forbidden" || code == "SignatureDoesNotMatch" {
-				if s3.refreshCredentialIfNeeded(key, "GetObject") {
+				// Refresh at most once: a credential that is refused again after a
+				// successful refresh used to loop here without any wait.
+				if !refreshed && s3.refreshCredentialIfNeeded(key, "GetObject") {
+					refreshed = true
 					continue
 				}
 				if once {
@@ -443,7 +485,9 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 				s3.logger.Sugar().Info("Get object one more time ", key)
 				once = true
 				n := rand.Intn(3)
-				time.Sleep(time.Duration(n) * time.Second)
+				if serr := sleepCtx(ctx, time.Duration(n)*time.Second); serr != nil {
+					return nil, serr
+				}
 			} else {
 				return nil, err
 			}
@@ -455,7 +499,9 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 			break
 		}
 		s3.logger.Sugar().Info("GetObject error. Retry in ", d)
-		time.Sleep(d)
+		if serr := sleepCtx(ctx, d); serr != nil {
+			return nil, serr
+		}
 	}
 
 	if err != nil {
@@ -470,63 +516,32 @@ func (s3 *S3) GetObject(key string) ([]byte, error) {
 	return body, err
 }
 
-// GetObjectTo streams the object directly to dst without buffering the full payload in memory.
-// Falls back to GetObject's retry/credential refresh semantics for the request itself.
-func (s3 *S3) GetObjectTo(key string, dst io.Writer) (int64, error) {
-	var err error
-	var once bool
-	bo := backoff.NewExponentialBackOff()
-	bo.MaxInterval = maxRetry
-	bo.MaxElapsedTime = maxRetry
-	var obj *awss3.GetObjectOutput
-	for {
-		obj, err = s3.S3Session.GetObject(context.Background(), &awss3.GetObjectInput{
-			Bucket: aws.String(s3.StorageBucket),
-			Key:    aws.String(key),
-		})
-		if err == nil && obj != nil {
-			break
-		}
-		if err == nil && obj == nil {
-			err = errors.New("s3: GetObject returned nil response")
-		}
-
-		if code := apiErrCode(err); code != "" {
-			if code == "NoSuchKey" {
-				return 0, err
-			}
-			s3.logger.Sugar().Errorf("GetObjectTo error: %s %s", code, apiErrMessage(err))
-			if code == "AccessDenied" || code == "Forbidden" || code == "SignatureDoesNotMatch" {
-				if s3.refreshCredentialIfNeeded(key, "GetObjectTo") {
-					continue
-				}
-				if once {
-					return 0, err
-				}
-				once = true
-				time.Sleep(time.Duration(rand.Intn(3)) * time.Second)
-			} else {
-				return 0, err
-			}
-		}
-		d := bo.NextBackOff()
-		if d == backoff.Stop {
-			break
-		}
-		time.Sleep(d)
-	}
-
+// GetObjectTo streams the object directly into dst at offset off without buffering the full
+// payload in memory. The write position is derived from off on every call, so a caller may
+// retry with the same dst after a partial copy without corrupting the destination.
+//
+// It makes exactly one request and returns any error as-is, including access denied: retry,
+// backoff and credential refresh belong to the caller (backupapi.Client.GetObjectTo), which
+// refreshes once for all concurrent downloads instead of once per goroutine.
+func (s3 *S3) GetObjectTo(ctx context.Context, key string, dst io.WriterAt, off int64) (int64, error) {
+	obj, err := s3.client().GetObject(ctx, &awss3.GetObjectInput{
+		Bucket: aws.String(s3.StorageBucket),
+		Key:    aws.String(key),
+	})
 	if err != nil {
+		if code := apiErrCode(err); code != "" {
+			s3.logger.Sugar().Errorf("GetObjectTo error: %s %s", code, apiErrMessage(err))
+		}
 		return 0, err
 	}
 	if obj == nil || obj.Body == nil {
 		return 0, errors.New("s3: GetObjectTo returned nil body")
 	}
 	defer obj.Body.Close()
-	return io.Copy(dst, obj.Body)
+	return io.Copy(io.NewOffsetWriter(dst, off), obj.Body)
 }
 
-func (s3 *S3) HeadObject(key string) (bool, string, error) {
+func (s3 *S3) HeadObject(ctx context.Context, key string) (bool, string, error) {
 	var err error
 	var headObject *awss3.HeadObjectOutput
 	var once bool
@@ -534,7 +549,7 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 	bo.MaxInterval = maxRetry
 	bo.MaxElapsedTime = maxRetry
 	for {
-		headObject, err = s3.S3Session.HeadObject(context.Background(), &awss3.HeadObjectInput{
+		headObject, err = s3.client().HeadObject(ctx, &awss3.HeadObjectInput{
 			Bucket: aws.String(s3.StorageBucket),
 			Key:    aws.String(key),
 		})
@@ -559,7 +574,9 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 				s3.logger.Sugar().Info("Head object one more time ", key)
 				once = true
 				n := rand.Intn(3)
-				time.Sleep(time.Duration(n) * time.Second)
+				if serr := sleepCtx(ctx, time.Duration(n)*time.Second); serr != nil {
+					return false, "", serr
+				}
 			}
 		}
 		s3.logger.Debug("Head object error. Retrying")
@@ -569,20 +586,22 @@ func (s3 *S3) HeadObject(key string) (bool, string, error) {
 			break
 		}
 		s3.logger.Sugar().Info("Head object error. Retry in ", d)
-		time.Sleep(d)
+		if serr := sleepCtx(ctx, d); serr != nil {
+			return false, "", serr
+		}
 
 	}
 	return false, "", err
 }
 
-func (s3 *S3) createMultiPartUpload(key string) (*awss3.CreateMultipartUploadOutput, error) {
+func (s3 *S3) createMultiPartUpload(ctx context.Context, key string) (*awss3.CreateMultipartUploadOutput, error) {
 	var err error
 	var once bool
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = maxRetry
 	bo.MaxElapsedTime = maxRetry
 	for {
-		resp, cerr := s3.S3Session.CreateMultipartUpload(context.Background(), &awss3.CreateMultipartUploadInput{
+		resp, cerr := s3.client().CreateMultipartUpload(ctx, &awss3.CreateMultipartUploadInput{
 			Bucket: aws.String(s3.StorageBucket),
 			Key:    aws.String(key),
 		})
@@ -606,7 +625,9 @@ func (s3 *S3) createMultiPartUpload(key string) (*awss3.CreateMultipartUploadOut
 				s3.logger.Sugar().Info("CreateMultipartUpload one more time ", key)
 				once = true
 				n := rand.Intn(3)
-				time.Sleep(time.Duration(n) * time.Second)
+				if serr := sleepCtx(ctx, time.Duration(n)*time.Second); serr != nil {
+					return nil, serr
+				}
 			}
 		}
 		s3.logger.Debug("CreateMultipartUpload  error. Retrying")
@@ -616,20 +637,22 @@ func (s3 *S3) createMultiPartUpload(key string) (*awss3.CreateMultipartUploadOut
 			break
 		}
 		s3.logger.Sugar().Info("CreateMultipartUpload error. Retry in ", d)
-		time.Sleep(d)
+		if serr := sleepCtx(ctx, d); serr != nil {
+			return nil, serr
+		}
 
 	}
 	return nil, err
 }
 
-func (s3 *S3) completeMultiPartUpload(mpuOut *awss3.CreateMultipartUploadOutput, parts []s3types.CompletedPart) (*awss3.CompleteMultipartUploadOutput, error) {
+func (s3 *S3) completeMultiPartUpload(ctx context.Context, mpuOut *awss3.CreateMultipartUploadOutput, parts []s3types.CompletedPart) (*awss3.CompleteMultipartUploadOutput, error) {
 	var err error
 	var once bool
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = maxRetry
 	bo.MaxElapsedTime = maxRetry
 	for {
-		resp, cerr := s3.S3Session.CompleteMultipartUpload(context.Background(), &awss3.CompleteMultipartUploadInput{
+		resp, cerr := s3.client().CompleteMultipartUpload(ctx, &awss3.CompleteMultipartUploadInput{
 			Bucket:   mpuOut.Bucket,
 			Key:      mpuOut.Key,
 			UploadId: mpuOut.UploadId,
@@ -657,7 +680,9 @@ func (s3 *S3) completeMultiPartUpload(mpuOut *awss3.CreateMultipartUploadOutput,
 				s3.logger.Sugar().Info("CompleteMultipartUpload one more time ", aws.ToString(mpuOut.Key))
 				once = true
 				n := rand.Intn(3)
-				time.Sleep(time.Duration(n) * time.Second)
+				if serr := sleepCtx(ctx, time.Duration(n)*time.Second); serr != nil {
+					return nil, serr
+				}
 			}
 		}
 		s3.logger.Debug("CompleteMultipartUpload  error. Retrying")
@@ -667,20 +692,22 @@ func (s3 *S3) completeMultiPartUpload(mpuOut *awss3.CreateMultipartUploadOutput,
 			break
 		}
 		s3.logger.Sugar().Info("CompleteMultipartUpload error. Retry in ", d)
-		time.Sleep(d)
+		if serr := sleepCtx(ctx, d); serr != nil {
+			return nil, serr
+		}
 
 	}
 	return nil, err
 }
 
-func (s3 *S3) abortMultiPartUpload(mpuOut *awss3.CreateMultipartUploadOutput) error {
+func (s3 *S3) abortMultiPartUpload(ctx context.Context, mpuOut *awss3.CreateMultipartUploadOutput) error {
 	var err error
 	var once bool
 	bo := backoff.NewExponentialBackOff()
 	bo.MaxInterval = maxRetry
 	bo.MaxElapsedTime = maxRetry
 	for {
-		_, aerr := s3.S3Session.AbortMultipartUpload(context.Background(), &awss3.AbortMultipartUploadInput{
+		_, aerr := s3.client().AbortMultipartUpload(ctx, &awss3.AbortMultipartUploadInput{
 			Bucket:   mpuOut.Bucket,
 			Key:      mpuOut.Key,
 			UploadId: mpuOut.UploadId,
@@ -705,7 +732,9 @@ func (s3 *S3) abortMultiPartUpload(mpuOut *awss3.CreateMultipartUploadOutput) er
 				s3.logger.Sugar().Info("AbortMultipartUpload one more time ", aws.ToString(mpuOut.Key))
 				once = true
 				n := rand.Intn(3)
-				time.Sleep(time.Duration(n) * time.Second)
+				if serr := sleepCtx(ctx, time.Duration(n)*time.Second); serr != nil {
+					return serr
+				}
 			}
 		}
 		s3.logger.Debug("AbortMultipartUpload  error. Retrying")
@@ -715,13 +744,15 @@ func (s3 *S3) abortMultiPartUpload(mpuOut *awss3.CreateMultipartUploadOutput) er
 			break
 		}
 		s3.logger.Sugar().Info("AbortMultipartUpload error. Retry in ", d)
-		time.Sleep(d)
+		if serr := sleepCtx(ctx, d); serr != nil {
+			return serr
+		}
 
 	}
 	return err
 }
 
-func (s3 *S3) uploadPart(resp *awss3.CreateMultipartUploadOutput, fileBytes []byte, partNum int32) (s3types.CompletedPart, error) {
+func (s3 *S3) uploadPart(ctx context.Context, resp *awss3.CreateMultipartUploadOutput, fileBytes []byte, partNum int32) (s3types.CompletedPart, error) {
 	tryNum := 1
 	maxRetries := 3
 	partInput := &awss3.UploadPartInput{
@@ -734,12 +765,18 @@ func (s3 *S3) uploadPart(resp *awss3.CreateMultipartUploadOutput, fileBytes []by
 	}
 
 	for tryNum <= maxRetries {
-		uploadResult, err := s3.S3Session.UploadPart(context.Background(), partInput)
+		// A fresh reader per attempt: a failed attempt may have consumed the previous one,
+		// and retrying with it would send an empty or truncated part.
+		partInput.Body = bytes.NewReader(fileBytes)
+		uploadResult, err := s3.client().UploadPart(ctx, partInput)
 		if err != nil {
-			if tryNum == maxRetries {
+			if tryNum == maxRetries || ctx.Err() != nil {
 				return s3types.CompletedPart{}, err
 			}
 			s3.logger.Sugar().Infof("Retrying to upload part #%v", partNum)
+			if serr := sleepCtx(ctx, time.Duration(tryNum)*time.Second); serr != nil {
+				return s3types.CompletedPart{}, serr
+			}
 			tryNum++
 		} else {
 			s3.logger.Sugar().Infof("Uploaded part #%v", partNum)
@@ -768,15 +805,13 @@ func (s3 *S3) RefreshCredential(credential storage_vault.Credential) error {
 		s3.logger.Error("Got an error creating custom HTTP client", zap.Error(err))
 	}
 
-	if uploadKb == 0 {
-		uploadKb = viper.GetInt("limit_upload")
-	}
-	if downloadKb == 0 {
-		downloadKb = viper.GetInt("limit_download")
-	}
-
+	base, _ := rt.(*http.Transport)
 	// wrap the transport so that the throughput via HTTP is limited
-	lim := limiter.NewStaticLimiter(uploadKb, downloadKb)
+	lim := s3.lim
+	if lim == nil {
+		// Vault not built by NewS3Default: fall back to the configured limits.
+		lim = limiter.NewStaticLimiter(viper.GetInt("limit_upload"), viper.GetInt("limit_download"))
+	}
 	rt = lim.Transport(rt)
 
 	client, err := newS3Client(
@@ -792,7 +827,12 @@ func (s3 *S3) RefreshCredential(credential storage_vault.Credential) error {
 		s3.logger.Error("err ", zap.Error(err))
 		return err
 	}
-	s3.S3Session = client
+	s3.setClient(client)
+	if old := s3.transport.Swap(base); old != nil {
+		// Requests in flight on the old client keep their connections; only idle ones,
+		// which would otherwise linger until they time out, are closed.
+		old.CloseIdleConnections()
+	}
 	s3.logger.Info("Refresh credential success")
 	return nil
 }

@@ -325,6 +325,17 @@ func (s *Server) removeFromCronManager(bdc []backupapi.BackupDirectoryConfig) {
 	}
 }
 
+// autoRecoveryPointName builds the name of a recovery point created by a cron
+// policy: "<backup name>-auto-<RFC3339>", or "auto-<RFC3339>" when the backup
+// directory has no name.
+func autoRecoveryPointName(backupName string, now time.Time) string {
+	name := "auto-" + now.Format(time.RFC3339)
+	if backupName == "" {
+		return name
+	}
+	return backupName + "-" + name
+}
+
 func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 	for _, bd := range bdc {
 		if !bd.Activated {
@@ -332,6 +343,7 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 		}
 		for _, policy := range bd.Policies {
 			directoryID := bd.ID
+			backupName := bd.Name
 			policyID := policy.ID
 			limitUpload := policy.LimitUpload
 			if limitUpload == 0 {
@@ -339,7 +351,7 @@ func (s *Server) addToCronManager(bdc []backupapi.BackupDirectoryConfig) {
 			}
 			limitDownload := 0
 			entryID, err := s.cronManager.AddFunc(policy.SchedulePattern, func() {
-				name := "auto-" + time.Now().Format(time.RFC3339)
+				name := autoRecoveryPointName(backupName, time.Now())
 				// improve when support incremental backup
 				recoveryPointType := backupapi.RecoveryPointTypeInitialReplica
 				if err := s.backup(directoryID, policyID, name, limitUpload, limitDownload, recoveryPointType, ioutil.Discard); err != nil {

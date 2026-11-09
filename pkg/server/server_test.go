@@ -308,3 +308,9 @@ func TestServer_storeFiles(t *testing.T) {
 		})
 	}
 }
+
+func TestAutoRecoveryPointName(t *testing.T) {
+	now := time.Date(2026, 11, 6, 10, 9, 22, 0, time.FixedZone("ICT", 7*3600))
+	assert.Equal(t, "my-backup-auto-2026-11-06T10:09:22+07:00", autoRecoveryPointName("my-backup", now))
+	assert.Equal(t, "auto-2026-11-06T10:09:22+07:00", autoRecoveryPointName("", now))
+}

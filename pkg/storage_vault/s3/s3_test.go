@@ -4,8 +4,6 @@ import (
 	"reflect"
 	"testing"
 
-	storage "github.com/aws/aws-sdk-go-v2/service/s3"
-
 	"github.com/bizflycloud/bizfly-backup/pkg/storage_vault"
 
 	"go.uber.org/zap"
@@ -22,7 +20,6 @@ func TestS3_Type(t *testing.T) {
 		StorageVaultType string
 		Location         string
 		Region           string
-		S3Session        *storage.Client
 		logger           *zap.Logger
 	}
 	tests := []struct {
@@ -50,7 +47,6 @@ func TestS3_Type(t *testing.T) {
 				StorageVaultType: tt.fields.StorageVaultType,
 				Location:         tt.fields.Location,
 				Region:           tt.fields.Region,
-				S3Session:        tt.fields.S3Session,
 				logger:           tt.fields.logger,
 			}
 			if got := s3.Type(); !reflect.DeepEqual(got, tt.want) {
@@ -72,7 +68,6 @@ func TestS3_ID(t *testing.T) {
 		StorageVaultType string
 		Location         string
 		Region           string
-		S3Session        *storage.Client
 		logger           *zap.Logger
 	}
 	tests := []struct {
@@ -99,7 +94,6 @@ func TestS3_ID(t *testing.T) {
 				StorageVaultType: tt.fields.StorageVaultType,
 				Location:         tt.fields.Location,
 				Region:           tt.fields.Region,
-				S3Session:        tt.fields.S3Session,
 				logger:           tt.fields.logger,
 			}
 			got, got1 := s3.ID()

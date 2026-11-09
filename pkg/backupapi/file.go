@@ -1,8 +1,10 @@
 package backupapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -14,10 +16,13 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/bizflycloud/bizfly-backup/pkg/cache"
@@ -117,7 +122,7 @@ func (c *Client) backupChunk(ctx context.Context, data []byte, chunk *cache.Chun
 		chunks := cache.NewChunk(bdID, rpID)
 		chunks.Chunks[key] = []string{strconv.Itoa(1), strconv.Itoa(int(chunk.Length))}
 
-		err := c.PutObject(storageVault, key, data)
+		err := c.PutObject(ctx, storageVault, key, data)
 		if err != nil {
 			c.logger.Error("err put object", zap.Error(err), zap.String("rp_id", rpID), zap.String("bd_id", bdID))
 			return stat, err
@@ -154,6 +159,9 @@ func (c *Client) OpenFile(ctx context.Context, path string) (io.ReadCloser, erro
 
 func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInfo *cache.Node, cacheWriter *cache.Repository,
 	storageVault storage_vault.StorageVault, p *progress.Progress, pipe chan<- *cache.Chunk, rpID, bdID string) (uint64, error) {
+	// parent is the caller's context. ctx below is local: chunk jobs cancel it themselves
+	// when an upload fails, so only parent tells a real cancellation apart from that.
+	parent := ctx
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	select {
@@ -162,9 +170,8 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 	default:
 		s := progress.Stat{}
 
-		var errBackupChunk error
+		var res chunkResults
 		var wg sync.WaitGroup
-		var stat uint64
 		var chunkData []byte
 		var chunkStart uint
 		var fileHash hash.Hash
@@ -172,7 +179,15 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 
 		bo := backoff.WithMaxRetries(backoff.NewConstantBackOff(IntervalTimeRetryChunk), MaxTimesRetryChunk)
 
+		vanished := false
 		for {
+			// Every attempt re-chunks the file from byte 0, so it must also start a fresh
+			// chunk list: keeping the chunks of a failed attempt would list them twice in
+			// the index (chunks already submitted by that attempt are still uploaded and
+			// simply stay unreferenced).
+			itemInfo.Content = nil
+			fileHash = nil
+
 			// chunkOnce wraps a single open+chunk attempt so file.Close happens per iteration,
 			// avoiding defer-in-loop FD leaks across retries.
 			loopErr := func() error {
@@ -182,6 +197,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 						s.ItemName = append(s.ItemName, itemInfo.AbsolutePath)
 						s.Errors = true
 						p.Report(s)
+						vanished = true
 						return nil
 					}
 					c.logger.Error("err ", zap.Error(err), zap.String("rp_id", rpID), zap.String("bd_id", bdID))
@@ -226,7 +242,7 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 					fileHash.Write(temp[:length])
 					itemInfo.Content = append(itemInfo.Content, &chunkToBackup)
 					wg.Add(1)
-					_ = pool.Submit(c.backupChunkJob(ctx, cancel, &wg, &errBackupChunk, &stat, temp, &chunkToBackup, cacheWriter, storageVault, p, pipe, rpID, bdID))
+					_ = pool.Submit(c.backupChunkJob(ctx, cancel, &wg, &res, temp, &chunkToBackup, cacheWriter, storageVault, p, pipe, rpID, bdID))
 
 					if err == io.EOF {
 						return io.EOF
@@ -250,10 +266,26 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 		if errChunk != nil {
 			return 0, errChunk
 		}
-
+		// A failed chunk job records its error before cancelling ctx, so the real upload
+		// error is returned here rather than a cancellation.
+		stat, errBackupChunk := res.result()
 		if errBackupChunk != nil {
 			c.logger.Error("err backup chunk ", zap.Error(errBackupChunk), zap.String("rp_id", rpID), zap.String("bd_id", bdID))
 			return 0, errBackupChunk
+		}
+		// Cancelled by the caller: chunk jobs skipped their upload and left chunks without
+		// an Etag, so the entry must not be reported as backed up.
+		if parent.Err() != nil {
+			return 0, ErrorGotCancelRequest
+		}
+		if vanished || fileHash == nil {
+			// The file disappeared after the scan: nothing of it is backed up. Record it
+			// as empty instead of leaving a stale hash (fileHash is nil on a first attempt,
+			// and calling Sum on it used to panic).
+			c.logger.Sugar().Infof("file vanished before backup, recorded as empty: %s (rp_id=%s bd_id=%s)", itemInfo.AbsolutePath, rpID, bdID)
+			itemInfo.Content = nil
+			itemInfo.Sha256Hash = nil
+			return stat, nil
 		}
 		itemInfo.Sha256Hash = fileHash.Sum(nil)
 		return stat, nil
@@ -262,13 +294,42 @@ func (c *Client) ChunkFileToBackup(ctx context.Context, pool *ants.Pool, itemInf
 
 type chunkJob func()
 
-func (c *Client) backupChunkJob(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, chErr *error, size *uint64,
+// chunkResults collects the outcome of a file's chunk jobs, which run concurrently.
+type chunkResults struct {
+	mu   sync.Mutex
+	err  error
+	size uint64
+}
+
+// fail records err unless an error is already recorded: the first failure is the cause,
+// later ones are usually its consequence (jobs cancelled because of it).
+func (r *chunkResults) fail(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.err == nil {
+		r.err = err
+	}
+}
+
+func (r *chunkResults) add(n uint64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.size += n
+}
+
+func (r *chunkResults) result() (uint64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.size, r.err
+}
+
+func (c *Client) backupChunkJob(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup, res *chunkResults,
 	data []byte, chunk *cache.ChunkInfo, cacheWriter *cache.Repository, storageVault storage_vault.StorageVault, p *progress.Progress, pipe chan<- *cache.Chunk, rpID, bdID string) chunkJob {
 	return func() {
 		defer func() {
 			if r := recover(); r != nil {
 				c.logger.Sugar().Errorf("backupChunkJob panic recovered: %v (rp_id=%s bd_id=%s)", r, rpID, bdID)
-				*chErr = fmt.Errorf("backupChunkJob panic: %v", r)
+				res.fail(fmt.Errorf("backupChunkJob panic: %v", r))
 				cancel()
 			}
 			putChunkBuf(data)
@@ -282,8 +343,13 @@ func (c *Client) backupChunkJob(ctx context.Context, cancel context.CancelFunc, 
 			s := progress.Stat{}
 			saveSize, err := c.backupChunk(ctx, data, chunk, cacheWriter, storageVault, pipe, rpID, bdID)
 			if err != nil {
+				if ctx.Err() != nil && (errors.Is(err, context.Canceled) || errors.Is(err, ErrorGotCancelRequest)) {
+					// Interrupted because another chunk failed or the backup was stopped:
+					// not a failure of its own, and must not hide the real cause.
+					return
+				}
 				c.logger.Error("backupChunk err ", zap.Error(err), zap.String("rp_id", rpID), zap.String("bd_id", bdID))
-				*chErr = err
+				res.fail(err)
 				s.Errors = true
 				p.Report(s)
 				cancel()
@@ -292,7 +358,7 @@ func (c *Client) backupChunkJob(ctx context.Context, cancel context.CancelFunc, 
 			s.Storage = saveSize
 			s.Bytes = uint64(chunk.Length)
 			p.Report(s)
-			*size += saveSize
+			res.add(saveSize)
 		}
 	}
 }
@@ -333,7 +399,6 @@ func (c *Client) UploadFile(ctx context.Context, pool *ants.Pool, lastInfo *cach
 }
 
 func (c *Client) RestoreDirectory(ctx context.Context, index cache.Index, destDir string, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) error {
-	s := progress.Stat{}
 	numGoroutine := viper.GetInt("num_goroutine")
 	if numGoroutine == 0 {
 		numGoroutine = int(float64(runtime.NumCPU()) * 0.2)
@@ -342,13 +407,17 @@ func (c *Client) RestoreDirectory(ctx context.Context, index cache.Index, destDi
 		}
 	}
 	sem := semaphore.NewWeighted(int64(numGoroutine))
+	parent := ctx
 	group, ctx := errgroup.WithContext(ctx)
 
+schedule:
 	for _, item := range index.Items {
 		select {
 		case <-ctx.Done():
+			// Stop scheduling items (a plain break only left the select); the items
+			// already started finish before group.Wait returns.
 			p.Cancel()
-			break
+			break schedule
 		default:
 			item := item
 			err := sem.Acquire(ctx, 1)
@@ -361,8 +430,7 @@ func (c *Client) RestoreDirectory(ctx context.Context, index cache.Index, destDi
 				err := c.RestoreItem(ctx, destDir, *item, storageVault, restoreKey, p)
 				if err != nil {
 					c.logger.Error("Restore file error ", zap.Error(err), zap.String("item name", item.AbsolutePath))
-					s.Errors = true
-					p.Report(s)
+					p.Report(progress.Stat{Errors: true})
 					return err
 				}
 				return nil
@@ -373,6 +441,10 @@ func (c *Client) RestoreDirectory(ctx context.Context, index cache.Index, destDi
 	if err := group.Wait(); err != nil {
 		c.logger.Error("Has a goroutine error ", zap.Error(err))
 		return err
+	}
+	if parent.Err() != nil {
+		// Cancelled before any item failed: items were skipped, the restore is incomplete.
+		return ErrorGotCancelRequest
 	}
 	return nil
 }
@@ -490,6 +562,11 @@ func (c *Client) restoreDirectory(ctx context.Context, target string, item cache
 				return err
 			}
 		}
+		if fi.IsDir() {
+			// A directory that already existed may hold temporary files from a restore
+			// that was killed; a newly created one cannot.
+			c.removeStaleRestoreTemps(target)
+		}
 		_, ctimeLocal, _, _, _, _ := support.ItemLocal(fi)
 		if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
 			c.logger.Sugar().Info("dir change ctime. update mode, uid, gid ", item.Name)
@@ -516,17 +593,7 @@ func (c *Client) restoreFile(ctx context.Context, target string, item cache.Node
 		if err != nil {
 			if os.IsNotExist(err) {
 				c.logger.Sugar().Info("file not exist. create ", target)
-				file, err := c.createFile(target, item.Mode, int(item.UID), int(item.GID))
-				if err != nil {
-					c.logger.Error("err ", zap.Error(err))
-					s.Errors = true
-					p.Report(s)
-					return err
-				}
-
-				err = c.downloadFile(ctx, file, item, storageVault, restoreKey, p)
-				if err != nil {
-					c.logger.Error("downloadFile error ", zap.Error(err))
+				if err := c.restoreFileContent(ctx, target, item, storageVault, restoreKey, p); err != nil {
 					s.Errors = true
 					p.Report(s)
 					return err
@@ -545,24 +612,9 @@ func (c *Client) restoreFile(ctx context.Context, target string, item cache.Node
 		if !strings.EqualFold(timeToString(ctimeLocal), timeToString(item.ChangeTime)) {
 			if !strings.EqualFold(timeToString(mtimeLocal), timeToString(item.ModTime)) {
 				c.logger.Sugar().Info("file change mtime, ctime ", target)
-				if err = os.Remove(target); err != nil {
-					c.logger.Error("err ", zap.Error(err))
-					s.Errors = true
-					p.Report(s)
-					return err
-				}
-
-				file, err := c.createFile(target, item.Mode, int(item.UID), int(item.GID))
-				if err != nil {
-					c.logger.Error("err ", zap.Error(err))
-					s.Errors = true
-					p.Report(s)
-					return err
-				}
-
-				err = c.downloadFile(ctx, file, item, storageVault, restoreKey, p)
-				if err != nil {
-					c.logger.Error("downloadFile error ", zap.Error(err))
+				// restoreFileContent replaces target only once the new content is complete,
+				// so a failed download leaves the existing file untouched.
+				if err := c.restoreFileContent(ctx, target, item, storageVault, restoreKey, p); err != nil {
 					s.Errors = true
 					p.Report(s)
 					return err
@@ -570,17 +622,7 @@ func (c *Client) restoreFile(ctx context.Context, target string, item cache.Node
 				return nil
 			} else {
 				c.logger.Sugar().Info("file change ctime. update mode, uid, gid ", target)
-				err = os.Chmod(target, item.Mode)
-				if err != nil {
-					c.logger.Error("err ", zap.Error(err))
-					s.Errors = true
-					p.Report(s)
-					return err
-				}
-				_ = support.SetChownItem(target, int(item.UID), int(item.GID))
-				err = os.Chtimes(target, item.AccessTime, item.ModTime)
-				if err != nil {
-					c.logger.Error("err ", zap.Error(err))
+				if err := c.applyRestoredMetadata(target, item); err != nil {
 					s.Errors = true
 					p.Report(s)
 					return err
@@ -594,6 +636,262 @@ func (c *Client) restoreFile(ctx context.Context, target string, item cache.Node
 	}
 }
 
+// restoreFileContent downloads every chunk of item into a temporary file next to target,
+// closes it and then renames it over target. A failed or cancelled download never leaves a
+// partially written file, and leaves an existing target untouched. Replacing target is
+// atomic except in replaceFile's Windows fallback, described there.
+func (c *Client) restoreFileContent(ctx context.Context, target string, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) (err error) {
+	chunks, err := normalizeChunks(item.Content)
+	if err != nil {
+		c.logger.Error("invalid chunk list in index ", zap.Error(err), zap.String("path", target))
+		return fmt.Errorf("%s: %w", target, err)
+	}
+	item.Content = chunks
+
+	tmp, err := tempRestorePath(target)
+	if err != nil {
+		return err
+	}
+	file, err := c.createFile(tmp, item.Mode, int(item.UID), int(item.GID))
+	if err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+	defer func() {
+		// Flush the data before the rename makes it visible under target. Otherwise, after a
+		// power loss, some filesystems (XFS, ext4 in some modes) can persist the rename but
+		// not the data, leaving target empty or truncated. Restored metadata (mtime) can
+		// survive with it, and a later restore then treats the damaged file as unchanged.
+		if err == nil {
+			if serr := file.Sync(); serr != nil {
+				if isSyncUnsupported(serr) {
+					// Some FUSE/SMB mounts do not implement fsync. Failing every file there
+					// would make restore unusable; durability is then up to the mount.
+					c.logger.Warn("fsync not supported, restored file not flushed ", zap.Error(serr), zap.String("path", tmp))
+				} else {
+					c.logger.Error("sync restored file error ", zap.Error(serr), zap.String("path", tmp))
+					err = serr
+				}
+			}
+		}
+		if cerr := file.Close(); cerr != nil && err == nil {
+			c.logger.Error("close restored file error ", zap.Error(cerr), zap.String("path", tmp))
+			err = cerr
+		}
+		if err == nil {
+			err = c.applyRestoredMetadata(tmp, item)
+		}
+		if err == nil {
+			err = removeEmptyDirInTheWay(target)
+		}
+		if err == nil {
+			err = replaceFile(tmp, target)
+			if err != nil {
+				c.logger.Error("replace restored file error ", zap.Error(err), zap.String("path", target))
+			}
+		}
+		if err != nil {
+			if rerr := os.Remove(tmp); rerr != nil && !os.IsNotExist(rerr) {
+				c.logger.Error("remove partial file error ", zap.Error(rerr), zap.String("path", tmp))
+			}
+		}
+	}()
+
+	if err = c.downloadFile(ctx, file, item, storageVault, restoreKey, p); err != nil {
+		c.logger.Error("downloadFile error ", zap.Error(err))
+		return err
+	}
+	if err = verifyRestoredContent(file, item); err != nil {
+		c.logger.Error("restored file failed verification ", zap.Error(err), zap.String("path", target))
+		return fmt.Errorf("%s: %w", target, err)
+	}
+	return nil
+}
+
+// ErrInvalidChunkList is returned when an index entry's chunks do not describe one
+// contiguous file: a gap, or two different chunks covering the same bytes.
+var ErrInvalidChunkList = errors.New("index chunk list is not contiguous")
+
+// ErrRestoredHashMismatch is returned when the restored content does not have the sha256
+// recorded at backup time.
+var ErrRestoredHashMismatch = errors.New("restored file sha256 does not match backup")
+
+// normalizeChunks returns the chunks sorted by offset, checking that they tile the file
+// from byte 0 with no gap and no overlap. Exact duplicates are dropped: an older agent
+// listed the chunks of a failed chunking attempt again after retrying, and since chunking is
+// deterministic those duplicates are identical and harmless. Any other overlap or a gap means
+// the index cannot describe the file and restoring it would produce wrong content.
+//
+// Node.Size is deliberately not compared: it is taken when the directory is scanned, while
+// the chunks (and Sha256Hash) reflect the data read later, so a file that changed between
+// the two legitimately differs.
+func normalizeChunks(in []*cache.ChunkInfo) ([]*cache.ChunkInfo, error) {
+	if len(in) == 0 {
+		return in, nil
+	}
+	sorted := make([]*cache.ChunkInfo, len(in))
+	copy(sorted, in)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Start < sorted[j].Start })
+
+	out := sorted[:0:0]
+	var next uint
+	for _, ch := range sorted {
+		if ch == nil {
+			return nil, fmt.Errorf("%w: nil chunk", ErrInvalidChunkList)
+		}
+		if n := len(out); n > 0 {
+			prev := out[n-1]
+			if ch.Start == prev.Start && ch.Length == prev.Length && ch.Etag == prev.Etag {
+				continue // identical duplicate
+			}
+		}
+		if ch.Start != next {
+			if ch.Start < next {
+				return nil, fmt.Errorf("%w: chunk %s at %d overlaps bytes up to %d", ErrInvalidChunkList, ch.Etag, ch.Start, next)
+			}
+			return nil, fmt.Errorf("%w: gap from %d to %d", ErrInvalidChunkList, next, ch.Start)
+		}
+		out = append(out, ch)
+		next = ch.Start + ch.Length
+	}
+	return out, nil
+}
+
+// verifyRestoredContent re-reads the restored file and compares its sha256 with the one
+// recorded at backup time. Indexes without a hash (or a file recorded as empty) are only
+// checked for length. The data was just written, so it is normally read back from the page
+// cache.
+func verifyRestoredContent(file *os.File, item cache.Node) error {
+	var want int64
+	for _, ch := range item.Content {
+		want += int64(ch.Length)
+	}
+	fi, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	if fi.Size() != want {
+		return fmt.Errorf("%w: size %d, chunks cover %d", ErrRestoredHashMismatch, fi.Size(), want)
+	}
+	if len(item.Sha256Hash) == 0 {
+		return nil
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, io.NewSectionReader(file, 0, want)); err != nil {
+		return fmt.Errorf("read back restored file: %w", err)
+	}
+	if got := h.Sum(nil); !bytes.Equal(got, item.Sha256Hash) {
+		return fmt.Errorf("%w: got %x, want %x", ErrRestoredHashMismatch, got, []byte(item.Sha256Hash))
+	}
+	return nil
+}
+
+// isSyncUnsupported reports whether an fsync error means the filesystem does not implement
+// it, as opposed to a real write-back failure.
+func isSyncUnsupported(err error) bool {
+	return errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) || errors.Is(err, syscall.EOPNOTSUPP)
+}
+
+// removeEmptyDirInTheWay removes target if it is an empty directory, so a file can be
+// restored where the destination now has an empty directory of the same name (the old
+// restore removed it too). A non-empty directory is reported instead of being replaced.
+func removeEmptyDirInTheWay(target string) error {
+	fi, err := os.Lstat(target)
+	if err != nil || !fi.IsDir() {
+		return nil
+	}
+	if err := os.Remove(target); err != nil {
+		return fmt.Errorf("a directory is in the way of restored file %s: %w", target, err)
+	}
+	return nil
+}
+
+// Temporary restore files are named restoreTempPrefix + <process token> + "-" + <random>.
+// The name deliberately does not include the target's name, so it stays short (41 bytes)
+// whatever the target's length: a file whose name is close to the 255-byte limit must still
+// be restorable.
+const restoreTempPrefix = ".bizfly-restore-"
+
+// restoreTempToken identifies temporary files created by this agent process. Files with the
+// prefix but another token were left behind by a process that died mid-restore. It is always
+// 8 lowercase hex characters, as restoreTempName expects.
+var restoreTempToken = func() string {
+	var b [4]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%08x", uint32(time.Now().UnixNano()))
+	}
+	return hex.EncodeToString(b[:])
+}()
+
+// restoreTempName matches the full name of a temporary restore file: prefix, 8 hex token,
+// "-", 16 hex random. Matching the whole pattern, not just the prefix, keeps a user's own
+// file that merely starts with the prefix from being skipped by backup or deleted.
+var restoreTempName = regexp.MustCompile(`^` + regexp.QuoteMeta(restoreTempPrefix) + `[0-9a-f]{8}-[0-9a-f]{16}$`)
+
+// IsRestoreTempFile reports whether name is a temporary file created while restoring. Backups
+// skip such files.
+func IsRestoreTempFile(name string) bool {
+	return restoreTempName.MatchString(name)
+}
+
+// tempRestorePath returns a hidden, unique path in target's directory. Keeping it in the same
+// directory makes the final rename atomic on the same filesystem.
+func tempRestorePath(target string) (string, error) {
+	var b [8]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return "", err
+	}
+	name := restoreTempPrefix + restoreTempToken + "-" + hex.EncodeToString(b[:])
+	return filepath.Join(filepath.Dir(target), name), nil
+}
+
+// removeStaleRestoreTemps deletes temporary restore files in dir that were left by an earlier
+// agent process (killed or crashed mid-restore). Files created by this process are kept: they
+// may belong to a download still in progress in another goroutine.
+func (c *Client) removeStaleRestoreTemps(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		c.logger.Error("list directory for stale restore files ", zap.Error(err), zap.String("dir", dir))
+		return
+	}
+	own := restoreTempPrefix + restoreTempToken + "-"
+	for _, e := range entries {
+		name := e.Name()
+		if !IsRestoreTempFile(name) || strings.HasPrefix(name, own) || !e.Type().IsRegular() {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			c.logger.Error("remove stale restore file ", zap.Error(err), zap.String("path", path))
+			continue
+		}
+		c.logger.Sugar().Info("removed stale restore file ", path)
+	}
+}
+
+// replaceFile renames src over dst. Rename replaces an existing file atomically on Unix and,
+// usually, on Windows. Windows refuses to replace a read-only file with "access denied"; only
+// in that case dst is removed first and src renamed again. That fallback is not atomic: if
+// the second rename also fails, the previous version of dst is lost. Any other failure,
+// e.g. dst being a directory, is returned as-is and dst is left untouched.
+func replaceFile(src, dst string) error {
+	err := os.Rename(src, dst)
+	if err == nil {
+		return nil
+	}
+	if runtime.GOOS != "windows" || !errors.Is(err, fs.ErrPermission) {
+		return err
+	}
+	fi, serr := os.Lstat(dst)
+	if serr != nil || !fi.Mode().IsRegular() {
+		return err
+	}
+	if rerr := os.Remove(dst); rerr != nil {
+		return err
+	}
+	return os.Rename(src, dst)
+}
+
 func (c *Client) downloadFile(ctx context.Context, file *os.File, item cache.Node, storageVault storage_vault.StorageVault, restoreKey *AuthRestore, p *progress.Progress) error {
 	numGoroutine := viper.GetInt("num_goroutine")
 	if numGoroutine <= 0 {
@@ -602,11 +900,14 @@ func (c *Client) downloadFile(ctx context.Context, file *os.File, item cache.Nod
 
 	g, gctx := errgroup.WithContext(ctx)
 	sem := make(chan struct{}, numGoroutine)
+schedule:
 	for _, info := range item.Content {
 		info := info
 		select {
 		case <-gctx.Done():
-			return gctx.Err()
+			// Stop scheduling, but still wait below: chunks already started keep writing
+			// into file until they return.
+			break schedule
 		case sem <- struct{}{}:
 		}
 		g.Go(func() error {
@@ -617,9 +918,7 @@ func (c *Client) downloadFile(ctx context.Context, file *os.File, item cache.Nod
 			default:
 			}
 			s := progress.Stat{}
-			offset := int64(info.Start)
-			sw := &sectionWriter{f: file, off: offset}
-			n, err := c.GetObjectTo(storageVault, info.Etag, restoreKey, sw)
+			n, err := c.GetObjectTo(gctx, storageVault, info.Etag, restoreKey, file, int64(info.Start), int64(info.Length))
 			if err != nil {
 				c.logger.Error("err ", zap.Error(err))
 				s.Errors = true
@@ -635,35 +934,28 @@ func (c *Client) downloadFile(ctx context.Context, file *os.File, item cache.Nod
 	if err := g.Wait(); err != nil {
 		return err
 	}
-
-	s := progress.Stat{}
-	if err := os.Chmod(file.Name(), item.Mode); err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		s.Errors = true
-		p.Report(s)
-		return err
-	}
-	_ = support.SetChownItem(file.Name(), int(item.UID), int(item.GID))
-	if err := os.Chtimes(file.Name(), item.AccessTime, item.ModTime); err != nil {
-		c.logger.Error("err ", zap.Error(err))
-		s.Errors = true
-		p.Report(s)
-		return err
+	if ctx.Err() != nil {
+		// Cancelled before any chunk failed: some chunks were never downloaded.
+		return ErrorGotCancelRequest
 	}
 	return nil
 }
 
-// sectionWriter adapts *os.File + offset to io.Writer using WriteAt so downloadFile can
-// stream each chunk to its correct file offset without buffering the whole chunk.
-type sectionWriter struct {
-	f   *os.File
-	off int64
-}
-
-func (s *sectionWriter) Write(p []byte) (int, error) {
-	n, err := s.f.WriteAt(p, s.off)
-	s.off += int64(n)
-	return n, err
+// applyRestoredMetadata sets owner, mode and times on a closed file. It runs after the data
+// has been flushed and closed, so a network filesystem that updates mtime when it flushes
+// cannot overwrite the restored mtime. Owner is set before mode because chown clears the
+// setuid/setgid bits on Linux.
+func (c *Client) applyRestoredMetadata(path string, item cache.Node) error {
+	_ = support.SetChownItem(path, int(item.UID), int(item.GID))
+	if err := os.Chmod(path, item.Mode); err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+	if err := os.Chtimes(path, item.AccessTime, item.ModTime); err != nil {
+		c.logger.Error("err ", zap.Error(err))
+		return err
+	}
+	return nil
 }
 
 func (c *Client) createSymlink(symlinkPath string, path string, mode fs.FileMode, uid int, gid int) error {
@@ -730,6 +1022,8 @@ func (c *Client) createFile(path string, mode fs.FileMode, uid int, gid int) (*o
 	err = os.Chmod(path, mode)
 	if err != nil {
 		c.logger.Error("err ", zap.Error(err))
+		_ = file.Close()
+		_ = os.Remove(path)
 		return nil, err
 	}
 

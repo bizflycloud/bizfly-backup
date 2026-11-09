@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -158,6 +159,13 @@ func (c *Client) NewRequest(method, relPath string, body interface{}) (*http.Req
 
 // Do makes an http request.
 func (c *Client) Do(req *http.Request) (*http.Response, error) {
+	return c.doRetry(req)
+}
+
+// doRetry is Do, except that responses with one of the passthrough status codes are
+// returned to the caller at once instead of being retried and turned into an error. A
+// caller that can react to a status itself (e.g. renew a session on 401) uses it.
+func (c *Client) doRetry(req *http.Request, passthrough ...int) (*http.Response, error) {
 	var err error
 	var resp *http.Response
 
@@ -175,7 +183,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 		resp, err = c.do(c.client, req, "application/json")
 		c.logger.Debug("Do http request ", zap.String("Method", req.Method), zap.String("URL", req.URL.String()))
 		if err == nil {
-			if resp.StatusCode < 400 || resp.StatusCode == 404 {
+			if resp.StatusCode < 400 || resp.StatusCode == 404 || slices.Contains(passthrough, resp.StatusCode) {
 				return resp, nil
 			}
 			c.logger.Error("Request StatusCode ", zap.Int("StatusCode", resp.StatusCode))
@@ -188,8 +196,16 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 			c.logger.Debug("Do http request error. Retry time out")
 			break
 		}
+		// This response is discarded: release its connection before retrying.
+		if resp != nil && resp.Body != nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			resp = nil
+		}
 		c.logger.Sugar().Info("Do http request error. Retry in ", d)
-		time.Sleep(d)
+		if serr := sleepCtx(req.Context(), d); serr != nil {
+			return nil, serr
+		}
 	}
 
 	if err != nil {
@@ -197,6 +213,7 @@ func (c *Client) Do(req *http.Request) (*http.Response, error) {
 	}
 
 	if resp.StatusCode >= 400 {
+		defer resp.Body.Close()
 		var b bytes.Buffer
 		_, _ = io.Copy(&b, resp.Body)
 		c.logger.Error("Request error ", zap.Int("StatusCode", resp.StatusCode), zap.String("Body Response", b.String()))
